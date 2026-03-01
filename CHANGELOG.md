@@ -3,6 +3,44 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.9.2] - 2026-03-02
+
+### Added
+- **命令处理与权限管理** (`iris_memory/services/business_service.py`, `iris_memory/services/memory_service.py`)
+  - 新增 `handle_command()` 方法处理管理命令
+  - 实现管理员权限检查机制
+- **检索策略实现** (`iris_memory/retrieval/`)
+  - 新增多种检索策略支持
+- **智能增强配置更新** (`iris_memory/proactive/`)
+  - 更新 smart boost 配置，增强主动回复任务管理
+- **语义提取与聚类测试** (`tests/`)
+  - 新增语义提取、聚类和置信度机制的全面测试
+
+### Changed
+- **ChromaManager 架构重构** (`iris_memory/storage/chroma_manager.py`)
+  - 从 Mixin 继承模式重构为组合模式
+  - 提升代码可维护性和可测试性
+- **MemoryService 初始化逻辑** (`iris_memory/services/memory_service.py`)
+  - 实现 ServiceInitializer，将初始化逻辑内联到 MemoryService
+- **KV 存储逻辑简化** (`iris_memory/storage/`)
+  - 简化 KV 加载和保存逻辑，采用配置驱动方式
+
+### Fixed
+- **主动回复人格传递** (`iris_memory/proactive/proactive_event.py`, `iris_memory/proactive/proactive_manager.py`)
+  - 修复主动回复使用默认人格而非配置人格的问题
+  - `ProactiveMessageEvent` 新增 `persona_id` 参数并设置 `self.persona`
+  - `QueuedMessage`、`ProactiveReplyTask` 等数据类添加 `persona_id` 字段
+  - 整个调用链正确传递 `persona_id`
+- **会话管理改进** (`iris_memory/capture/batch_processor.py`)
+  - 实现过期会话和最旧会话的淘汰机制
+  - 防止会话数量超出限制
+- **主动回复任务去重** (`iris_memory/proactive/proactive_manager.py`)
+  - 新增 `_processing_sessions` 集合跟踪处理中的会话
+  - 防止同一会话重复创建主动回复任务
+- **消息过滤增强** (`iris_memory/capture/`)
+  - 跳过 Bot 富文本输出消息
+  - 改进主动回复检测逻辑
+
 ## [v1.9.1] - 2026-02-28
 
 ### Fixed
