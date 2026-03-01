@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any, List
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.types import StorageLayer
 from iris_memory.core.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
+from iris_memory.core.defaults import DEFAULTS
 
 # 模块logger
 logger = get_logger("lifecycle_manager")
@@ -84,7 +85,16 @@ class SessionLifecycleManager:
             confidence_threshold=llm_upgrade_threshold
         )
         self.promotion_task = None  # 新增：记忆升级任务
+        self.extraction_task = None  # 语义提取任务（通道 B）
         self.is_running = False
+        
+        # 语义提取器（延迟初始化）
+        self._semantic_extractor = None
+        self._semantic_extraction_enabled = DEFAULTS.semantic_extraction.enabled
+        self._semantic_extraction_interval = DEFAULTS.semantic_extraction.extraction_interval
+        self._semantic_extraction_config: Dict[str, Any] = {}  # 内部聚类参数
+        self._astrbot_context: Any = None  # AstrBot 上下文（用于 LLM 调用）
+        self._semantic_provider_id: str = ""  # 语义提取 LLM provider ID
     
     def set_chroma_manager(self, chroma_manager):
         """设置Chroma管理器（用于延迟注入）
@@ -104,6 +114,22 @@ class SessionLifecycleManager:
         self.upgrade_evaluator.set_llm_provider(llm_provider)
         logger.debug(f"LLM provider set for upgrade evaluation (mode={self.upgrade_mode.value})")
     
+    def set_astrbot_context(self, context: Any, provider_id: str = "") -> None:
+        """设置 AstrBot 上下文（用于语义提取 LLM 调用）
+
+        Args:
+            context: AstrBot 上下文实例
+            provider_id: LLM provider ID（空字符串表示使用默认）
+        """
+        self._astrbot_context = context
+        self._semantic_provider_id = provider_id
+        # 如果提取器已初始化，也同步更新
+        if self._semantic_extractor is not None:
+            self._semantic_extractor.astrbot_context = context
+            if provider_id:
+                self._semantic_extractor._provider_id = provider_id
+        logger.debug("AstrBot context set for SemanticExtractor")
+    
     async def start(self):
         """启动生命周期管理器"""
         if self.is_running:
@@ -117,6 +143,12 @@ class SessionLifecycleManager:
         if self.chroma_manager:
             self.promotion_task = asyncio.create_task(self._promotion_loop())
             logger.debug("Memory promotion task started")
+            
+            # 启动语义提取定时任务（通道 B）
+            if self._semantic_extraction_enabled:
+                self._init_semantic_extractor()
+                self.extraction_task = asyncio.create_task(self._extraction_loop())
+                logger.debug("Semantic extraction task started")
         
         logger.debug("SessionLifecycleManager started")
     
@@ -131,6 +163,8 @@ class SessionLifecycleManager:
             tasks_to_cancel.append(("cleanup", self.cleanup_task))
         if self.promotion_task:
             tasks_to_cancel.append(("promotion", self.promotion_task))
+        if self.extraction_task:
+            tasks_to_cancel.append(("extraction", self.extraction_task))
         
         # 取消并等待所有任务
         for name, task in tasks_to_cancel:
@@ -144,6 +178,7 @@ class SessionLifecycleManager:
         
         self.cleanup_task = None
         self.promotion_task = None
+        self.extraction_task = None
         
         logger.debug("[Hot-Reload] SessionLifecycleManager stopped")
     
@@ -159,7 +194,7 @@ class SessionLifecycleManager:
                 logger.error(f"Cleanup loop error: {e}")
     
     async def _promotion_loop(self):
-        """记忆升级循环 - 定期检查并执行 EPISODIC → SEMANTIC 升级"""
+        """记忆升级循环 - 定期检查并执行 EPISODIC → SEMANTIC 升级（通道 A：直接升级）"""
         while self.is_running:
             try:
                 await asyncio.sleep(self.promotion_interval)
@@ -168,6 +203,49 @@ class SessionLifecycleManager:
                 break
             except Exception as e:
                 logger.error(f"Promotion loop error: {e}")
+    
+    async def _extraction_loop(self):
+        """语义提取循环 - 定期执行通道 B 语义提取"""
+        while self.is_running:
+            try:
+                await asyncio.sleep(self._semantic_extraction_interval)
+                await self._run_semantic_extraction()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Semantic extraction loop error: {e}")
+    
+    def _init_semantic_extractor(self) -> None:
+        """延迟初始化语义提取器"""
+        if self._semantic_extractor is not None:
+            return
+        from iris_memory.capture.semantic.semantic_extractor import SemanticExtractor
+        from iris_memory.capture.semantic.semantic_clustering import SemanticClustering
+
+        # 从内部配置覆盖聚类参数
+        clustering_kwargs: Dict[str, Any] = {}
+        if self._semantic_extraction_config:
+            for key in ("min_confidence", "min_age_days", "min_cluster_size"):
+                if key in self._semantic_extraction_config:
+                    clustering_kwargs[key] = self._semantic_extraction_config[key]
+
+        clustering = SemanticClustering(**clustering_kwargs) if clustering_kwargs else None
+        self._semantic_extractor = SemanticExtractor(
+            chroma_manager=self.chroma_manager,
+            astrbot_context=self._astrbot_context,
+            provider_id=self._semantic_provider_id,
+            clustering=clustering,
+        )
+        logger.debug("SemanticExtractor initialized")
+    
+    async def _run_semantic_extraction(self) -> None:
+        """执行一轮语义提取（通道 B）"""
+        if not self._semantic_extractor:
+            return
+        try:
+            await self._semantic_extractor.run()
+        except Exception as e:
+            logger.error(f"Semantic extraction failed: {e}", exc_info=True)
     
     async def _promote_memories(self):
         """定期执行记忆升级检查
@@ -304,8 +382,9 @@ class SessionLifecycleManager:
                     if result and result[0]:  # should_upgrade = True
                         should_upgrade, confidence, reason = result
                         
-                        # 更改存储层为语义记忆
+                        # 更改存储层为语义记忆（通道 A：直接升级）
                         memory.storage_layer = StorageLayer.SEMANTIC
+                        memory.source_type = "direct_upgrade"
                         
                         # 持久化到Chroma
                         try:

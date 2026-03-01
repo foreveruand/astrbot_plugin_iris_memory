@@ -93,6 +93,15 @@ class Memory:
     graph_nodes: List[str] = field(default_factory=list)  # 图节点ID
     graph_edges: List[str] = field(default_factory=list)  # 图边ID
     
+    # ========== 语义提取 ==========
+    summarized: bool = False  # 是否已被语义提取
+    semantic_memory_id: Optional[str] = None  # 关联的语义记忆 ID
+    evidence_ids: List[str] = field(default_factory=list)  # 语义记忆的源记忆 ID 列表
+    source_type: Optional[str] = None  # "direct_upgrade" / "semantic_extraction"
+    evidence_count: int = 0  # 支持证据数量
+    last_validated: Optional[datetime] = None  # 最后验证时间
+    review_status: Optional[str] = None  # "approved" / "pending_review" / "rejected" (None=无需审核)
+    
     # ========== 元数据 ==========
     metadata: Dict[str, Any] = field(default_factory=dict)  # 额外元数据
     
@@ -138,6 +147,10 @@ class Memory:
         if 'expires_at' in data and data['expires_at'] is not None:
             if isinstance(data['expires_at'], str):
                 data['expires_at'] = datetime.fromisoformat(data['expires_at'])
+        
+        if 'last_validated' in data and data['last_validated'] is not None:
+            if isinstance(data['last_validated'], str):
+                data['last_validated'] = datetime.fromisoformat(data['last_validated'])
         
         # 转换字符串为Enum
         enum_mappings = {

@@ -47,6 +47,9 @@ class CommandRegistry:
             "proactive_reply": None,  # 需要额外参数，特殊处理
             "activity_status": self._handlers.handle_activity_status,
             "iris_reset": None,  # 需要额外参数，特殊处理
+            "memory_review": self._handlers.handle_memory_review,
+            "memory_approve": self._handlers.handle_memory_approve,
+            "memory_reject": self._handlers.handle_memory_reject,
         }
 
     def get_handler(

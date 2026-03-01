@@ -561,3 +561,127 @@ class CommandHandlers:
         result_msg += "2. 重新初始化插件以开始使用"
 
         return result_msg
+
+    # ── 语义记忆审核命令 ──
+
+    def _get_chroma_manager(self):
+        """获取 ChromaManager 实例"""
+        chroma = getattr(self._service, 'chroma_manager', None)
+        if not chroma:
+            chroma = getattr(getattr(self._service, 'storage', None), 'chroma_manager', None)
+        return chroma
+
+    async def handle_memory_review(self, event: AstrMessageEvent) -> str:
+        """
+        处理 /memory_review 命令 - 列出待审核的语义记忆
+
+        用法：/memory_review
+
+        Args:
+            event: 消息事件对象
+
+        Returns:
+            str: 响应消息
+        """
+        if not self._perms.is_admin(event):
+            return ErrorMessages.NO_PERMISSION
+
+        chroma = self._get_chroma_manager()
+        if not chroma:
+            return "记忆存储未初始化"
+
+        pending = await chroma.get_pending_review_memories(limit=20)
+        if not pending:
+            return "当前没有待审核的语义记忆"
+
+        lines = [f"📋 待审核的语义记忆 ({len(pending)} 条):\n"]
+        for i, mem in enumerate(pending, 1):
+            lines.append(
+                f"{i}. [{mem.id[:8]}] {mem.content[:60]}"
+                f" (置信度={mem.confidence:.2f}, 用户={mem.user_id})"
+            )
+        lines.append("\n使用 /memory_approve <ID前缀> 批准")
+        lines.append("使用 /memory_reject <ID前缀> 拒绝")
+        return "\n".join(lines)
+
+    async def handle_memory_approve(self, event: AstrMessageEvent) -> str:
+        """
+        处理 /memory_approve 命令 - 批准待审核的语义记忆
+
+        用法：/memory_approve <记忆ID前缀>
+
+        Args:
+            event: 消息事件对象
+
+        Returns:
+            str: 响应消息
+        """
+        if not self._perms.is_admin(event):
+            return ErrorMessages.NO_PERMISSION
+
+        parts = event.message_str.strip().split(None, 1)
+        if len(parts) < 2 or not parts[1].strip():
+            return "用法：/memory_approve <记忆ID前缀>"
+
+        id_prefix = parts[1].strip()
+        return await self._update_review_status(id_prefix, "approved")
+
+    async def handle_memory_reject(self, event: AstrMessageEvent) -> str:
+        """
+        处理 /memory_reject 命令 - 拒绝待审核的语义记忆
+
+        用法：/memory_reject <记忆ID前缀>
+
+        Args:
+            event: 消息事件对象
+
+        Returns:
+            str: 响应消息
+        """
+        if not self._perms.is_admin(event):
+            return ErrorMessages.NO_PERMISSION
+
+        parts = event.message_str.strip().split(None, 1)
+        if len(parts) < 2 or not parts[1].strip():
+            return "用法：/memory_reject <记忆ID前缀>"
+
+        id_prefix = parts[1].strip()
+        return await self._update_review_status(id_prefix, "rejected")
+
+    async def _update_review_status(self, id_prefix: str, new_status: str) -> str:
+        """根据 ID 前缀查找并更新审核状态
+
+        Args:
+            id_prefix: 记忆 ID 前缀
+            new_status: 新的审核状态
+
+        Returns:
+            str: 操作结果消息
+        """
+        chroma = self._get_chroma_manager()
+        if not chroma:
+            return "记忆存储未初始化"
+
+        pending = await chroma.get_pending_review_memories(limit=100)
+        target = None
+        for mem in pending:
+            if mem.id.startswith(id_prefix):
+                target = mem
+                break
+
+        if not target:
+            return f"未找到以 '{id_prefix}' 开头的待审核记忆"
+
+        target.review_status = new_status
+
+        if new_status == "rejected":
+            # 拒绝后删除此语义记忆
+            deleted = await chroma.delete_memory(target.id)
+            if deleted:
+                return f"已拒绝并删除语义记忆 [{target.id[:8]}]"
+            return f"拒绝失败：无法删除记忆 [{target.id[:8]}]"
+        else:
+            updated = await chroma.update_memory(target)
+            if updated:
+                return f"已批准语义记忆 [{target.id[:8]}]: {target.content[:40]}"
+            return f"批准失败：无法更新记忆 [{target.id[:8]}]"

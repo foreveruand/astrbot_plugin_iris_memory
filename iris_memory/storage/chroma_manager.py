@@ -160,6 +160,11 @@ class ChromaManager:
             rif_score=metadata.get('rif_score', 0.5),
             importance_score=metadata.get('importance_score', 0.5),
             is_user_requested=metadata.get('is_user_requested', False),
+            summarized=metadata.get('summarized', False),
+            semantic_memory_id=metadata.get('semantic_memory_id'),
+            source_type=metadata.get('source_type'),
+            evidence_count=metadata.get('evidence_count', 0),
+            review_status=metadata.get('review_status'),
         )
         
         if 'embedding' in memory_data and memory_data['embedding'] is not None:
@@ -167,11 +172,23 @@ class ChromaManager:
         
         self._set_memory_timestamps(memory, metadata)
         
+        # 语义提取字段恢复
+        evidence_ids_str = metadata.get('evidence_ids', '')
+        if evidence_ids_str:
+            memory.evidence_ids = [eid.strip() for eid in evidence_ids_str.split(',') if eid.strip()]
+        if 'last_validated' in metadata and metadata['last_validated']:
+            try:
+                memory.last_validated = datetime.fromisoformat(metadata['last_validated'])
+            except (ValueError, TypeError):
+                pass
+        
         system_keys = {
             'user_id', 'sender_name', 'group_id', 'persona_id', 'scope', 'type', 'modality',
             'quality_level', 'sensitivity_level', 'storage_layer', 'created_time',
             'last_access_time', 'access_count', 'confidence', 'rif_score',
-            'importance_score', 'is_user_requested'
+            'importance_score', 'is_user_requested',
+            'summarized', 'semantic_memory_id', 'evidence_ids', 'source_type',
+            'evidence_count', 'last_validated', 'review_status',
         }
         memory.metadata = {k: v for k, v in metadata.items() if k not in system_keys}
         
@@ -296,6 +313,14 @@ class ChromaManager:
         try:
             self._ensure_ready()
             return await self._queries.get_memories_by_storage_layer(storage_layer, limit)
+        except (RuntimeError, StorageNotReadyError):
+            return []
+
+    async def get_pending_review_memories(self, limit: int = 50) -> List:
+        """获取所有待审核的语义记忆（委托到 ChromaQueries）"""
+        try:
+            self._ensure_ready()
+            return await self._queries.get_pending_review_memories(limit)
         except (RuntimeError, StorageNotReadyError):
             return []
 

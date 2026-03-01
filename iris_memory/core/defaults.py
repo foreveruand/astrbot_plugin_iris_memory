@@ -393,6 +393,47 @@ class WebUIDefaults:
     host: str = "127.0.0.1"                # 监听地址
 
 
+@dataclass
+class SemanticExtractionDefaults:
+    """语义提取隐藏配置 (通道 B)
+    
+    用于从 EPISODIC 记忆中聚类 + LLM 提取抽象语义记忆。
+    这些参数不在用户配置界面中暴露, 仅作为内部调优参数。
+    """
+    # 是否启用语义提取 (通道 B)
+    enabled: bool = True
+    
+    # 执行间隔（秒），默认每天执行1次
+    extraction_interval: int = 86400
+    
+    # 预筛选：最低置信度
+    min_confidence: float = 0.4
+    
+    # 预筛选：记忆最小年龄（天），排除过新的记忆
+    min_age_days: int = 30
+    
+    # 聚类：同一实体/主题在时间窗口内的最少出现次数
+    min_cluster_size: int = 3
+    
+    # 聚类：时间窗口（天）
+    cluster_time_window_days: int = 90
+    
+    # 向量相似度聚类阈值
+    similarity_threshold: float = 0.75
+    
+    # 单次提取最大聚类数
+    max_clusters_per_run: int = 20
+    
+    # 单个聚类最大记忆数
+    max_memories_per_cluster: int = 15
+    
+    # 提取后源记忆过期天数（0 表示不设置过期）
+    source_expiry_days: int = 0
+    
+    # LLM 最大 token 数
+    llm_max_tokens: int = 500
+
+
 @dataclass  
 class AllDefaults:
     """所有默认配置的聚合"""
@@ -412,6 +453,7 @@ class AllDefaults:
     knowledge_graph: KnowledgeGraphDefaults = field(default_factory=KnowledgeGraphDefaults)
     persona_isolation: PersonaIsolationDefaults = field(default_factory=PersonaIsolationDefaults)
     web_ui: WebUIDefaults = field(default_factory=WebUIDefaults)
+    semantic_extraction: SemanticExtractionDefaults = field(default_factory=SemanticExtractionDefaults)
 
 
 # 全局默认配置实例
@@ -448,7 +490,8 @@ def get_defaults_dict() -> Dict[str, Dict[str, Any]]:
                          'proactive_reply', 'image_analysis', 'log',
                          'persona', 'activity_adaptive', 'llm_providers',
                          'llm_enhanced', 'knowledge_graph',
-                         'persona_isolation', 'web_ui']:
+                         'persona_isolation', 'web_ui',
+                         'semantic_extraction']:
         section_obj = getattr(DEFAULTS, section_name, None)
         if section_obj:
             result[section_name] = asdict(section_obj)

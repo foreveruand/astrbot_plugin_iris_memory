@@ -391,6 +391,11 @@ class MemoryRetrievalEngine:
             storage_layer=storage_layer,
             persona_id=persona_id,
         )
+        # 过滤待审核 / 已拒绝的语义记忆
+        candidate_memories = [
+            m for m in candidate_memories
+            if m.review_status not in ("pending_review", "rejected")
+        ]
         retrieval_log.vector_query(user_id, len(candidate_memories), storage_layer.value if storage_layer and hasattr(storage_layer, 'value') else None)
         
         if self.enable_working_memory_merge and self.session_manager:

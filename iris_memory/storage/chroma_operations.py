@@ -124,7 +124,7 @@ class ChromaOperations:
 
     def _build_memory_metadata(self, memory) -> Dict[str, Any]:
         """构建记忆元数据（始终包含 persona_id，便于后续开启隔离）"""
-        return {
+        metadata = {
             "user_id": memory.user_id,
             "sender_name": memory.sender_name if memory.sender_name else "",
             "group_id": memory.group_id if memory.group_id else "",
@@ -143,6 +143,24 @@ class ChromaOperations:
             "importance_score": memory.importance_score,
             "is_user_requested": memory.is_user_requested,
         }
+        
+        # 语义提取字段
+        if memory.summarized:
+            metadata["summarized"] = True
+        if memory.semantic_memory_id:
+            metadata["semantic_memory_id"] = memory.semantic_memory_id
+        if memory.evidence_ids:
+            metadata["evidence_ids"] = ",".join(memory.evidence_ids)
+        if memory.source_type:
+            metadata["source_type"] = memory.source_type
+        if memory.evidence_count > 0:
+            metadata["evidence_count"] = memory.evidence_count
+        if memory.last_validated is not None:
+            metadata["last_validated"] = memory.last_validated.isoformat()
+        if memory.review_status:
+            metadata["review_status"] = memory.review_status
+        
+        return metadata
 
     async def update_memory(self, memory) -> bool:
         """更新记忆

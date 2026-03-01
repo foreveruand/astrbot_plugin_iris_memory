@@ -93,6 +93,8 @@ class StorageModule:
             llm_upgrade_batch_size=DEFAULTS.memory.llm_upgrade_batch_size,
             llm_upgrade_threshold=DEFAULTS.memory.llm_upgrade_threshold,
         )
+        # 注入 AstrBot 上下文供语义提取 LLM 调用使用
+        self._lifecycle_manager.set_astrbot_context(context, cfg.llm_provider_id)
         await self._lifecycle_manager.start()
 
         # ChatHistoryBuffer
