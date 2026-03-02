@@ -321,6 +321,30 @@ class ProactiveManager:
             return True  # 未启用白名单模式，全部允许
         return group_id in self._group_whitelist
 
+    def add_group_to_whitelist(self, group_id: str) -> bool:
+        """将群组加入白名单，返回 True 表示新增成功，False 表示已存在"""
+        if group_id in self._group_whitelist:
+            return False
+        self._group_whitelist.append(group_id)
+        logger.info(f"Group {group_id} added to proactive whitelist")
+        return True
+
+    def remove_group_from_whitelist(self, group_id: str) -> bool:
+        """将群组从白名单移除，返回 True 表示移除成功，False 表示不存在"""
+        if group_id not in self._group_whitelist:
+            return False
+        self._group_whitelist.remove(group_id)
+        logger.info(f"Group {group_id} removed from proactive whitelist")
+        return True
+
+    def is_group_in_whitelist(self, group_id: str) -> bool:
+        """判断群组是否在白名单中"""
+        return group_id in self._group_whitelist
+
+    def get_whitelist(self) -> List[str]:
+        """获取当前白名单列表"""
+        return list(self._group_whitelist)
+
     def serialize_whitelist(self) -> Dict[str, Any]:
         """序列化白名单状态，用于 KV 存储持久化"""
         return {
@@ -329,15 +353,26 @@ class ProactiveManager:
         }
 
     def deserialize_whitelist(self, data: Any) -> None:
-        """从 KV 存储反序列化白名单状态"""
+        """从 KV 存储反序列化白名单状态
+        
+        注意：KV 存储的值优先于配置文件，运行时通过 /proactive_reply 命令控制。
+        """
         if not isinstance(data, dict):
             return
+        default_mode = self._group_whitelist_mode
         self._group_whitelist = list(data.get("group_whitelist", []))
         self._group_whitelist_mode = bool(data.get("group_whitelist_mode", False))
-        logger.debug(
-            f"Whitelist loaded: mode={self._group_whitelist_mode}, "
-            f"groups={self._group_whitelist}"
-        )
+        
+        if default_mode != self._group_whitelist_mode and self._group_whitelist_mode:
+            logger.info(
+                f"Whitelist mode restored from KV storage (mode={self._group_whitelist_mode}, "
+                f"groups={len(self._group_whitelist)}). Config file value ignored."
+            )
+        else:
+            logger.debug(
+                f"Whitelist loaded: mode={self._group_whitelist_mode}, "
+                f"groups={self._group_whitelist}"
+            )
 
     async def close(self) -> None:
         """关闭并释放所有资源"""

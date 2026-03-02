@@ -51,11 +51,8 @@ class ProactiveWebService:
             "enabled": manager.enabled,
             "whitelist_mode": manager.group_whitelist_mode,
             "whitelist": manager.get_whitelist(),
-            "stats": manager.get_stats(),
-            "config": {
-                "cooldown_seconds": manager._default_cooldown,
-                "max_daily_replies": manager._default_max_daily,
-            }
+            "stats": {},
+            "config": {}
         }
 
     async def list_whitelist(self) -> List[str]:
@@ -156,4 +153,4 @@ class ProactiveWebService:
                 "last_reply_times": 0,
                 "daily_counts": {}
             }
-        return manager.get_stats()
+        return await manager.get_stats()
