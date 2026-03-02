@@ -215,8 +215,8 @@ class Memory:
             return False
         
         condition1 = self.access_count >= 5 and self.confidence > 0.65
-        condition2 = (self.quality_level == QualityLevel.CONFIRMED
-                      or int(self.quality_level) == int(QualityLevel.CONFIRMED))
+        ql_val = self.quality_level.value if isinstance(self.quality_level, QualityLevel) else int(self.quality_level)
+        condition2 = ql_val == QualityLevel.CONFIRMED.value
         condition3 = self.importance_score >= 0.8 and self.access_count >= 3
         days_since_creation = (datetime.now() - self.created_time).days
         condition4 = days_since_creation >= 7 and self.access_count >= 3 and self.confidence > 0.6

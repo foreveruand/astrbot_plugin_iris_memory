@@ -4,7 +4,8 @@ Web UI 模块
 封装 Web 管理界面的初始化和生命周期管理。
 """
 
-from typing import Optional, TYPE_CHECKING
+import asyncio
+from typing import Any, Optional, TYPE_CHECKING
 
 from astrbot.api import logger
 
@@ -34,6 +35,7 @@ class WebUIManager:
         """
         self._service = service
         self._standalone_web: Optional[Any] = None
+        self._server_task: Optional[asyncio.Task] = None
 
     async def initialize(self) -> bool:
         """
@@ -58,8 +60,7 @@ class WebUIManager:
                 access_key=config_mgr.web_ui_access_key,
             )
 
-            import asyncio
-            asyncio.create_task(self._standalone_web.start())
+            self._server_task = asyncio.create_task(self._standalone_web.start())
 
             key_info = "需访问密钥" if config_mgr.web_ui_access_key else "无需认证"
             logger.info(
@@ -76,6 +77,21 @@ class WebUIManager:
         if self._standalone_web:
             await self._standalone_web.stop()
             self._standalone_web = None
+
+        if self._server_task:
+            try:
+                await asyncio.wait_for(self._server_task, timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning("[Hot-Reload] Web server task did not stop in time, cancelling...")
+                self._server_task.cancel()
+                try:
+                    await self._server_task
+                except asyncio.CancelledError:
+                    pass
+            except Exception as e:
+                logger.debug(f"[Hot-Reload] Error waiting for web server task: {e}")
+            finally:
+                self._server_task = None
 
     @property
     def is_running(self) -> bool:

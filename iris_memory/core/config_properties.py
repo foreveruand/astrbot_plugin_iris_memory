@@ -27,6 +27,7 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
     "enable_inject": _ConfigProp("basic.enable_inject", True),
     "log_level": _ConfigProp("logging.log_level", "INFO"),
     "enable_activity_adaptive": _ConfigProp("activity_adaptive.enable", True),
+    "error_friendly_enabled": _ConfigProp("error_friendly.enable", True),
 
     # ── 记忆设置 ──
     "max_context_memories": _ConfigProp("memory.max_context_memories", 3),

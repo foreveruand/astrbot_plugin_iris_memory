@@ -315,8 +315,13 @@ class StandaloneWebServer:
     
     async def stop(self) -> None:
         """停止 Web 服务器"""
+        if not self._running:
+            return
+
+        logger.debug("[Hot-Reload] Stopping Web server...")
+
         if self._shutdown_event:
             self._shutdown_event.set()
-            self._shutdown_event = None
+
         self._running = False
         logger.info("Web 管理界面已停止")

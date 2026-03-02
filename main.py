@@ -78,7 +78,7 @@ class IrisMemoryPlugin(Star):
         self._command_handlers = CommandHandlers(self._service)
         self._web_ui = WebUIManager(self._service)
         self._message_processor = MessageProcessor(self._service)
-        self._error_processor = ErrorFriendlyProcessor(self.config)
+        self._error_processor = ErrorFriendlyProcessor(self._service.cfg)
 
         await self._web_ui.initialize()
 
@@ -249,12 +249,28 @@ class IrisMemoryPlugin(Star):
 
     async def terminate(self) -> None:
         """插件销毁"""
+        import asyncio
+
         if self._web_ui:
-            await self._web_ui.stop()
+            try:
+                await asyncio.wait_for(self._web_ui.stop(), timeout=10.0)
+            except asyncio.TimeoutError:
+                self._service.logger.warning("[Hot-Reload] Web UI stop timed out")
+            except Exception as e:
+                self._service.logger.warning(f"[Hot-Reload] Error stopping Web UI: {e}")
 
         try:
-            await self._service.save_to_kv(self.put_kv_data)
+            await asyncio.wait_for(
+                self._service.save_to_kv(self.put_kv_data), timeout=5.0
+            )
+        except asyncio.TimeoutError:
+            self._service.logger.warning("[Hot-Reload] Save KV data timed out")
         except Exception as e:
             self._service.logger.warning(f"[Hot-Reload] Error saving KV data: {e}")
 
-        await self._service.terminate()
+        try:
+            await asyncio.wait_for(self._service.terminate(), timeout=30.0)
+        except asyncio.TimeoutError:
+            self._service.logger.error("[Hot-Reload] Service terminate timed out")
+        except Exception as e:
+            self._service.logger.error(f"[Hot-Reload] Error terminating service: {e}")

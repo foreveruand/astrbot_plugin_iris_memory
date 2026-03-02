@@ -440,17 +440,28 @@ class PersistenceService:
 
         热更新友好：
         1. 按依赖顺序停止后台任务（先停消费者，再停生产者）
-        2. 等待所有任务完成
+        2. 等待所有任务完成（带超时保护）
         3. 清理全局状态引用
         4. 关闭底层存储
         """
+        import asyncio
+
         logger.debug("[Hot-Reload] Terminating memory service...")
 
+        async def _stop_with_timeout(coro, name: str, timeout: float = 10.0):
+            """带超时的停止操作"""
+            try:
+                await asyncio.wait_for(coro, timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.warning(f"[Hot-Reload] {name} stop timed out after {timeout}s")
+            except Exception as e:
+                logger.warning(f"[Hot-Reload] Error stopping {name}: {e}")
+
         try:
-            await self._capture.stop()
-            await self._analysis.stop()
-            await self._proactive.stop()
-            await self._storage.stop()
+            await _stop_with_timeout(self._capture.stop(), "capture", 5.0)
+            await _stop_with_timeout(self._analysis.stop(), "analysis", 5.0)
+            await _stop_with_timeout(self._proactive.stop(), "proactive", 5.0)
+            await _stop_with_timeout(self._storage.stop(), "storage", 10.0)
             self._clear_global_state()
 
             self._log_final_stats()

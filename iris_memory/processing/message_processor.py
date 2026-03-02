@@ -505,7 +505,15 @@ class ErrorFriendlyProcessor:
     def _is_error_friendly_enabled(self) -> bool:
         """检查错误消息友好化功能是否启用"""
         try:
-            return self._config.get(ConfigKeys.ERROR_FRIENDLY_ENABLE, True)
+            # 优先使用属性访问（ConfigManager 支持 error_friendly_enabled）
+            if hasattr(self._config, "error_friendly_enabled"):
+                return bool(self._config.error_friendly_enabled)
+
+            # 回退到 get 方法（点分隔键或 ConfigManager）
+            if hasattr(self._config, "get"):
+                return bool(self._config.get(ConfigKeys.ERROR_FRIENDLY_ENABLE, True))
+
+            return True
         except Exception:
             return True
 
