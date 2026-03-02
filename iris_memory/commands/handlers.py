@@ -562,6 +562,64 @@ class CommandHandlers:
 
         return result_msg
 
+    # ── 群冷却命令 ──
+
+    async def handle_cooldown(self, event: AstrMessageEvent) -> str:
+        """
+        处理 /cooldown 命令
+
+        用法：
+        /cooldown              — 冷却20分钟（默认）
+        /cooldown 30           — 冷却30分钟
+        /cooldown 1h           — 冷却1小时
+        /cooldown status       — 查询状态
+        /cooldown off          — 取消冷却
+
+        Args:
+            event: 消息事件对象
+
+        Returns:
+            str: 响应消息
+        """
+        from iris_memory.core.constants import CooldownMessages
+        from iris_memory.cooldown.cooldown_manager import parse_duration
+
+        group_id = get_group_id(event)
+        if not group_id:
+            return CooldownMessages.GROUP_ONLY
+
+        cooldown_mgr = getattr(
+            getattr(self._service, 'cooldown', None),
+            'cooldown_manager', None,
+        )
+        if cooldown_mgr is None:
+            return "冷却模块未初始化"
+
+        parsed = CommandParser.parse_with_slash(event.message_str, "cooldown")
+        sub_cmd = (parsed.first_arg or "").lower()
+
+        # /cooldown status
+        if sub_cmd == "status":
+            return cooldown_mgr.format_status(group_id)
+
+        # /cooldown off / cancel
+        if sub_cmd in ("off", "cancel"):
+            return cooldown_mgr.deactivate(group_id)
+
+        # /cooldown [duration]  — 激活冷却
+        duration: Optional[int] = None
+        if sub_cmd:
+            duration = parse_duration(sub_cmd)
+            if duration is None:
+                return CooldownMessages.INVALID_DURATION
+
+        return cooldown_mgr.activate(
+            group_id=group_id,
+            duration_minutes=duration,
+            reason=None,
+            initiated_by="user",
+        )
+
     # ── 语义记忆审核命令 ──
 
     def _get_chroma_manager(self):

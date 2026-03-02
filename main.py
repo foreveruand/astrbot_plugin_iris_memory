@@ -23,7 +23,7 @@ if str(plugin_root) not in sys.path:
 
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api import AstrBotConfig, logger
+from astrbot.api import AstrBotConfig, llm_tool, logger
 
 from iris_memory.services.memory_service import MemoryService
 from iris_memory.utils.logger import init_logging_from_config
@@ -135,6 +135,75 @@ class IrisMemoryPlugin(Star):
             event, self.delete_kv_data
         )
         yield event.plain_result(result)
+
+    @filter.command("cooldown")
+    async def cooldown(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
+        """群冷却指令：/cooldown [action] [duration]"""
+        result = await self._command_handlers.handle_cooldown(event)
+        yield event.plain_result(result)
+
+    # ── LLM 工具：群冷却 ──
+
+    @llm_tool(name="set_group_cooldown")
+    async def set_group_cooldown_tool(
+        self,
+        event: AstrMessageEvent,
+        duration_minutes: int = 20,
+        reason: str = "群聊较活跃，暂时进入安静模式",
+    ) -> str:
+        """设置群聊冷却模式，在此期间AI将暂停主动回复。
+        适用于群聊过于活跃、用户需要专注时间、深夜时段等场景。
+
+        Args:
+            duration_minutes(number): 冷却时长（分钟），范围5-180，默认20
+            reason(string): 设置冷却的原因说明
+        """
+        from iris_memory.utils.event_utils import get_group_id
+
+        group_id = get_group_id(event)
+        if not group_id:
+            return "冷却模式仅限群聊使用"
+
+        cooldown_mgr = self._service.cooldown.cooldown_manager
+        return cooldown_mgr.activate(
+            group_id=group_id,
+            duration_minutes=duration_minutes,
+            reason=reason,
+            initiated_by="llm",
+        )
+
+    @llm_tool(name="get_cooldown_status")
+    async def get_cooldown_status_tool(
+        self,
+        event: AstrMessageEvent,
+    ) -> str:
+        """查询当前群聊的冷却状态。在决定是否主动回复前可先调用此工具检查。
+        """
+        from iris_memory.utils.event_utils import get_group_id
+
+        group_id = get_group_id(event)
+        if not group_id:
+            return "非群聊环境，无冷却状态"
+
+        cooldown_mgr = self._service.cooldown.cooldown_manager
+        return cooldown_mgr.format_status(group_id)
+
+    @llm_tool(name="cancel_group_cooldown")
+    async def cancel_group_cooldown_tool(
+        self,
+        event: AstrMessageEvent,
+    ) -> str:
+        """取消当前群聊的冷却模式，恢复正常主动回复。
+        当用户明确要求恢复时调用。
+        """
+        from iris_memory.utils.event_utils import get_group_id
+
+        group_id = get_group_id(event)
+        if not group_id:
+            return "非群聊环境，无冷却状态"
+
+        cooldown_mgr = self._service.cooldown.cooldown_manager
+        return cooldown_mgr.deactivate(group_id)
 
     @filter.on_decorating_result()
     async def on_decorating_result(self, event: AstrMessageEvent) -> None:

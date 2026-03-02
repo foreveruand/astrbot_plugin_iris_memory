@@ -31,6 +31,7 @@ from iris_memory.services.modules.capture_module import CaptureModule
 from iris_memory.services.modules.retrieval_module import RetrievalModule
 from iris_memory.services.modules.proactive_module import ProactiveModule
 from iris_memory.services.modules.kg_module import KnowledgeGraphModule
+from iris_memory.services.modules.cooldown_module import CooldownModule
 from iris_memory.services.shared_state import SharedState
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.member_utils import set_identity_service
@@ -52,6 +53,7 @@ class InitializerDeps:
     retrieval: RetrievalModule = field(default_factory=RetrievalModule)
     proactive: ProactiveModule = field(default_factory=ProactiveModule)
     kg: KnowledgeGraphModule = field(default_factory=KnowledgeGraphModule)
+    cooldown: CooldownModule = field(default_factory=CooldownModule)
 
     shared_state: SharedState = field(default_factory=lambda: SharedState(max_size=2000, max_recent_track=20))
 
@@ -348,6 +350,12 @@ class ServiceInitializer:
             emotion_analyzer=self._deps.analysis.emotion_analyzer,
             llm_proactive_reply_detector=self._deps.llm_enhanced.proactive_reply_detector,
         )
+
+        # 注入群冷却检查回调
+        if self._deps.proactive.proactive_manager:
+            self._deps.proactive.proactive_manager._cooldown_checker = (
+                self._deps.cooldown.is_active
+            )
 
     async def _init_image_analyzer(self) -> None:
         """初始化图片分析器"""

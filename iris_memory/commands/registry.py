@@ -50,6 +50,7 @@ class CommandRegistry:
             "memory_review": self._handlers.handle_memory_review,
             "memory_approve": self._handlers.handle_memory_approve,
             "memory_reject": self._handlers.handle_memory_reject,
+            "cooldown": self._handlers.handle_cooldown,
         }
 
     def get_handler(

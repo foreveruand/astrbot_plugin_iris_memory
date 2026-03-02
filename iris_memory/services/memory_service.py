@@ -45,6 +45,7 @@ from iris_memory.services.modules.llm_enhanced_module import LLMEnhancedModule
 from iris_memory.services.modules.proactive_module import ProactiveModule
 from iris_memory.services.modules.retrieval_module import RetrievalModule
 from iris_memory.services.modules.storage_module import StorageModule
+from iris_memory.services.modules.cooldown_module import CooldownModule
 from iris_memory.services.shared_state import SharedState
 from iris_memory.services.business_service import BusinessService, BusinessServiceDeps
 from iris_memory.services.persistence_service import PersistenceService
@@ -151,6 +152,10 @@ class MemoryService:
     @property
     def kg(self) -> KnowledgeGraphModule:
         return self._deps.kg
+
+    @property
+    def cooldown(self) -> CooldownModule:
+        return self._deps.cooldown
 
     @property
     def _shared_state(self) -> SharedState:

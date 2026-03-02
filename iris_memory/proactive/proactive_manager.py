@@ -108,6 +108,10 @@ class ProactiveReplyManager:
         
         self._processing_sessions: set = set()
         
+        # 群冷却检查回调：(group_id: str) -> bool
+        # 由 CooldownModule 注入，用于在主动回复前检查群冷却状态
+        self._cooldown_checker: Optional[Any] = None
+        
         self.stats = {
             "replies_sent": 0,
             "replies_skipped": 0,
@@ -275,6 +279,11 @@ class ProactiveReplyManager:
     ):
         """处理批量消息，判断是否需要主动回复"""
         if not self.enabled or not messages:
+            return
+        
+        # 检查群冷却
+        if group_id and self._cooldown_checker and self._cooldown_checker(group_id):
+            logger.debug(f"Group {group_id} is in cooldown, skipping proactive reply")
             return
         
         session_key = SessionKeyBuilder.build(user_id, group_id)

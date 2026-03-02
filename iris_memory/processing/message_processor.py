@@ -131,6 +131,12 @@ class MessageProcessor:
         if context:
             req.system_prompt += f"\n\n{context}\n"
 
+        # 群冷却工具提示（仅群聊场景）
+        if group_id and hasattr(self._service, 'cooldown'):
+            cooldown_hint = self._build_cooldown_hint(group_id)
+            if cooldown_hint:
+                req.system_prompt += f"\n\n{cooldown_hint}\n"
+
         if is_proactive:
             proactive_ctx = event.get_extra(PROACTIVE_CONTEXT_KEY, {})
             proactive_directive = self._build_proactive_directive(proactive_ctx)
@@ -406,6 +412,41 @@ class MessageProcessor:
         )
 
         return directive
+
+    def _build_cooldown_hint(self, group_id: str) -> Optional[str]:
+        """构建群冷却工具提示
+
+        当前群处于冷却中时返回状态提示，
+        否则返回可用工具的引导文本。
+
+        Args:
+            group_id: 群聊 ID
+
+        Returns:
+            str 或 None
+        """
+        cooldown_mod = getattr(self._service, 'cooldown', None)
+        if cooldown_mod is None:
+            return None
+
+        if cooldown_mod.is_active(group_id):
+            state = cooldown_mod.cooldown_manager.get_status(group_id)
+            if state:
+                return (
+                    "[系统功能：群冷却]\n"
+                    f"当前群聊处于冷却模式，剩余 {state.format_remaining()}。\n"
+                    "期间请暂停主动发起对话，仅在被@或收到指令时回应。"
+                )
+
+        return (
+            "[系统功能：群冷却]\n"
+            "当检测到以下情况时，可调用 set_group_cooldown 工具：\n"
+            "- 连续多条消息无实质内容（如刷屏、表情包）\n"
+            '- 用户表达"好吵"、"安静点"、"我在开会"等\n'
+            "- 深夜时段（22:00-08:00）且群聊活跃\n"
+            "- 短时间内主动回复已触发多次\n"
+            "默认冷却20分钟，可酌情调整。"
+        )
 
 
 class ErrorFriendlyProcessor:

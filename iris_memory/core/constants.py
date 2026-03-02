@@ -336,3 +336,16 @@ class UrgencyCooldownMultiplier:
     HIGH: Final[float] = 0.5
     MEDIUM: Final[float] = 1.0
     LOW: Final[float] = 1.5
+
+
+class CooldownMessages:
+    """群冷却响应消息模板"""
+    USAGE: Final[str] = (
+        "用法：/cooldown [action] [duration]\n"
+        "- /cooldown 或 /cooldown 20  — 开启冷却（默认20分钟）\n"
+        "- /cooldown 1h              — 冷却1小时\n"
+        "- /cooldown status          — 查看状态\n"
+        "- /cooldown off             — 取消冷却"
+    )
+    GROUP_ONLY: Final[str] = "冷却模式仅限群聊使用"
+    INVALID_DURATION: Final[str] = "无效的时长格式，请使用数字或 30m / 1h 格式"
