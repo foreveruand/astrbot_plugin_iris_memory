@@ -228,7 +228,7 @@ class ProactiveReplyDefaults:
     
     # 智能增强配置
     smart_boost_enabled: bool = False
-    smart_boost_window_seconds: int = 120  # 2分钟窗口（降低活跃时间）
+    smart_boost_window_seconds: int = 60  # 1分钟窗口（不超过冷却时间）
     smart_boost_score_multiplier: float = 1.2  # 分数乘数（降低升级幅度）
     smart_boost_reply_threshold: float = 0.35  # 增强后触发回复的最低分数（提高阈值）
 

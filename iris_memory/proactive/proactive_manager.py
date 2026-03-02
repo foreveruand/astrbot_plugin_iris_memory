@@ -107,6 +107,11 @@ class ProactiveReplyManager:
         
         self._last_user_message_time: BoundedDict[str, float] = BoundedDict(max_size=2000)
         
+        # 连续回复限制（防止短时间内对同一会话过度回复）
+        self._recent_replies: BoundedDict[str, List[float]] = BoundedDict(max_size=500)
+        self.MAX_CONSECUTIVE_REPLIES: int = 3   # 窗口内最多连续回复次数
+        self.CONSECUTIVE_WINDOW: int = 300       # 5分钟窗口（秒）
+        
         # 每日计数重置日期跟踪（惰性重置：在检查时判断是否跨日）
         self._last_reset_date: date = date.today()
         
@@ -123,6 +128,7 @@ class ProactiveReplyManager:
             "replies_sent": 0,
             "replies_skipped": 0,
             "replies_failed": 0,
+            "replies_consecutive_limited": 0,
             "smart_boost_activations": 0,
             "smart_boost_delay_reductions": 0,
             "tasks_cleared_on_bot_reply": 0,
@@ -305,6 +311,15 @@ class ProactiveReplyManager:
             logger.debug(f"Daily proactive reply limit reached for {user_id}")
             return
         
+        # 检查连续回复限制
+        if self._is_consecutive_limit_reached(session_key):
+            logger.debug(
+                f"Consecutive reply limit reached for {session_key} "
+                f"({self.MAX_CONSECUTIVE_REPLIES} in {self.CONSECUTIVE_WINDOW}s)"
+            )
+            self.stats["replies_consecutive_limited"] += 1
+            return
+        
         # 检查群聊白名单
         if group_id:
             if not self._is_group_allowed(group_id):
@@ -460,11 +475,14 @@ class ProactiveReplyManager:
         if boosted_score >= self._smart_boost_threshold:
             decision.should_reply = True
             if boosted_score >= 0.5:
+                decision.urgency = ReplyUrgency.HIGH
+                decision.suggested_delay = max(5, int(10 / multiplier))
+            elif boosted_score >= 0.4:
                 decision.urgency = ReplyUrgency.MEDIUM
-                decision.suggested_delay = max(5, int(15 / multiplier))
+                decision.suggested_delay = max(10, int(20 / multiplier))
             else:
-                decision.urgency = ReplyUrgency.LOW
-                decision.suggested_delay = max(10, int(30 / multiplier))
+                decision.urgency = ReplyUrgency.MEDIUM
+                decision.suggested_delay = max(15, int(30 / multiplier))
             
             original_reason = decision.reason or ""
             decision.reason = (
@@ -589,6 +607,9 @@ class ProactiveReplyManager:
             
             self.last_reply_time[session_key] = asyncio.get_running_loop().time()
             
+            # 记录连续回复时间（供连续回复限制使用）
+            self._record_reply_time(session_key)
+            
             count_key = SessionKeyBuilder.build(task.user_id, task.group_id)
             self.daily_reply_count[count_key] = \
                 self.daily_reply_count.get(count_key, 0) + 1
@@ -654,8 +675,8 @@ class ProactiveReplyManager:
         """检查是否在冷却中
         
         支持基于 urgency 的动态冷却：
-        - critical: 冷却时间 × 0.25（紧急事件几乎不受冷却限制）
-        - high: 冷却时间 × 0.5
+        - critical: 冷却时间 × 0.5（紧急事件缩短冷却）
+        - high: 冷却时间 × 0.75
         - medium: 冷却时间 × 1.0（默认）
         - low: 冷却时间 × 1.5
         """
@@ -695,6 +716,38 @@ class ProactiveReplyManager:
         count_key = SessionKeyBuilder.build(user_id, group_id)
         count = self.daily_reply_count.get(count_key, 0)
         return count >= self._get_max_daily_replies(group_id)
+    
+    def _is_consecutive_limit_reached(self, session_key: str) -> bool:
+        """检查是否达到连续回复限制
+        
+        在 CONSECUTIVE_WINDOW 时间窗口内，同一会话最多允许
+        MAX_CONSECUTIVE_REPLIES 次主动回复，防止短时间内过度打扰。
+        
+        Args:
+            session_key: 会话标识
+            
+        Returns:
+            True 表示已达到限制，应跳过本次回复
+        """
+        now = time.time()
+        replies = self._recent_replies.get(session_key, [])
+        # 过滤窗口外的记录
+        replies = [t for t in replies if now - t < self.CONSECUTIVE_WINDOW]
+        self._recent_replies[session_key] = replies
+        return len(replies) >= self.MAX_CONSECUTIVE_REPLIES
+    
+    def _record_reply_time(self, session_key: str) -> None:
+        """记录一次主动回复时间（供连续回复限制使用）
+        
+        Args:
+            session_key: 会话标识
+        """
+        now = time.time()
+        replies = self._recent_replies.get(session_key, [])
+        # 清理过期记录后追加
+        replies = [t for t in replies if now - t < self.CONSECUTIVE_WINDOW]
+        replies.append(now)
+        self._recent_replies[session_key] = replies
     
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""

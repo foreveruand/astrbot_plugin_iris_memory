@@ -137,9 +137,10 @@ class TestProactiveReplyIntegration:
             emotion_analyzer=emotion_analyzer
         )
         
-        # 测试需要回复的消息
+        # 测试需要回复的消息（多个信号叠加确保超过阈值）
+        # "难过"→情感, "压力"→情感(两个模式), "你觉得"→mention_bot, "怎么办呢？"→问题
         result = await detector.analyze(
-            messages=["我好难过，你能陪我聊聊吗？"],
+            messages=["我好难过，压力好大，你觉得我该怎么办呢？"],
             user_id="test_user"
         )
         

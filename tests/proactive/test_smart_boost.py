@@ -547,7 +547,7 @@ class TestApplySmartBoost:
         mock_config_manager_llm,
     ):
         """增强后分数不同应对应不同紧急度"""
-        # 分数 0.4 × 1.5 = 0.6 >= 0.5 → MEDIUM
+        # 分数 0.4 × 1.5 = 0.6 >= 0.5 → HIGH
         decision_high = ProactiveReplyDecision(
             should_reply=False,
             urgency=ReplyUrgency.LOW,
@@ -563,9 +563,9 @@ class TestApplySmartBoost:
         )
         manager._record_user_message("u1")
         result = manager._apply_smart_boost(decision_high, "u1")
-        assert result.urgency == ReplyUrgency.MEDIUM
+        assert result.urgency == ReplyUrgency.HIGH
 
-        # 分数 0.2 × 1.5 = 0.3 < 0.5 → LOW
+        # 分数 0.2 × 1.5 = 0.3 < 0.5 but >= 0.25 → MEDIUM
         decision_low = ProactiveReplyDecision(
             should_reply=False,
             urgency=ReplyUrgency.IGNORE,
@@ -574,7 +574,7 @@ class TestApplySmartBoost:
             reply_context={"reply_score": 0.2},
         )
         result2 = manager._apply_smart_boost(decision_low, "u1")
-        assert result2.urgency == ReplyUrgency.LOW
+        assert result2.urgency == ReplyUrgency.MEDIUM
 
 
 # =============================================================================
@@ -706,6 +706,6 @@ class TestConfigManagerSmartBoost:
         from iris_memory.core.config_manager import ConfigManager
 
         mgr = ConfigManager()
-        assert mgr.smart_boost_window_seconds == 120
+        assert mgr.smart_boost_window_seconds == 60
         assert mgr.smart_boost_score_multiplier == 1.2
         assert mgr.smart_boost_reply_threshold == 0.35

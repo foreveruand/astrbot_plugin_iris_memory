@@ -212,27 +212,27 @@ class ProactiveReplyDetector:
         reasons = []
         
         if signals["question"] > 0.5:
-            reply_score += 0.4 * signals["question"]
+            reply_score += 0.3 * signals["question"]
             reasons.append(f"question({signals['question']:.2f})")
         
         if signals["emotional_support"] > 0.3:
-            reply_score += 0.3 * signals["emotional_support"]
+            reply_score += 0.25 * signals["emotional_support"]
             reasons.append(f"emotion({signals['emotional_support']:.2f})")
         
         if signals["seeking_attention"] > 0.5:
-            reply_score += 0.3 * signals["seeking_attention"]
+            reply_score += 0.25 * signals["seeking_attention"]
             reasons.append(f"attention({signals['seeking_attention']:.2f})")
         
         if signals["mention_bot"] > 0.3:
-            reply_score += 0.5 * signals["mention_bot"]
+            reply_score += 0.35 * signals["mention_bot"]
             reasons.append(f"mention({signals['mention_bot']:.2f})")
         
         if signals["expect_response"] > 0.3:
-            reply_score += 0.35 * signals["expect_response"]
+            reply_score += 0.25 * signals["expect_response"]
             reasons.append(f"expect({signals['expect_response']:.2f})")
         
         if signals.get("chat_topics", 0) > 0.3:
-            reply_score += 0.25 * signals["chat_topics"]
+            reply_score += 0.2 * signals["chat_topics"]
             reasons.append(f"topic({signals['chat_topics']:.2f})")
         
         emotion_intensity = emotion.get("intensity", 0)
@@ -246,9 +246,9 @@ class ProactiveReplyDetector:
             # 非中性情感且有一定强度
             reply_score += 0.1
             reasons.append(f"emotion({emotion_type},{emotion_intensity:.2f})")
-        elif emotion_type in ["joy", "excitement"] and emotion_intensity > 0.3:
-            # 积极情感降低阈值（适合群聊氛围）
-            reply_score += 0.15
+        elif emotion_type in ["joy", "excitement"] and emotion_intensity > 0.5:
+            # 积极情感降低阈值（适合群聊氛围，但需要较强情感表达）
+            reply_score += 0.1
             reasons.append(f"positive({emotion_intensity:.2f})")
         
         # 用户个性化 — 同时处理 to_injection_view() 与历史字段格式
@@ -258,7 +258,7 @@ class ProactiveReplyDetector:
                            user_persona.get("proactive_reply_preference", 0.5))
         reply_score *= (0.9 + 0.2 * user_preference)
         
-        # 根据分数决定（群聊场景优化，降低阈值）
+        # 根据分数决定
         if reply_score >= 0.7:
             urgency = ReplyUrgency.CRITICAL
             should_reply = True
@@ -267,7 +267,7 @@ class ProactiveReplyDetector:
             urgency = ReplyUrgency.HIGH
             should_reply = True
             delay = 5
-        elif reply_score >= 0.3:
+        elif reply_score >= 0.4:
             urgency = ReplyUrgency.MEDIUM
             should_reply = True
             delay = 30

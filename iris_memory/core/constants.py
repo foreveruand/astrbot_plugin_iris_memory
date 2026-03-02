@@ -332,8 +332,8 @@ class TextTruncation:
 
 class UrgencyCooldownMultiplier:
     """紧急度冷却时间乘数"""
-    CRITICAL: Final[float] = 0.25
-    HIGH: Final[float] = 0.5
+    CRITICAL: Final[float] = 0.5
+    HIGH: Final[float] = 0.75
     MEDIUM: Final[float] = 1.0
     LOW: Final[float] = 1.5
 
