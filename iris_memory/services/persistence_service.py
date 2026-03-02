@@ -461,7 +461,8 @@ class PersistenceService:
             await _stop_with_timeout(self._capture.stop(), "capture", 5.0)
             await _stop_with_timeout(self._analysis.stop(), "analysis", 5.0)
             await _stop_with_timeout(self._proactive.stop(), "proactive", 5.0)
-            await _stop_with_timeout(self._storage.stop(), "storage", 10.0)
+            await _stop_with_timeout(self._kg.close(), "kg", 5.0)
+            await _stop_with_timeout(self._storage.stop(), "storage", 6.0)
             self._clear_global_state()
 
             self._log_final_stats()

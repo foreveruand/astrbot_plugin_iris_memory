@@ -121,7 +121,7 @@ class StandaloneWebServer:
         self._auth = AuthMiddleware(access_key)
         self._app: Optional[Any] = None
         self._running = False
-        self._shutdown_event: Optional[asyncio.Event] = None
+        self._shutdown_event: asyncio.Event = asyncio.Event()
         self._server: Optional[Any] = None
     
     @property
@@ -299,7 +299,7 @@ class StandaloneWebServer:
             config.reuse_address = True
             config.reuse_port = True
             
-            self._shutdown_event = asyncio.Event()
+            self._shutdown_event.clear()
             self._running = True
             logger.info(f"Web 管理界面已启动: http://{self._host}:{self._port}")
             
@@ -324,4 +324,4 @@ class StandaloneWebServer:
             self._shutdown_event.set()
 
         self._running = False
-        logger.info("Web 管理界面已停止")
+        logger.debug("[Hot-Reload] Web server stop signal sent")

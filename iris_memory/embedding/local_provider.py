@@ -269,3 +269,39 @@ class LocalProvider(EmbeddingProvider):
                 status["error"] = str(e)
         
         return status
+
+    async def close(self) -> None:
+        """释放资源（热更新友好）
+        
+        清理 sentence-transformers 模型，释放 GPU/CPU 内存。
+        """
+        logger.debug("[Hot-Reload] Closing LocalProvider...")
+        
+        if self._model_instance is not None:
+            try:
+                import gc
+                import torch
+                
+                if hasattr(self._model_instance, 'to'):
+                    try:
+                        self._model_instance.to('cpu')
+                    except Exception:
+                        pass
+                
+                del self._model_instance
+                self._model_instance = None
+                
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    
+                logger.debug("[Hot-Reload] LocalProvider model released")
+            except Exception as e:
+                logger.warning(f"[Hot-Reload] Error releasing model: {e}")
+        
+        if self._load_thread is not None and self._load_thread.is_alive():
+            self._load_complete.set()
+            self._load_thread.join(timeout=2.0)
+            self._load_thread = None
+        
+        logger.debug("[Hot-Reload] LocalProvider closed")

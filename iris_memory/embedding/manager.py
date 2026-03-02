@@ -561,6 +561,25 @@ class EmbeddingManager:
             logger.debug(f"Failed to detect existing dimension: {e}")
             return None
 
+    # ========== 生命周期管理 ==========
+
+    async def close(self) -> None:
+        """关闭所有提供者并释放资源（热更新友好）"""
+        logger.debug("[Hot-Reload] Closing EmbeddingManager...")
+
+        for name, provider in list(self.providers.items()):
+            try:
+                if hasattr(provider, 'close'):
+                    await provider.close()
+                    logger.debug(f"[Hot-Reload] Closed provider: {name}")
+            except Exception as e:
+                logger.warning(f"[Hot-Reload] Error closing provider {name}: {e}")
+
+        self.providers.clear()
+        self.current_provider = None
+        self._embedding_cache.clear()
+        logger.debug("[Hot-Reload] EmbeddingManager closed")
+
     # ========== 内部工具 ==========
 
     @staticmethod
