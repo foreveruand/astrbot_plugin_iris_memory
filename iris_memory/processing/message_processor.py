@@ -133,7 +133,7 @@ class MessageProcessor:
 
         # 群冷却工具提示（仅群聊场景）
         if group_id and hasattr(self._service, 'cooldown'):
-            cooldown_hint = self._build_cooldown_hint(group_id)
+            cooldown_hint = self._build_cooldown_hint(group_id, req)
             if cooldown_hint:
                 req.system_prompt += f"\n\n{cooldown_hint}\n"
 
@@ -413,14 +413,16 @@ class MessageProcessor:
 
         return directive
 
-    def _build_cooldown_hint(self, group_id: str) -> Optional[str]:
+    def _build_cooldown_hint(self, group_id: str, req: Any = None) -> Optional[str]:
         """构建群冷却工具提示
 
-        当前群处于冷却中时返回状态提示，
-        否则返回可用工具的引导文本。
+        当前群处于冷却中时返回状态提示；
+        否则仅在模型支持工具调用（req.func_tool 不为 None）时
+        返回 set_group_cooldown 工具引导文本。
 
         Args:
             group_id: 群聊 ID
+            req: LLM 请求对象（ProviderRequest），用于检测工具调用支持
 
         Returns:
             str 或 None
@@ -437,6 +439,10 @@ class MessageProcessor:
                     f"当前群聊处于冷却模式，剩余 {state.format_remaining()}。\n"
                     "期间请暂停主动发起对话，仅在被@或收到指令时回应。"
                 )
+
+        # 仅在模型支持工具调用时注入工具引导文本
+        if req is None or getattr(req, 'func_tool', None) is None:
+            return None
 
         return (
             "[系统功能：群冷却]\n"
