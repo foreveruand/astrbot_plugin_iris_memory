@@ -16,6 +16,51 @@ from iris_memory.core.types import ReplyContext
 logger = get_logger("proactive_reply")
 
 
+# 默认触发词模式（可通过配置覆盖）
+DEFAULT_REPLY_TRIGGER_PATTERNS: Dict[str, List[str]] = {
+    "question": [
+        r"[吗嘛？?]$",
+        r"吧[?？]$",
+        r".*?(呢)[?？]$",
+        r"^(什么|怎么|为什么|如何|哪里|谁|多少|啥)",
+        r"^(能|可以|会).*吗[?？]?$",
+        r"^(是不是|对不对|行不行)",
+    ],
+    "emotional_support": [
+        r"(难过|伤心|痛苦|哭|难受|烦|郁闷|孤独|emo|破防)",
+        r"(开心|高兴|兴奋|惊喜|喜欢|感谢|爽|牛|棒)",
+        r"(压力|累|疲惫|焦虑|担心|害怕|慌|怂)",
+        r"(笑死|哈哈哈|呜呜呜|啊这)",
+    ],
+    "seeking_attention": [
+        r"(在吗|有人吗|喂|哈喽|hello|在么|在不在)",
+        r"(出来|冒泡|潜水|水群)",
+    ],
+    "mention_bot": [
+        r"(你说|你觉得|你怎么看|你的意见|你的想法)",
+        r"(@bot|机器人|AI|助手|千酱)",
+    ],
+    "expect_response": [
+        r"(等你|期待|希望|想听|想问问)",
+        r"(对吧|是吧|好吗|行吗|可以吗|对吧)",
+        r"(求|有没有|谁知道)",
+    ],
+    "chat_topics": [
+        r"(今天|昨天|最近|刚才).*?(怎么样|如何|发生了)",
+        r"(大家觉得|你们认为|有没有人不)",
+        r"(分享|推荐|安利|避雷)",
+    ],
+}
+
+# 默认忽略模式
+DEFAULT_IGNORE_PATTERNS: List[str] = [
+    r"^(嗯|哦|啊|好|行|可以|OK|ok)$",
+    r"^(哈哈|呵呵|嘻嘻|嘿嘿)$",
+    r"^(谢谢|感谢|谢了)$",
+    r"^[0-9\s]+$",
+]
+
+
 class ReplyUrgency(Enum):
     """回复紧急度"""
     IGNORE = "ignore"
@@ -51,49 +96,15 @@ class ProactiveReplyDetector:
         self.question_threshold = self.config.get("question_threshold", 0.8)
         self.mention_threshold = self.config.get("mention_threshold", 0.9)
         
-        # 需要回复的关键词（适配群聊场景）
-        self.reply_triggers = {
-            "question": [
-                r"[吗嘛？?]$",
-                r"吧[?？]$",  # "吧"需要配合问号才是疑问
-                r".*?(呢)[?？]$",  # "呢"需要配合问号才是疑问（如"他呢？"）
-                r"^(什么|怎么|为什么|如何|哪里|谁|多少|啥)",
-                r"^(能|可以|会).*吗[?？]?$",
-                r"^(是不是|对不对|行不行)",
-            ],
-            "emotional_support": [
-                r"(难过|伤心|痛苦|哭|难受|烦|郁闷|孤独|emo|破防)",
-                r"(开心|高兴|兴奋|惊喜|喜欢|感谢|爽|牛|棒)",
-                r"(压力|累|疲惫|焦虑|担心|害怕|慌|怂)",
-                r"(笑死|哈哈哈|呜呜呜|啊这)",
-            ],
-            "seeking_attention": [
-                r"(在吗|有人吗|喂|哈喽|hello|在么|在不在)",
-                r"(出来|冒泡|潜水|水群)",
-            ],
-            "mention_bot": [
-                r"(你说|你觉得|你怎么看|你的意见|你的想法)",
-                r"(@bot|机器人|AI|助手|千酱)",
-            ],
-            "expect_response": [
-                r"(等你|期待|希望|想听|想问问)",
-                r"(对吧|是吧|好吗|行吗|可以吗|对吧)",
-                r"(求|有没有|谁知道)",
-            ],
-            "chat_topics": [
-                r"(今天|昨天|最近|刚才).*?(怎么样|如何|发生了)",
-                r"(大家觉得|你们认为|有没有人不)",
-                r"(分享|推荐|安利|避雷)",
-            ]
-        }
+        # 触发词模式（支持通过配置覆盖）
+        self.reply_triggers = self.config.get(
+            "reply_triggers", DEFAULT_REPLY_TRIGGER_PATTERNS
+        )
         
         # 无需回复的模式
-        self.ignore_patterns = [
-            r"^(嗯|哦|啊|好|行|可以|OK|ok)$",
-            r"^(哈哈|呵呵|嘻嘻|嘿嘿)$",
-            r"^(谢谢|感谢|谢了)$",
-            r"^[0-9\s]+$",
-        ]
+        self.ignore_patterns = self.config.get(
+            "ignore_patterns", DEFAULT_IGNORE_PATTERNS
+        )
     
     async def analyze(
         self,
@@ -180,6 +191,25 @@ class ProactiveReplyDetector:
         
         return min(matches / max(len(patterns) * 0.5, 1), 1.0)
     
+    def _normalize_user_persona(self, user_persona: Any) -> Dict[str, Any]:
+        """统一转换 user_persona 为字典格式
+        
+        兼容 UserPersona 对象、字典、以及其他类型。
+        
+        Args:
+            user_persona: 用户画像数据（可能是 UserPersona 对象或字典）
+            
+        Returns:
+            字典格式的用户画像
+        """
+        if isinstance(user_persona, dict):
+            return user_persona
+        if hasattr(user_persona, 'to_injection_view'):
+            return user_persona.to_injection_view()
+        if hasattr(user_persona, 'get'):
+            return user_persona.get("__self__", {})
+        return {}
+    
     def _make_decision(
         self,
         signals: Dict[str, float],
@@ -189,15 +219,7 @@ class ProactiveReplyDetector:
         user_persona: Any
     ) -> ProactiveReplyDecision:
         """做出回复决策"""
-        # 防御性处理：兼容 UserPersona 对象和字典
-        if not isinstance(user_persona, dict):
-            try:
-                user_persona = user_persona.to_injection_view()
-            except (AttributeError, TypeError):
-                try:
-                    user_persona = user_persona.get("__self__", {})
-                except Exception:
-                    user_persona = {}
+        user_persona = self._normalize_user_persona(user_persona)
         
         if signals.get("ignore", 0) > 0.5:
             return ProactiveReplyDecision(

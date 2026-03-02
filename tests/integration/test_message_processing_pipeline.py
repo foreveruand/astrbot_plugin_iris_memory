@@ -170,6 +170,7 @@ class TestProactiveReplyIntegration:
             }
         )
         await manager.initialize()
+        manager._startup_time = 0  # 跳过启动冷却
         
         try:
             # 第一次处理

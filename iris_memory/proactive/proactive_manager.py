@@ -7,21 +7,27 @@
 而是构造合成事件注入 AstrBot 事件队列，
 让主动回复经过完整的 Pipeline 处理流程：
   人格注入 → 插件 Hook（记忆检索等）→ LLM 生成 → 结果装饰 → 发送
+
+组合模块：
+- ProactiveConstraints: 冷却、每日限制、连续回复限制、启动冷却
+- ProactiveWhitelist: 群聊白名单管理
+- SmartBoostManager: 智能增强窗口与决策调整
 """
 import asyncio
 import time
-from datetime import date
-from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from dataclasses import dataclass
 from typing import Protocol
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.command_utils import SessionKeyBuilder
-from iris_memory.utils.bounded_dict import BoundedDict
 from iris_memory.proactive.proactive_reply_detector import (
     ProactiveReplyDetector, ProactiveReplyDecision, ReplyUrgency
 )
 from iris_memory.proactive.proactive_event import ProactiveMessageEvent
+from iris_memory.proactive.proactive_constraints import ProactiveConstraints
+from iris_memory.proactive.proactive_whitelist import ProactiveWhitelist
+from iris_memory.proactive.proactive_smart_boost import SmartBoostManager
 
 if TYPE_CHECKING:
     from iris_memory.core.config_manager import ConfigManager
@@ -30,7 +36,7 @@ if TYPE_CHECKING:
 
 class ReplyDecisionProtocol(Protocol):
     """主动回复决策协议
-    
+
     定义 ProactiveReplyDecision 和 LLMReplyDecision 的共同接口。
     使用 Protocol 实现结构化子类型（鸭子类型），避免修改现有继承关系。
     """
@@ -56,11 +62,11 @@ class ProactiveReplyTask:
 
 class ProactiveReplyManager:
     """主动回复管理器
-    
-    当前实现不再持有 ReplyGenerator / MessageSender，
-    改为通过事件队列注入合成事件来触发完整 Pipeline。
+
+    通过组合模式委托限制检查、白名单管理和智能增强逻辑。
+    核心职责：检测 → 约束检查 → 入队 → 任务处理 → 事件注入。
     """
-    
+
     def __init__(
         self,
         astrbot_context=None,
@@ -74,102 +80,210 @@ class ProactiveReplyManager:
         self.astrbot_context = astrbot_context
         self.event_queue = event_queue
         self._config_manager = config_manager
-        
-        # 配置（默认值，会被动态配置覆盖）
+
+        # 配置
         self.enabled = self.config.get("enable_proactive_reply", True)
-        self._default_cooldown = self.config.get("reply_cooldown", 60)
-        self._default_max_daily = self.config.get("max_daily_replies", 20)
-        
-        # 群聊白名单（静态配置，空列表表示允许所有群聊）
-        self.group_whitelist = self.config.get("group_whitelist", [])
-        if isinstance(self.group_whitelist, str):
-            self.group_whitelist = [self.group_whitelist] if self.group_whitelist else []
-        elif not isinstance(self.group_whitelist, list):
-            self.group_whitelist = []
-        self.group_whitelist = [str(group_id) for group_id in self.group_whitelist if group_id]
-        
-        # 群聊白名单模式（开启后需管理员用指令控制各群聊的主动回复开关）
-        self.group_whitelist_mode = self.config.get("group_whitelist_mode", False)
-        # 动态群聊白名单（通过指令管理，仅在 group_whitelist_mode 开启时生效）
-        dynamic_whitelist = self.config.get("dynamic_whitelist", [])
-        if isinstance(dynamic_whitelist, str):
-            dynamic_whitelist = [dynamic_whitelist] if dynamic_whitelist else []
-        elif not isinstance(dynamic_whitelist, list):
-            dynamic_whitelist = []
-        self._dynamic_whitelist: set = set(str(group_id) for group_id in dynamic_whitelist if group_id)
-        
-        # 状态跟踪（有界，防止内存无限增长）
-        self.last_reply_time: BoundedDict[str, float] = BoundedDict(max_size=2000)
-        self.daily_reply_count: BoundedDict[str, int] = BoundedDict(max_size=2000)
-        self.pending_tasks: asyncio.Queue = asyncio.Queue()
-        self.processing_task: Optional[asyncio.Task] = None
-        self.is_running = False
-        
-        self._last_user_message_time: BoundedDict[str, float] = BoundedDict(max_size=2000)
-        
-        # 连续回复限制（防止短时间内对同一会话过度回复）
-        self._recent_replies: BoundedDict[str, List[float]] = BoundedDict(max_size=500)
-        self.MAX_CONSECUTIVE_REPLIES: int = 3   # 窗口内最多连续回复次数
-        self.CONSECUTIVE_WINDOW: int = 300       # 5分钟窗口（秒）
-        
-        # 每日计数重置日期跟踪（惰性重置：在检查时判断是否跨日）
-        self._last_reset_date: date = date.today()
-        
-        # 已排队等待处理的会话（防止同一会话重复入队）
-        self._queued_sessions: set = set()
-        
-        self._processing_sessions: set = set()
-        
-        # 启动冷却期：重启后一段时间内禁用主动回复，防止状态丢失导致连续回复
-        # 原因：_recent_replies 和 last_reply_time 在重启后为空
-        self._startup_time: Optional[float] = None
-        self.STARTUP_COOLDOWN_SECONDS: int = 120  # 启动后2分钟内禁用主动回复
-        
-        # 群冷却检查回调：(group_id: str) -> bool
-        # 由 CooldownModule 注入，用于在主动回复前检查群冷却状态
-        self._cooldown_checker: Optional[Any] = None
-        
+
+        # 组合模块
+        self._constraints = ProactiveConstraints(
+            config_manager=config_manager,
+            default_cooldown=self.config.get("reply_cooldown", 60),
+            default_max_daily=self.config.get("max_daily_replies", 20),
+        )
+        self._whitelist = ProactiveWhitelist(
+            group_whitelist=self._parse_list_config("group_whitelist"),
+            group_whitelist_mode=self.config.get("group_whitelist_mode", False),
+            dynamic_whitelist=self._parse_list_config("dynamic_whitelist"),
+        )
         self.stats = {
             "replies_sent": 0,
             "replies_skipped": 0,
             "replies_failed": 0,
             "replies_consecutive_limited": 0,
+            "tasks_cleared_on_bot_reply": 0,
             "smart_boost_activations": 0,
             "smart_boost_delay_reductions": 0,
-            "tasks_cleared_on_bot_reply": 0,
         }
-    
+
+        self._smart_boost = SmartBoostManager(
+            config=self.config,
+            config_manager=config_manager,
+            stats=self.stats,
+        )
+
+        # 任务队列
+        self.pending_tasks: asyncio.Queue = asyncio.Queue()
+        self.processing_task: Optional[asyncio.Task] = None
+        self.is_running = False
+
+        # 已排队/处理中的会话（防止同一会话重复入队）
+        self._queued_sessions: set = set()
+        self._processing_sessions: set = set()
+
+        # 群冷却检查回调：(group_id: str) -> bool
+        self._cooldown_checker: Optional[Any] = None
+
+    def _parse_list_config(self, key: str) -> List[str]:
+        """统一解析列表类型配置
+
+        Args:
+            key: 配置键名
+
+        Returns:
+            字符串列表，自动处理 str/list/其他类型
+        """
+        value = self.config.get(key, [])
+        if isinstance(value, str):
+            return [value] if value else []
+        if isinstance(value, list):
+            return [str(v) for v in value if v]
+        return []
+
+    # ========== 兼容性代理属性 ==========
+    # 以下属性保持向后兼容，委托给组合模块
+
+    @property
+    def last_reply_time(self):
+        return self._constraints.last_reply_time
+
+    @property
+    def daily_reply_count(self):
+        return self._constraints.daily_reply_count
+
+    @property
+    def _last_user_message_time(self):
+        return self._smart_boost._last_user_message_time
+
+    @property
+    def _recent_replies(self):
+        return self._constraints._recent_replies
+
+    @property
+    def MAX_CONSECUTIVE_REPLIES(self) -> int:
+        return self._constraints.MAX_CONSECUTIVE_REPLIES
+
+    @MAX_CONSECUTIVE_REPLIES.setter
+    def MAX_CONSECUTIVE_REPLIES(self, value: int) -> None:
+        self._constraints.MAX_CONSECUTIVE_REPLIES = value
+
+    @property
+    def CONSECUTIVE_WINDOW(self) -> int:
+        return self._constraints.CONSECUTIVE_WINDOW
+
+    @CONSECUTIVE_WINDOW.setter
+    def CONSECUTIVE_WINDOW(self, value: int) -> None:
+        self._constraints.CONSECUTIVE_WINDOW = value
+
+    @property
+    def _startup_time(self):
+        return self._constraints._startup_time
+
+    @_startup_time.setter
+    def _startup_time(self, value):
+        self._constraints._startup_time = value
+
+    @property
+    def STARTUP_COOLDOWN_SECONDS(self) -> int:
+        return self._constraints.STARTUP_COOLDOWN_SECONDS
+
+    @STARTUP_COOLDOWN_SECONDS.setter
+    def STARTUP_COOLDOWN_SECONDS(self, value: int) -> None:
+        self._constraints.STARTUP_COOLDOWN_SECONDS = value
+
+    @property
+    def _default_cooldown(self):
+        return self._constraints._default_cooldown
+
+    @_default_cooldown.setter
+    def _default_cooldown(self, value):
+        self._constraints._default_cooldown = value
+
+    @property
+    def _default_max_daily(self):
+        return self._constraints._default_max_daily
+
+    @_default_max_daily.setter
+    def _default_max_daily(self, value):
+        self._constraints._default_max_daily = value
+
+    @property
+    def _last_reset_date(self):
+        return self._constraints._last_reset_date
+
+    @_last_reset_date.setter
+    def _last_reset_date(self, value):
+        self._constraints._last_reset_date = value
+
+    @property
+    def group_whitelist(self):
+        return self._whitelist.group_whitelist
+
+    @group_whitelist.setter
+    def group_whitelist(self, value):
+        self._whitelist.group_whitelist = value
+
+    @property
+    def group_whitelist_mode(self):
+        return self._whitelist.group_whitelist_mode
+
+    @group_whitelist_mode.setter
+    def group_whitelist_mode(self, value):
+        self._whitelist.group_whitelist_mode = value
+
+    @property
+    def _dynamic_whitelist(self):
+        return self._whitelist._dynamic_whitelist
+
+    @_dynamic_whitelist.setter
+    def _dynamic_whitelist(self, value):
+        self._whitelist._dynamic_whitelist = value
+
+    @property
+    def _smart_boost_enabled(self) -> bool:
+        return self._smart_boost.enabled
+
+    @property
+    def _smart_boost_window(self) -> int:
+        return self._smart_boost.window_seconds
+
+    @property
+    def _smart_boost_multiplier(self) -> float:
+        return self._smart_boost.multiplier
+
+    @property
+    def _smart_boost_threshold(self) -> float:
+        return self._smart_boost.threshold
+
+    # ========== 生命周期 ==========
+
     async def initialize(self):
         """初始化"""
         if not self.enabled:
             logger.debug("Proactive reply is disabled")
             return
-        
-        # 检查事件队列是否可用
+
         if not self.event_queue:
-            # 尝试从 context 获取
             if self.astrbot_context and hasattr(self.astrbot_context, '_event_queue'):
                 self.event_queue = self.astrbot_context._event_queue
             if not self.event_queue:
                 logger.debug("Event queue not available, proactive reply disabled")
                 self.enabled = False
                 return
-        
-        # 启动处理循环
+
         self.is_running = True
-        self._startup_time = time.time()
+        self._constraints._startup_time = time.time()
         self.processing_task = asyncio.create_task(self._process_loop())
-        
+
         logger.debug(
             f"Proactive reply manager initialized (event queue mode, "
-            f"startup cooldown: {self.STARTUP_COOLDOWN_SECONDS}s)"
+            f"startup cooldown: {self._constraints.STARTUP_COOLDOWN_SECONDS}s)"
         )
-    
+
     async def stop(self):
         """停止（热更新友好）"""
         logger.debug("[Hot-Reload] Stopping ProactiveReplyManager...")
         self.is_running = False
-        
+
         if self.processing_task:
             self.processing_task.cancel()
             try:
@@ -179,8 +293,7 @@ class ProactiveReplyManager:
             except Exception as e:
                 logger.warning(f"[Hot-Reload] Error cancelling processing task: {e}")
             self.processing_task = None
-        
-        # 处理剩余的任务
+
         while not self.pending_tasks.empty():
             try:
                 task = self.pending_tasks.get_nowait()
@@ -189,30 +302,21 @@ class ProactiveReplyManager:
                 break
             except Exception as e:
                 logger.error(f"Error processing pending task during shutdown: {e}")
-        
+
         logger.debug("[Hot-Reload] ProactiveReplyManager stopped")
-    
+
+    # ========== 任务管理 ==========
+
     def clear_pending_tasks_for_session(
         self,
         user_id: str,
-        group_id: Optional[str] = None
+        group_id: Optional[str] = None,
     ) -> int:
-        """清除指定会话的待处理任务
-        
-        当 Bot 发送消息后调用，清除该会话中尚未发送的主动回复任务。
-        这样可以避免 Bot 已经回复后，又发送过时的主动回复。
-        
-        Args:
-            user_id: 用户 ID
-            group_id: 群聊 ID（可选）
-            
-        Returns:
-            int: 清除的任务数量
-        """
+        """清除指定会话的待处理任务"""
         session_key = SessionKeyBuilder.build(user_id, group_id)
         cleared_count = 0
         remaining_tasks = []
-        
+
         while not self.pending_tasks.empty():
             try:
                 task = self.pending_tasks.get_nowait()
@@ -223,25 +327,21 @@ class ProactiveReplyManager:
                     cleared_count += 1
             except asyncio.QueueEmpty:
                 break
-        
+
         for task in remaining_tasks:
             self.pending_tasks.put_nowait(task)
-        
+
         if cleared_count > 0:
             self.stats["tasks_cleared_on_bot_reply"] += cleared_count
             logger.debug(
                 f"Cleared {cleared_count} pending proactive tasks for {session_key} "
                 f"(Bot already replied)"
             )
-        
+
         return cleared_count
-    
+
     def clear_all_pending_tasks(self) -> int:
-        """清除所有待处理任务
-        
-        Returns:
-            int: 清除的任务数量
-        """
+        """清除所有待处理任务"""
         cleared_count = self.pending_tasks.qsize()
         while not self.pending_tasks.empty():
             try:
@@ -249,47 +349,9 @@ class ProactiveReplyManager:
             except asyncio.QueueEmpty:
                 break
         return cleared_count
-    
-    def _get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
-        """获取冷却时间"""
-        if self._config_manager:
-            return self._config_manager.get_cooldown_seconds(group_id)
-        return self._default_cooldown
-    
-    def _get_max_daily_replies(self, group_id: Optional[str] = None) -> int:
-        """获取每日最大回复数"""
-        if self._config_manager:
-            return self._config_manager.get_max_daily_replies(group_id)
-        return self._default_max_daily
-    
-    @property
-    def _smart_boost_enabled(self) -> bool:
-        """获取智能增强开关"""
-        if self._config_manager:
-            return self._config_manager.smart_boost_enabled
-        return self.config.get("smart_boost_enabled", False)
-    
-    @property
-    def _smart_boost_window(self) -> int:
-        """获取智能增强窗口时间（秒）"""
-        if self._config_manager:
-            return self._config_manager.smart_boost_window_seconds
-        return self.config.get("smart_boost_window_seconds", 300)
-    
-    @property
-    def _smart_boost_multiplier(self) -> float:
-        """获取智能增强分数乘数"""
-        if self._config_manager:
-            return self._config_manager.smart_boost_score_multiplier
-        return self.config.get("smart_boost_score_multiplier", 1.5)
-    
-    @property
-    def _smart_boost_threshold(self) -> float:
-        """获取智能增强回复阈值"""
-        if self._config_manager:
-            return self._config_manager.smart_boost_reply_threshold
-        return self.config.get("smart_boost_reply_threshold", 0.5)
-    
+
+    # ========== 核心流程 ==========
+
     async def handle_batch(
         self,
         messages: List[str],
@@ -302,78 +364,63 @@ class ProactiveReplyManager:
         """处理批量消息，判断是否需要主动回复"""
         if not self.enabled or not messages:
             return
-        
-        # 检查启动冷却期（防止重启后状态丢失导致连续回复）
-        if self._is_in_startup_cooldown():
+
+        if self._constraints.is_in_startup_cooldown():
             logger.debug("Proactive reply in startup cooldown, skipping")
             return
-        
-        # 检查群冷却
+
         if group_id and self._cooldown_checker and self._cooldown_checker(group_id):
             logger.debug(f"Group {group_id} is in cooldown, skipping proactive reply")
             return
-        
+
         session_key = SessionKeyBuilder.build(user_id, group_id)
-        
-        # 记录用户发言时间（供智能增强窗口使用）
-        # 智能增强在用户活跃期间提升回复概率，窗口基于用户发言时间而非 Bot 回复时间，
-        # 避免 Bot 自身回复不断刷新窗口导致"滚雪球"式连续回复
-        self._record_user_message(user_id, group_id)
-        
-        # 检查每日限制（硬限制，不受紧急度影响）
-        if self._is_daily_limit_reached(user_id, group_id):
+        self._smart_boost.record_user_message(user_id, group_id)
+
+        if self._constraints.is_daily_limit_reached(user_id, group_id):
             logger.debug(f"Daily proactive reply limit reached for {user_id}")
             return
-        
-        # 检查连续回复限制
-        if self._is_consecutive_limit_reached(session_key):
+
+        if self._constraints.is_consecutive_limit_reached(session_key):
             logger.debug(
                 f"Consecutive reply limit reached for {session_key} "
-                f"({self.MAX_CONSECUTIVE_REPLIES} in {self.CONSECUTIVE_WINDOW}s)"
+                f"({self._constraints.MAX_CONSECUTIVE_REPLIES} "
+                f"in {self._constraints.CONSECUTIVE_WINDOW}s)"
             )
             self.stats["replies_consecutive_limited"] += 1
             return
-        
-        # 检查群聊白名单
-        if group_id:
-            if not self._is_group_allowed(group_id):
-                logger.debug(f"Group {group_id} not allowed for proactive reply, skipping")
-                return
-        
-        # 使用检测器分析
+
+        if group_id and not self._whitelist.is_group_allowed(group_id):
+            logger.debug(f"Group {group_id} not allowed for proactive reply, skipping")
+            return
+
         if not self.reply_detector:
             return
-        
+
         try:
             decision = await self.reply_detector.analyze(
                 messages=messages,
                 user_id=user_id,
                 group_id=group_id,
-                context=context
+                context=context,
             )
-            
-            # 应用智能增强：在检测结果基础上，根据用户活跃度调整回复概率和延迟
-            # 若用户在增强窗口内（Bot 近期发送过主动回复），则提升回复概率或缩短延迟
-            decision = self._apply_smart_boost(decision, user_id, group_id)
-            
+
+            decision = self._smart_boost.apply(decision, user_id, group_id)
+
             if decision.should_reply:
-                # 基于紧急度的动态冷却检查
-                if self._is_in_cooldown(session_key, group_id,
-                                        urgency=decision.urgency.value):
+                if self._constraints.is_in_cooldown(
+                    session_key, group_id, urgency=decision.urgency.value
+                ):
                     logger.debug(
                         f"Proactive reply in cooldown for {session_key} "
                         f"(urgency={decision.urgency.value})"
                     )
                     return
-                
-                # 防止同一会话重复入队
+
                 if session_key in self._queued_sessions:
-                    logger.debug(
-                        f"Task already queued for {session_key}, skipping"
-                    )
+                    logger.debug(f"Task already queued for {session_key}, skipping")
                     self.stats["replies_skipped"] += 1
                     return
-                
+
                 task = ProactiveReplyTask(
                     messages=messages,
                     user_id=user_id,
@@ -383,231 +430,71 @@ class ProactiveReplyManager:
                     umo=umo,
                     persona_id=persona_id,
                 )
-                
+
                 await self.pending_tasks.put(task)
                 self._queued_sessions.add(session_key)
-                
-                logger.debug(f"Proactive reply queued for {session_key}, "
-                           f"urgency: {decision.urgency.value}")
+
+                logger.debug(
+                    f"Proactive reply queued for {session_key}, "
+                    f"urgency: {decision.urgency.value}"
+                )
             else:
                 self.stats["replies_skipped"] += 1
-                
+
         except Exception as e:
             logger.error(f"Error in proactive reply detection: {e}")
-    
-    # ========== 智能增强 ==========
-    
-    def _record_user_message(self, user_id: str, group_id: Optional[str] = None) -> None:
-        """记录用户发言时间（供智能增强使用）"""
-        key = SessionKeyBuilder.build(user_id, group_id)
-        self._last_user_message_time[key] = time.time()
-    
-    def is_in_boost_window(self, user_id: str, group_id: Optional[str] = None) -> bool:
-        """检查是否在智能增强窗口内"""
-        if not self._smart_boost_enabled:
-            return False
-        # 运行时检查 proactive_mode（支持动态配置更新）
-        if self._config_manager:
-            mode = self._config_manager.proactive_mode
-            if mode not in ("llm", "hybrid"):
-                return False
-        key = SessionKeyBuilder.build(user_id, group_id)
-        last_time = self._last_user_message_time.get(key)
-        if last_time is None:
-            return False
-        elapsed = time.time() - last_time
-        return elapsed < self._smart_boost_window
-    
-    def get_boost_multiplier(self, user_id: str, group_id: Optional[str] = None) -> float:
-        """获取当前智能增强乘数（线性衰减）
-        
-        Returns:
-            乘数值，不在增强窗口内返回 1.0
-        """
-        if not self.is_in_boost_window(user_id, group_id):
-            return 1.0
-        key = SessionKeyBuilder.build(user_id, group_id)
-        last_time = self._last_user_message_time.get(key)
-        if last_time is None:
-            return 1.0
-        elapsed = time.time() - last_time
-        # 线性衰减：刚发言时乘数最大，窗口结束时衰减到 1.0
-        decay = 1 - (elapsed / self._smart_boost_window)
-        return 1.0 + (self._smart_boost_multiplier - 1.0) * decay
-    
-    def _apply_smart_boost(
-        self,
-        decision: Union[ProactiveReplyDecision, "LLMReplyDecision"],
-        user_id: str,
-        group_id: Optional[str] = None
-    ) -> Union[ProactiveReplyDecision, "LLMReplyDecision"]:
-        """对检测决策应用智能增强
-        
-        在检测器返回结果之后、提交任务之前调用。
-        - 若决策已为 should_reply=True：缩短建议延迟
-        - 若决策为不回复但分数可被增强到阈值以上：翻转为回复
-        
-        Args:
-            decision: 检测器返回的决策（ProactiveReplyDecision 或 LLMReplyDecision）
-            user_id: 用户 ID
-            group_id: 群聊 ID
-            
-        Returns:
-            可能被修改的决策对象（原地修改）
-        """
-        multiplier = self.get_boost_multiplier(user_id, group_id)
-        if multiplier <= 1.0:
-            return decision
-        
-        # 已经要回复 → 缩短延迟
-        if decision.should_reply:
-            original_delay = decision.suggested_delay
-            decision.suggested_delay = max(0, int(original_delay / multiplier))
-            if original_delay != decision.suggested_delay:
-                self.stats["smart_boost_delay_reductions"] += 1
-                logger.debug(
-                    f"Smart boost reduced delay: {original_delay}s → "
-                    f"{decision.suggested_delay}s (×{multiplier:.2f})"
-                )
-            return decision
-        
-        # 不回复 → 尝试增强分数
-        reply_score = 0.0
-        reply_context = getattr(decision, 'reply_context', None)
-        if isinstance(reply_context, dict):
-            reply_score = reply_context.get("reply_score", 0.0)
-        
-        # LLM 纯路径可能没有 reply_score，使用 confidence 作为回退
-        if reply_score <= 0 and hasattr(decision, 'confidence'):
-            reply_score = getattr(decision, 'confidence', 0.0) * 0.5
-        
-        if reply_score <= 0:
-            return decision
-        
-        boosted_score = reply_score * multiplier
-        
-        if boosted_score >= self._smart_boost_threshold:
-            decision.should_reply = True
-            if boosted_score >= 0.5:
-                decision.urgency = ReplyUrgency.HIGH
-                decision.suggested_delay = max(5, int(10 / multiplier))
-            elif boosted_score >= 0.4:
-                decision.urgency = ReplyUrgency.MEDIUM
-                decision.suggested_delay = max(10, int(20 / multiplier))
-            else:
-                decision.urgency = ReplyUrgency.MEDIUM
-                decision.suggested_delay = max(15, int(30 / multiplier))
-            
-            original_reason = decision.reason or ""
-            decision.reason = (
-                f"{original_reason} + smart_boost"
-                f"(×{multiplier:.2f}, {reply_score:.2f}→{boosted_score:.2f})"
-            )
-            
-            if isinstance(reply_context, dict):
-                reply_context["reply_score"] = boosted_score
-                reply_context["smart_boost_applied"] = True
-                reply_context["smart_boost_multiplier"] = multiplier
-            
-            logger.debug(
-                f"Smart boost activated: score {reply_score:.2f} → "
-                f"{boosted_score:.2f} (×{multiplier:.2f})"
-            )
-            self.stats["smart_boost_activations"] += 1
-        
-        return decision
-    
+
     async def _process_loop(self):
         """处理循环"""
         while self.is_running:
             try:
-                # 获取任务
                 task = await asyncio.wait_for(
                     self.pending_tasks.get(),
-                    timeout=1.0
+                    timeout=1.0,
                 )
-                
-                # 处理任务
                 await self._process_task(task)
-                
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
                 break
+            except RuntimeError as e:
+                logger.error(f"Runtime error in process loop: {e}")
+                await asyncio.sleep(1)
             except Exception as e:
-                logger.error(f"Error in proactive reply process loop: {e}")
-    
+                logger.exception(f"Unexpected error in process loop: {e}")
+                await asyncio.sleep(5)
+
     async def _process_task(self, task: ProactiveReplyTask, skip_delay: bool = False):
         """处理回复任务：构造合成事件并注入事件队列"""
         session_key = SessionKeyBuilder.build(task.user_id, task.group_id)
-        
+
         try:
             delay = task.decision.suggested_delay
             if delay > 0 and not skip_delay:
                 await asyncio.sleep(delay)
-            
+
             if session_key in self._processing_sessions:
                 logger.debug(
                     f"Proactive reply cancelled, another task is processing for {session_key}"
                 )
                 self.stats["replies_skipped"] += 1
                 return
-            
+
             self._processing_sessions.add(session_key)
-            
+
             if not self.event_queue or not self.astrbot_context:
                 logger.debug("Event queue or context not available, skip proactive reply")
                 self.stats["replies_failed"] += 1
                 return
-            
+
             trigger_prompt = self._build_trigger_prompt(task)
-            
             if not trigger_prompt:
                 logger.warning(f"Failed to build trigger prompt for {task.user_id}")
                 self.stats["replies_failed"] += 1
                 return
-            
-            sender_name = task.context.get("sender_name", "")
-            
-            recent_messages = []
-            for msg in task.messages[-5:]:
-                recent_messages.append({
-                    "sender_name": sender_name or task.user_id,
-                    "content": msg[:200]
-                })
-            
-            reply_context = task.decision.reply_context or {}
-            emotion_data = reply_context.get("emotion", {})
-            emotion_summary = ""
-            if emotion_data:
-                primary = emotion_data.get("primary", "")
-                intensity = emotion_data.get("intensity", 0)
-                if primary:
-                    emotion_summary = f"{primary}（强度 {intensity:.1f}）"
-            
-            proactive_context = {
-                "reason": task.decision.reason,
-                "urgency": task.decision.urgency.value,
-                "reply_context": reply_context,
-                "message_count": len(task.messages),
-                "user_id": task.user_id,
-                "group_id": task.group_id,
-                "recent_messages": recent_messages,
-                "emotion_summary": emotion_summary,
-                "target_user": sender_name or task.user_id,
-            }
-            
-            proactive_event = ProactiveMessageEvent(
-                context=self.astrbot_context,
-                umo=task.umo,
-                trigger_prompt=trigger_prompt,
-                user_id=task.user_id,
-                sender_name=sender_name,
-                group_id=task.group_id,
-                proactive_context=proactive_context,
-                persona_id=task.persona_id,
-            )
-            
+
+            proactive_event = self._build_proactive_event(task, trigger_prompt)
+
             try:
                 self.event_queue.put_nowait(proactive_event)
             except asyncio.QueueFull:
@@ -616,50 +503,82 @@ class ProactiveReplyManager:
                 )
                 self.stats["replies_failed"] += 1
                 return
-            
+
             self.stats["replies_sent"] += 1
-            
-            self.last_reply_time[session_key] = asyncio.get_running_loop().time()
-            
-            # 记录连续回复时间（供连续回复限制使用）
-            self._record_reply_time(session_key)
-            
-            count_key = SessionKeyBuilder.build(task.user_id, task.group_id)
-            self.daily_reply_count[count_key] = \
-                self.daily_reply_count.get(count_key, 0) + 1
-            
+            self._constraints.last_reply_time[session_key] = (
+                asyncio.get_running_loop().time()
+            )
+            self._constraints.record_reply_time(session_key)
+            self._constraints.increment_daily_count(task.user_id, task.group_id)
+
             logger.debug(
                 f"Proactive reply event dispatched for {task.user_id}, "
                 f"urgency: {task.decision.urgency.value}, "
                 f"reason: {task.decision.reason}"
             )
-                
+
         except Exception as e:
             logger.error(f"Error processing proactive reply task: {e}")
             self.stats["replies_failed"] += 1
         finally:
             self._processing_sessions.discard(session_key)
             self._queued_sessions.discard(session_key)
-    
+
+    # ========== 事件构造 ==========
+
+    def _build_proactive_event(
+        self,
+        task: ProactiveReplyTask,
+        trigger_prompt: str,
+    ) -> ProactiveMessageEvent:
+        """构造主动回复合成事件"""
+        sender_name = task.context.get("sender_name", "")
+
+        recent_messages = [
+            {"sender_name": sender_name or task.user_id, "content": msg[:200]}
+            for msg in task.messages[-5:]
+        ]
+
+        reply_context = task.decision.reply_context or {}
+        emotion_data = reply_context.get("emotion", {})
+        emotion_summary = ""
+        if emotion_data:
+            primary = emotion_data.get("primary", "")
+            intensity = emotion_data.get("intensity", 0)
+            if primary:
+                emotion_summary = f"{primary}（强度 {intensity:.1f}）"
+
+        proactive_context = {
+            "reason": task.decision.reason,
+            "urgency": task.decision.urgency.value,
+            "reply_context": reply_context,
+            "message_count": len(task.messages),
+            "user_id": task.user_id,
+            "group_id": task.group_id,
+            "recent_messages": recent_messages,
+            "emotion_summary": emotion_summary,
+            "target_user": sender_name or task.user_id,
+        }
+
+        return ProactiveMessageEvent(
+            context=self.astrbot_context,
+            umo=task.umo,
+            trigger_prompt=trigger_prompt,
+            user_id=task.user_id,
+            sender_name=sender_name,
+            group_id=task.group_id,
+            proactive_context=proactive_context,
+            persona_id=task.persona_id,
+        )
+
     def _build_trigger_prompt(self, task: ProactiveReplyTask) -> str:
-        """构建触发提示词
-        
-        这段文字会作为合成事件的 message_str，经过 on_all_messages 后
-        变成 event.request_llm() 的 prompt，再经过 build_main_agent
-        的 _decorate_llm_request（注入人格、技能等），最终由 LLM 生成回复。
-        
-        关键：不在此处生成最终回复，只提供触发意图和背景上下文。
-        """
+        """构建触发提示词"""
         reply_context = task.decision.reply_context or {}
         reason = reply_context.get("reason", task.decision.reason)
-        
-        # 最近用户消息摘要
+
         recent_messages = task.messages[-5:] if task.messages else []
-        messages_summary = "\n".join(
-            f"- {msg[:100]}" for msg in recent_messages
-        )
-        
-        # 情感信息
+        messages_summary = "\n".join(f"- {msg[:100]}" for msg in recent_messages)
+
         emotion_info = ""
         emotion_data = reply_context.get("emotion", {})
         if emotion_data:
@@ -667,8 +586,8 @@ class ProactiveReplyManager:
             intensity = emotion_data.get("intensity", 0)
             if primary:
                 emotion_info = f"\n用户当前情绪：{primary}（强度 {intensity:.1f}）"
-        
-        prompt = (
+
+        return (
             f"你现在要主动在群聊进行发言。\n"
             f"发言原因：{reason}\n"
             f"用户最近的消息：\n{messages_summary}"
@@ -681,176 +600,94 @@ class ProactiveReplyManager:
             f"- 回复内容保持自己的人格\n"
             f"- 避免机械式回应，要有个性化的互动"
         )
-        
-        return prompt
-    
-    def _is_in_cooldown(self, session_key: str, group_id: Optional[str] = None,
-                        urgency: Optional[str] = None) -> bool:
-        """检查是否在冷却中
-        
-        支持基于 urgency 的动态冷却：
-        - critical: 冷却时间 × 0.5（紧急事件缩短冷却）
-        - high: 冷却时间 × 0.75
-        - medium: 冷却时间 × 1.0（默认）
-        - low: 冷却时间 × 1.5
-        """
-        if session_key not in self.last_reply_time:
-            return False
-        
-        elapsed = asyncio.get_running_loop().time() - self.last_reply_time[session_key]
-        base_cooldown = self._get_cooldown_seconds(group_id)
-        
-        # 根据紧急度调整冷却时间
-        from iris_memory.core.constants import UrgencyCooldownMultiplier
-        urgency_multiplier = {
-            "critical": UrgencyCooldownMultiplier.CRITICAL,
-            "high": UrgencyCooldownMultiplier.HIGH,
-            "medium": UrgencyCooldownMultiplier.MEDIUM,
-            "low": UrgencyCooldownMultiplier.LOW,
-        }
-        multiplier = urgency_multiplier.get(urgency, 1.0)
-        effective_cooldown = base_cooldown * multiplier
-        
-        return elapsed < effective_cooldown
-    
-    def _check_daily_reset(self) -> None:
-        """惰性检查是否跨日，跨日则重置每日计数
-        
-        在每次检查每日限制前调用，避免需要后台定时任务。
-        """
-        today = date.today()
-        if self._last_reset_date != today:
-            self.daily_reply_count.clear()
-            self._last_reset_date = today
-            logger.debug("Daily proactive reply counts reset (new day)")
-    
-    def _is_daily_limit_reached(self, user_id: str, group_id: Optional[str] = None) -> bool:
-        """检查是否达到每日限制"""
-        self._check_daily_reset()
-        count_key = SessionKeyBuilder.build(user_id, group_id)
-        count = self.daily_reply_count.get(count_key, 0)
-        return count >= self._get_max_daily_replies(group_id)
-    
-    def _is_consecutive_limit_reached(self, session_key: str) -> bool:
-        """检查是否达到连续回复限制
-        
-        在 CONSECUTIVE_WINDOW 时间窗口内，同一会话最多允许
-        MAX_CONSECUTIVE_REPLIES 次主动回复，防止短时间内过度打扰。
-        
-        Args:
-            session_key: 会话标识
-            
-        Returns:
-            True 表示已达到限制，应跳过本次回复
-        """
-        now = time.time()
-        replies = self._recent_replies.get(session_key, [])
-        # 过滤窗口外的记录
-        replies = [t for t in replies if now - t < self.CONSECUTIVE_WINDOW]
-        self._recent_replies[session_key] = replies
-        return len(replies) >= self.MAX_CONSECUTIVE_REPLIES
-    
-    def _record_reply_time(self, session_key: str) -> None:
-        """记录一次主动回复时间（供连续回复限制使用）
-        
-        Args:
-            session_key: 会话标识
-        """
-        now = time.time()
-        replies = self._recent_replies.get(session_key, [])
-        # 清理过期记录后追加
-        replies = [t for t in replies if now - t < self.CONSECUTIVE_WINDOW]
-        replies.append(now)
-        self._recent_replies[session_key] = replies
-    
-    def _is_in_startup_cooldown(self) -> bool:
-        """检查是否在启动冷却期内
-        
-        重启后 _recent_replies 和 last_reply_time 为空，可能导致连续回复。
-        启动冷却期确保有足够时间让用户发送消息，建立正常状态。
-        
-        Returns:
-            True 表示仍在冷却期内，应跳过主动回复
-        """
-        if self._startup_time is None:
-            return False
-        elapsed = time.time() - self._startup_time
-        return elapsed < self.STARTUP_COOLDOWN_SECONDS
-    
+
+    # ========== 委托方法（保持向后兼容） ==========
+
+    def _record_user_message(self, user_id: str, group_id: Optional[str] = None) -> None:
+        """记录用户发言时间"""
+        self._smart_boost.record_user_message(user_id, group_id)
+
+    def is_in_boost_window(self, user_id: str, group_id: Optional[str] = None) -> bool:
+        """检查是否在智能增强窗口内"""
+        return self._smart_boost.is_in_boost_window(user_id, group_id)
+
+    def get_boost_multiplier(self, user_id: str, group_id: Optional[str] = None) -> float:
+        """获取当前智能增强乘数"""
+        return self._smart_boost.get_boost_multiplier(user_id, group_id)
+
+    def _apply_smart_boost(self, decision, user_id, group_id=None):
+        """应用智能增强"""
+        return self._smart_boost.apply(decision, user_id, group_id)
+
+    def _is_in_cooldown(self, session_key, group_id=None, urgency=None):
+        """检查冷却"""
+        return self._constraints.is_in_cooldown(session_key, group_id, urgency)
+
+    def _check_daily_reset(self):
+        """检查每日重置"""
+        self._constraints.check_daily_reset()
+
+    def _is_daily_limit_reached(self, user_id, group_id=None):
+        """检查每日限制"""
+        return self._constraints.is_daily_limit_reached(user_id, group_id)
+
+    def _is_consecutive_limit_reached(self, session_key):
+        """检查连续回复限制"""
+        return self._constraints.is_consecutive_limit_reached(session_key)
+
+    def _record_reply_time(self, session_key):
+        """记录回复时间"""
+        self._constraints.record_reply_time(session_key)
+
+    def _is_in_startup_cooldown(self):
+        """检查启动冷却"""
+        return self._constraints.is_in_startup_cooldown()
+
+    def _is_group_allowed(self, group_id):
+        """检查群聊是否允许"""
+        return self._whitelist.is_group_allowed(group_id)
+
+    def add_group_to_whitelist(self, group_id):
+        """加入白名单"""
+        return self._whitelist.add_group(group_id)
+
+    def remove_group_from_whitelist(self, group_id):
+        """移出白名单"""
+        return self._whitelist.remove_group(group_id)
+
+    def is_group_in_whitelist(self, group_id):
+        """检查是否在白名单"""
+        return self._whitelist.is_group_in_whitelist(group_id)
+
+    def get_whitelist(self):
+        """获取白名单"""
+        return self._whitelist.get_whitelist()
+
+    def serialize_whitelist(self):
+        """序列化白名单"""
+        return self._whitelist.serialize()
+
+    def deserialize_whitelist(self, data):
+        """反序列化白名单"""
+        self._whitelist.deserialize(data)
+
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
         return {
             **self.stats,
             "pending_tasks": self.pending_tasks.qsize(),
-            "last_reply_times": len(self.last_reply_time),
-            "daily_counts": self.daily_reply_count.copy()
+            "last_reply_times": len(self._constraints.last_reply_time),
+            "daily_counts": self._constraints.daily_reply_count.copy(),
         }
-    
+
     def reset_daily_counts(self):
         """重置每日计数"""
-        self.daily_reply_count.clear()
-        logger.debug("Daily proactive reply counts reset")
-    
-    # ========== 群聊白名单管理 ==========
-    
-    def _is_group_allowed(self, group_id: str) -> bool:
-        """检查群聊是否允许主动回复
-        
-        判断逻辑：
-        1. 如果开启了群聊白名单模式，只允许在动态白名单中的群聊
-        2. 如果没有开启白名单模式，检查静态白名单（空列表表示允许所有）
-        """
-        group_id_str = str(group_id)
-        
-        if self.group_whitelist_mode:
-            # 白名单模式：仅允许动态白名单中的群聊
-            return group_id_str in self._dynamic_whitelist
-        
-        # 非白名单模式：检查静态白名单（空列表表示允许所有）
-        if self.group_whitelist:
-            return group_id_str in self.group_whitelist
-        return True
-    
-    def add_group_to_whitelist(self, group_id: str) -> bool:
-        """将群聊加入动态白名单
-        
-        Returns:
-            bool: 是否成功添加（如果已存在则返回false）
-        """
-        group_id_str = str(group_id)
-        if group_id_str in self._dynamic_whitelist:
-            return False
-        self._dynamic_whitelist.add(group_id_str)
-        logger.debug(f"Group {group_id} added to proactive reply whitelist")
-        return True
-    
-    def remove_group_from_whitelist(self, group_id: str) -> bool:
-        """将群聊从动态白名单移除
-        
-        Returns:
-            bool: 是否成功移除（如果不存在则返回false）
-        """
-        group_id_str = str(group_id)
-        if group_id_str not in self._dynamic_whitelist:
-            return False
-        self._dynamic_whitelist.discard(group_id_str)
-        logger.debug(f"Group {group_id} removed from proactive reply whitelist")
-        return True
-    
-    def is_group_in_whitelist(self, group_id: str) -> bool:
-        """检查群聊是否在动态白名单中"""
-        return str(group_id) in self._dynamic_whitelist
-    
-    def get_whitelist(self) -> list:
-        """获取动态白名单列表"""
-        return sorted(self._dynamic_whitelist)
-    
-    def serialize_whitelist(self) -> list:
-        """序列化动态白名单（用于KV存储）"""
-        return sorted(self._dynamic_whitelist)
-    
-    def deserialize_whitelist(self, data: list) -> None:
-        """反序列化动态白名单（从 KV 存储加载）"""
-        if isinstance(data, list):
-            self._dynamic_whitelist = set(str(g) for g in data)
-            logger.debug(f"Loaded {len(self._dynamic_whitelist)} groups to proactive reply whitelist")
+        self._constraints.reset_daily_counts()
+
+    def _get_cooldown_seconds(self, group_id=None):
+        """获取冷却秒数"""
+        return self._constraints.get_cooldown_seconds(group_id)
+
+    def _get_max_daily_replies(self, group_id=None):
+        """获取每日最大回复数"""
+        return self._constraints.get_max_daily_replies(group_id)

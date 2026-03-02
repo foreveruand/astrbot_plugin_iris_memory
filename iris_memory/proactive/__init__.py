@@ -14,6 +14,9 @@ from .proactive_reply_detector import (
 )
 from .proactive_manager import ProactiveReplyManager, ProactiveReplyTask
 from .proactive_event import ProactiveMessageEvent
+from .proactive_constraints import ProactiveConstraints
+from .proactive_whitelist import ProactiveWhitelist
+from .proactive_smart_boost import SmartBoostManager
 
 __all__ = [
     'ProactiveReplyDetector',
@@ -21,5 +24,8 @@ __all__ = [
     'ReplyUrgency',
     'ProactiveReplyManager',
     'ProactiveReplyTask',
-    'ProactiveMessageEvent'
+    'ProactiveMessageEvent',
+    'ProactiveConstraints',
+    'ProactiveWhitelist',
+    'SmartBoostManager',
 ]

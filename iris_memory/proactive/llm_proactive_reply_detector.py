@@ -138,6 +138,19 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
             reason="空消息列表",
         )
     
+    def _convert_to_llm_decision(self, decision: ProactiveReplyDecision) -> LLMReplyDecision:
+        """统一转换规则检测结果为 LLMReplyDecision"""
+        return LLMReplyDecision(
+            should_reply=decision.should_reply,
+            urgency=decision.urgency,
+            confidence=0.7,
+            reason=decision.reason,
+            reply_type="chat",
+            suggested_delay=decision.suggested_delay,
+            source="rule",
+            reply_context=decision.reply_context if isinstance(decision.reply_context, dict) else {},
+        )
+
     async def _rule_detect_async(
         self,
         messages: List[str],
@@ -154,16 +167,7 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
             logger.debug(f"Async rule detection failed, falling back to sync: {e}")
             decision = self._sync_rule_detect(messages, user_id, group_id, context)
         
-        return LLMReplyDecision(
-            should_reply=decision.should_reply,
-            urgency=decision.urgency,
-            confidence=0.7,
-            reason=decision.reason,
-            reply_type="chat",
-            suggested_delay=decision.suggested_delay,
-            source="rule",
-            reply_context=decision.reply_context if isinstance(decision.reply_context, dict) else {},
-        )
+        return self._convert_to_llm_decision(decision)
     
     def _rule_detect(
         self,
@@ -174,16 +178,7 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
     ) -> LLMReplyDecision:
         """规则检测（同步回退版本）"""
         decision = self._sync_rule_detect(messages, user_id, group_id, context)
-        return LLMReplyDecision(
-            should_reply=decision.should_reply,
-            urgency=decision.urgency,
-            confidence=0.7,
-            reason=decision.reason,
-            reply_type="chat",
-            suggested_delay=decision.suggested_delay,
-            source="rule",
-            reply_context=decision.reply_context if isinstance(decision.reply_context, dict) else {},
-        )
+        return self._convert_to_llm_decision(decision)
     
     def _sync_rule_detect(
         self,
@@ -268,6 +263,60 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
             reply_context=data.get("reply_context", {}),
         )
     
+    def _classify_hybrid_case(
+        self,
+        rule_result: LLMReplyDecision,
+    ) -> str:
+        """对规则检测结果进行分类，返回检测场景标识
+        
+        Returns:
+            "critical" | "ignore_with_subtle" | "reply_low_conf" | "default"
+        """
+        if rule_result.urgency == ReplyUrgency.CRITICAL:
+            return "critical"
+        if (rule_result.urgency == ReplyUrgency.IGNORE
+                and rule_result.confidence >= 0.8):
+            return "ignore_with_subtle"
+        if rule_result.should_reply and rule_result.confidence < 0.8:
+            return "reply_low_conf"
+        return "default"
+    
+    async def _handle_ignore_with_subtle(
+        self,
+        rule_result: LLMReplyDecision,
+        messages: List[str],
+        user_id: str,
+        group_id: Optional[str],
+        context: Optional[Dict[str, Any]],
+    ) -> LLMReplyDecision:
+        """规则判定忽略但可能存在微妙信号，调用 LLM 确认"""
+        last_message = messages[-1] if messages else ""
+        if self._might_need_reply_anyway(last_message):
+            llm_result = await self._llm_detect(
+                messages, user_id, group_id, context
+            )
+            if llm_result.should_reply:
+                llm_result.source = "hybrid"
+                return llm_result
+        return rule_result
+    
+    async def _handle_reply_low_conf(
+        self,
+        rule_result: LLMReplyDecision,
+        messages: List[str],
+        user_id: str,
+        group_id: Optional[str],
+        context: Optional[Dict[str, Any]],
+    ) -> LLMReplyDecision:
+        """规则判定应回复但置信度低，调用 LLM 确认"""
+        llm_result = await self._llm_detect(
+            messages, user_id, group_id, context
+        )
+        if llm_result.confidence >= 0.6:
+            llm_result.source = "hybrid"
+            return llm_result
+        return rule_result
+
     async def _hybrid_detect(
         self,
         messages: List[str],
@@ -280,31 +329,20 @@ class LLMProactiveReplyDetector(LLMEnhancedDetector[LLMReplyDecision]):
             messages, user_id, group_id, context
         )
         
-        # 紧急 → 直接返回
-        if rule_result.urgency == ReplyUrgency.CRITICAL:
+        case = self._classify_hybrid_case(rule_result)
+        
+        if case == "critical":
             return rule_result
         
-        # 忽略+高置信度 → 检查微妙信号
-        if (rule_result.urgency == ReplyUrgency.IGNORE
-                and rule_result.confidence >= 0.8):
-            last_message = messages[-1] if messages else ""
-            if self._might_need_reply_anyway(last_message):
-                llm_result = await self._llm_detect(
-                    messages, user_id, group_id, context
-                )
-                if llm_result.should_reply:
-                    llm_result.source = "hybrid"
-                    return llm_result
-            return rule_result
-        
-        # 应回复但低置信度 → LLM确认
-        if rule_result.should_reply and rule_result.confidence < 0.8:
-            llm_result = await self._llm_detect(
-                messages, user_id, group_id, context
+        if case == "ignore_with_subtle":
+            return await self._handle_ignore_with_subtle(
+                rule_result, messages, user_id, group_id, context
             )
-            if llm_result.confidence >= 0.6:
-                llm_result.source = "hybrid"
-                return llm_result
+        
+        if case == "reply_low_conf":
+            return await self._handle_reply_low_conf(
+                rule_result, messages, user_id, group_id, context
+            )
         
         rule_result.source = "hybrid"
         return rule_result

@@ -64,6 +64,7 @@ async def manager(mock_reply_detector, mock_context_with_queue):
         },
     )
     await mgr.initialize()
+    mgr._startup_time = 0  # 跳过启动冷却
     yield mgr
     await mgr.stop()
 
@@ -235,6 +236,7 @@ class TestHandleBatchConsecutiveLimit:
             config={"enable_proactive_reply": True},
         )
         await mgr.initialize()
+        mgr._startup_time = 0  # 跳过启动冷却
 
         try:
             with patch("iris_memory.proactive.proactive_manager.ProactiveMessageEvent") as event_cls:

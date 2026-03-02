@@ -62,6 +62,7 @@ async def manager(mock_reply_detector, mock_context_with_queue):
         },
     )
     await proactive_manager.initialize()
+    proactive_manager._startup_time = 0  # 跳过启动冷却
     yield proactive_manager
     await proactive_manager.stop()
 
@@ -120,6 +121,7 @@ class TestHandleBatch:
             config={"enable_proactive_reply": True},
         )
         await proactive_manager.initialize()
+        proactive_manager._startup_time = 0  # 跳过启动冷却
         await proactive_manager.handle_batch(messages=["嗯"], user_id="u1")
         assert proactive_manager.pending_tasks.qsize() == 0
         assert proactive_manager.stats["replies_skipped"] == 1
@@ -182,6 +184,7 @@ class TestTaskDispatch:
             config={"enable_proactive_reply": True},
         )
         await proactive_manager.initialize()
+        proactive_manager._startup_time = 0  # 跳过启动冷却
 
         with patch("iris_memory.proactive.proactive_manager.ProactiveMessageEvent") as event_cls:
             event_cls.return_value = Mock()
@@ -270,6 +273,7 @@ class TestQueuedSessionsDedup:
             config={"enable_proactive_reply": True},
         )
         await proactive_manager.initialize()
+        proactive_manager._startup_time = 0  # 跳过启动冷却
 
         with patch("iris_memory.proactive.proactive_manager.ProactiveMessageEvent") as event_cls:
             event_cls.return_value = Mock()
@@ -305,6 +309,7 @@ class TestCooldownTiming:
             config={"enable_proactive_reply": True},
         )
         await proactive_manager.initialize()
+        proactive_manager._startup_time = 0  # 跳过启动冷却
 
         with patch("iris_memory.proactive.proactive_manager.ProactiveMessageEvent") as event_cls:
             event_cls.return_value = Mock()
@@ -341,6 +346,7 @@ class TestUserMessageTimeRecording:
             config={"enable_proactive_reply": True},
         )
         await proactive_manager.initialize()
+        proactive_manager._startup_time = 0  # 跳过启动冷却
 
         with patch("iris_memory.proactive.proactive_manager.ProactiveMessageEvent") as event_cls:
             event_cls.return_value = Mock()

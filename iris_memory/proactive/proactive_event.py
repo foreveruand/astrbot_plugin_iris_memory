@@ -78,23 +78,7 @@ class ProactiveMessageEvent(AstrMessageEvent):
             persona_id: Bot 人格 ID（确保主动回复使用正确的人格）
         """
         # 从 UMO 解析 session
-        try:
-            session = MessageSession.from_str(umo)
-        except Exception as e:
-            logger.debug(f"Failed to parse UMO '{umo}', constructing session manually: {e}")
-            # 手动构造 session
-            if group_id:
-                session = MessageSession(
-                    platform_name=umo.split(":")[0] if ":" in umo else "unknown",
-                    message_type=MessageType.GROUP_MESSAGE,
-                    session_id=group_id,
-                )
-            else:
-                session = MessageSession(
-                    platform_name=umo.split(":")[0] if ":" in umo else "unknown",
-                    message_type=MessageType.FRIEND_MESSAGE,
-                    session_id=user_id,
-                )
+        session = self._parse_umo_safe(umo, user_id, group_id)
 
         # 构造平台元数据（使用原始平台 ID，确保路由正确）
         platform_meta = PlatformMetadata(
@@ -158,6 +142,40 @@ class ProactiveMessageEvent(AstrMessageEvent):
             f"ProactiveMessageEvent created: umo={umo}, "
             f"user_id={user_id}, group_id={group_id}, persona_id={persona_id}"
         )
+
+    @staticmethod
+    def _parse_umo_safe(
+        umo: str,
+        user_id: str,
+        group_id: Optional[str],
+    ) -> MessageSession:
+        """安全解析 UMO，提供完整容错
+        
+        Args:
+            umo: 原始 unified_msg_origin 字符串
+            user_id: 用户 ID（作为 fallback session_id）
+            group_id: 群聊 ID（决定 fallback 消息类型）
+            
+        Returns:
+            解析后的 MessageSession
+        """
+        try:
+            return MessageSession.from_str(umo)
+        except Exception as e:
+            logger.debug(f"Failed to parse UMO '{umo}': {e}, using fallback")
+            parts = umo.split(":") if ":" in umo else ["unknown"]
+            platform_name = parts[0] if parts else "unknown"
+            if group_id:
+                return MessageSession(
+                    platform_name=platform_name,
+                    message_type=MessageType.GROUP_MESSAGE,
+                    session_id=group_id,
+                )
+            return MessageSession(
+                platform_name=platform_name,
+                message_type=MessageType.FRIEND_MESSAGE,
+                session_id=user_id,
+            )
 
     async def send(self, message: MessageChain) -> None:
         """通过 Context.send_message 发送消息"""
