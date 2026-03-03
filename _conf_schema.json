@@ -239,7 +239,7 @@
         "type": "string",
         "default": "rule",
         "options": ["rule", "hybrid"],
-        "hint": "rule-跳过 LLM 边缘案例确认（默认），hybrid-对中置信案例进行 LLM 确认（推荐）"
+        "hint": "rule-仅规则信号聚合（默认），hybrid-对中置信信号进行 LLM 确认（推荐）"
       },
       "conflict_mode": {
         "description": "冲突解决模式",
@@ -283,20 +283,32 @@
     }
   },
   "proactive_reply": {
-    "description": "主动回复设置",
+    "description": "主动回复设置（v3：信号队列 + 跟进规划）",
     "type": "object",
     "items": {
       "enable": {
         "description": "启用主动回复",
         "type": "bool",
         "default": false,
-        "hint": "检测到用户需要回应时主动发送消息（实验性功能）"
+        "hint": "检测到对话信号后在沉默期自动主动发送消息"
       },
       "group_whitelist_mode": {
         "description": "群聊白名单模式",
         "type": "bool",
         "default": false,
         "hint": "开启后仅在管理员通过指令启用的群聊中触发主动回复，使用 /proactive_reply on|off 控制"
+      },
+      "followup_window_seconds": {
+        "description": "跟进窗口时长（秒）",
+        "type": "int",
+        "default": 120,
+        "hint": "Bot 主动回复后等待用户回应的时间窗口"
+      },
+      "max_followup_count": {
+        "description": "最大跟进次数",
+        "type": "int",
+        "default": 2,
+        "hint": "单次主动回复后最大连续跟进回复的次数"
       }
     }
   },

@@ -1,6 +1,6 @@
 """
-主动回复模块 — 封装主动回复相关组件
-使用 ProactiveManager（三级检测器 + 场景库 + 反馈闭环）
+主动回复模块 — 封装主动回复相关组件（v3）
+使用 ProactiveManager（SignalQueue + GroupScheduler + FollowUpPlanner）
 """
 from __future__ import annotations
 
@@ -39,15 +39,15 @@ class ProactiveModule:
         emotion_analyzer: Any = None,
         llm_proactive_reply_detector: Any = None,
     ) -> None:
-        """初始化主动回复组件
+        """初始化主动回复组件（v3）
 
         Args:
             cfg: 配置管理器
             plugin_data_path: 插件数据目录
-            chroma_manager: ChromaDB 管理器
-            embedding_manager: 嵌入管理器
-            shared_state: SharedState 共享状态
-            llm_provider: LLM 提供者
+            chroma_manager: ChromaDB 管理器（v3 不再依赖）
+            embedding_manager: 嵌入管理器（v3 不再依赖）
+            shared_state: SharedState 共享状态（v3 不再依赖）
+            llm_provider: LLM 提供者（用于 hybrid 模式 LLM 确认）
         """
         from iris_memory.core.constants import LogTemplates
 
@@ -63,31 +63,31 @@ class ProactiveModule:
 
         try:
             from iris_memory.proactive.manager import ProactiveManager
+            from iris_memory.proactive.config import ProactiveConfig
 
-            quiet_start = getattr(cfg, "proactive_quiet_hours_start", 23)
-            quiet_end = getattr(cfg, "proactive_quiet_hours_end", 7)
-            personality = getattr(cfg, "proactive_personality", "balanced")
-            max_history = getattr(cfg, "proactive_context_max_history", 10)
-            max_text_tokens = getattr(cfg, "proactive_context_max_text_tokens", 150)
-            group_whitelist_mode = bool(cfg.get("proactive_reply.group_whitelist_mode", False)
-                                        if hasattr(cfg, "get") else False)
-            proactive_mode = str(getattr(cfg, "proactive_mode", "rule"))
+            quiet_hours = cfg.proactive_reply_quiet_hours
+            group_whitelist_mode = cfg.proactive_reply_group_whitelist_mode
+            proactive_mode = cfg.proactive_mode
+
+            config = ProactiveConfig(
+                enabled=True,
+                signal_queue_enabled=True,
+                followup_enabled=True,
+                group_whitelist_mode=group_whitelist_mode,
+                proactive_mode=proactive_mode,
+                quiet_hours=quiet_hours,
+                followup_window_seconds=cfg.proactive_followup_window_seconds,
+                max_followup_count=cfg.proactive_max_followup_count,
+                max_daily_replies=cfg.proactive_reply_max_daily,
+            )
 
             self._manager = ProactiveManager(
                 plugin_data_path=plugin_data_path,
-                chroma_manager=chroma_manager,
-                embedding_manager=embedding_manager,
-                shared_state=shared_state,
+                config=config,
                 llm_provider=llm_provider,
-                personality=personality,
-                quiet_hours=[quiet_start, quiet_end],
-                max_history=max_history,
-                max_text_tokens=max_text_tokens,
-                group_whitelist_mode=group_whitelist_mode,
-                proactive_mode=proactive_mode,
             )
             await self._manager.initialize()
-            logger.info("Proactive manager initialized")
+            logger.info("Proactive manager v3 initialized")
         except Exception as e:
             logger.warning(f"Failed to initialize proactive manager: {e}")
             self._manager = None

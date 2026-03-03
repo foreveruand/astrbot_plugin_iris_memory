@@ -209,6 +209,9 @@ __marimo__/
 # Project specific - Data files (generated at runtime)
 /data/
 
+# Docs
+/docs/
+
 # Docker
 docker/**/*.log
 docker/.env

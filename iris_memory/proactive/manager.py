@@ -1,103 +1,126 @@
 """
-主动回复管理器（Facade）
+主动回复管理器 v3（Facade）
 
-统一入口，编排所有子组件的初始化和消息处理流程。
+统一入口，编排 SignalQueue + GroupScheduler + FollowUpPlanner。
+保持与 v2 相同的外部接口（process_message、白名单管理等），
+内部全部替换为新架构。
 """
 
 from __future__ import annotations
 
 import asyncio
-import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from iris_memory.proactive.core.cold_start import ColdStartStrategy
-from iris_memory.proactive.core.context_engine import ContextEngine
-from iris_memory.proactive.core.decision_engine import DecisionEngine
-from iris_memory.proactive.core.feedback_tracker import FeedbackTracker
-from iris_memory.proactive.core.llm_quota_manager import LLMQuotaManager
-from iris_memory.proactive.core.models import (
-    ProactiveContext,
-    ProactiveDecision,
+from iris_memory.proactive.config import ProactiveConfig
+from iris_memory.proactive.followup_planner import (
+    FollowUpPlanner,
+    build_followup_prompt,
+    parse_followup_response,
 )
-from iris_memory.proactive.data.scene_initializer import SceneInitializer
-from iris_memory.proactive.detectors.llm_detector import LLMDetector
-from iris_memory.proactive.detectors.rule_detector import RuleDetector
-from iris_memory.proactive.detectors.vector_detector import VectorDetector
-from iris_memory.proactive.storage.feedback_store import FeedbackStore
-from iris_memory.proactive.storage.scene_store import SceneStore
-from iris_memory.proactive.strategies.router import StrategyRouter
+from iris_memory.proactive.group_scheduler import GroupScheduler
+from iris_memory.proactive.models import (
+    AggregatedDecision,
+    FollowUpDecision,
+    FollowUpExpectation,
+    ProactiveReplyResult,
+    Signal,
+)
+from iris_memory.proactive.signal_generator import SignalGenerator
+from iris_memory.proactive.signal_queue import SignalQueue
+from iris_memory.proactive.storage.expectation_store import ExpectationStore
+from iris_memory.utils.llm_helper import call_llm, parse_llm_json
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("proactive.manager")
 
 
 class ProactiveManager:
-    """主动回复管理器（Facade）
+    """主动回复管理器 v3（Facade）
 
     编排流程：
-    1. ContextEngine 聚合上下文
-    2. DecisionEngine 决策（三级检测器 + 跟进检测）
-    3. StrategyRouter 选择策略
-    4. FeedbackTracker 记录回复
+    1. SignalGenerator 从消息中提取信号
+    2. SignalQueue 存储信号（私聊排除）
+    3. GroupScheduler 定时聚合决策
+    4. FollowUpPlanner 独立监控跟进
+
+    保持 v2 兼容的外部接口：
+    - process_message()
+    - clear_pending_tasks_for_session()
+    - 白名单管理（add/remove/is_group_in_whitelist 等）
+    - get_stats()
+    - close()
     """
 
     def __init__(
         self,
         plugin_data_path: Path,
+        config: Optional[ProactiveConfig] = None,
+        llm_provider: Optional[Any] = None,
+        enabled: bool = True,
+        group_whitelist_mode: bool = False,
+        proactive_mode: str = "rule",
+        # 以下为 v2 兼容参数（部分映射到 config）
         chroma_manager: Optional[Any] = None,
         embedding_manager: Optional[Any] = None,
         shared_state: Optional[Any] = None,
-        llm_provider: Optional[Any] = None,
         personality: str = "balanced",
         quiet_hours: Optional[List[int]] = None,
         max_history: int = 10,
         max_text_tokens: int = 150,
-        enabled: bool = True,
-        group_whitelist_mode: bool = False,
-        proactive_mode: str = "rule",
     ) -> None:
         self._plugin_data_path = plugin_data_path
-        self._chroma_manager = chroma_manager
-        self._embedding_manager = embedding_manager
-        self._shared_state = shared_state
         self._llm_provider = llm_provider
-        self._personality = personality
-        self._quiet_hours = quiet_hours or [23, 7]
-        self._max_history = max_history
-        self._max_text_tokens = max_text_tokens
-        self._enabled = enabled
-        self._proactive_mode = proactive_mode  # "rule" | "hybrid"
+        self._astrbot_context: Optional[Any] = None
+        self._llm_provider_id: Optional[str] = None
+
+        # 构建配置
+        if config:
+            self._config = config
+        else:
+            self._config = ProactiveConfig(
+                enabled=enabled,
+                group_whitelist_mode=group_whitelist_mode,
+                proactive_mode=proactive_mode,
+                quiet_hours=quiet_hours or [23, 7],
+                max_reply_tokens=max_text_tokens,
+            )
 
         # 白名单状态（持久化到 KV 存储）
-        self._group_whitelist: List[str] = []
-        self._group_whitelist_mode: bool = group_whitelist_mode
+        self._group_whitelist: List[str] = list(self._config.group_whitelist)
+        self._group_whitelist_mode: bool = self._config.group_whitelist_mode
 
-        # 子组件（延迟初始化）
-        self._feedback_store: Optional[FeedbackStore] = None
-        self._scene_store: Optional[SceneStore] = None
-        self._context_engine: Optional[ContextEngine] = None
-        self._decision_engine: Optional[DecisionEngine] = None
-        self._strategy_router: Optional[StrategyRouter] = None
-        self._feedback_tracker: Optional[FeedbackTracker] = None
-        self._quota_manager: Optional[LLMQuotaManager] = None
-        self._cold_start: Optional[ColdStartStrategy] = None
-        self._scene_initializer: Optional[SceneInitializer] = None
+        # 核心组件（延迟初始化）
+        self._signal_queue: Optional[SignalQueue] = None
+        self._signal_generator: Optional[SignalGenerator] = None
+        self._group_scheduler: Optional[GroupScheduler] = None
+        self._followup_planner: Optional[FollowUpPlanner] = None
+        self._expectation_store: Optional[ExpectationStore] = None
 
         self._initialized = False
         self._init_lock = asyncio.Lock()
 
+        # 日统计（简单内存计数）
+        self._daily_reply_count: int = 0
+        self._daily_reply_date: str = ""
+        self._per_user_daily: Dict[str, int] = {}
+
+    # ── 属性 ──────────────────────────────────────────────────
+
     @property
     def enabled(self) -> bool:
-        return self._enabled
+        return self._config.enabled
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
-        self._enabled = value
+        self._config.enabled = value
 
     @property
     def is_initialized(self) -> bool:
         return self._initialized
+
+    # ── 初始化 ──────────────────────────────────────────────────
 
     async def initialize(self) -> None:
         """初始化所有子组件"""
@@ -105,86 +128,45 @@ class ProactiveManager:
             if self._initialized:
                 return
 
-            logger.info("Initializing ProactiveManager...")
+            logger.info("Initializing ProactiveManager v3...")
 
-            # 1. 存储层
-            db_path = self._plugin_data_path / "proactive_feedback.db"
-            self._feedback_store = FeedbackStore(db_path)
-            await self._feedback_store.initialize()
+            # 1. SignalQueue
+            self._signal_queue = SignalQueue(self._config)
 
-            if self._chroma_manager:
-                self._scene_store = SceneStore(self._chroma_manager)
-                await self._scene_store.initialize()
+            # 2. SignalGenerator
+            self._signal_generator = SignalGenerator(self._config)
 
-            # 2. 冷启动策略
-            self._cold_start = ColdStartStrategy()
+            # 3. ExpectationStore
+            self._expectation_store = ExpectationStore()
 
-            # 3. LLM 配额管理
-            self._quota_manager = LLMQuotaManager(self._feedback_store)
-            await self._quota_manager.initialize()
-
-            # 4. 检测器
-            rule_detector = RuleDetector(personality=self._personality)
-            await rule_detector.initialize()
-
-            vector_detector = VectorDetector(
-                scene_store=self._scene_store,
-                feedback_store=self._feedback_store,
-                cold_start=self._cold_start,
-                personality=self._personality,
+            # 4. GroupScheduler
+            self._group_scheduler = GroupScheduler(
+                config=self._config,
+                signal_queue=self._signal_queue,
             )
-            await vector_detector.initialize()
+            self._group_scheduler.set_reply_callback(self._handle_signal_reply)
+            if self._llm_provider and self._config.proactive_mode == "hybrid":
+                self._group_scheduler.set_llm_confirm_callback(
+                    self._handle_llm_confirm
+                )
 
-            llm_detector = LLMDetector(
-                llm_provider=self._llm_provider,
-                quota_manager=self._quota_manager,
+            # 5. FollowUpPlanner
+            self._followup_planner = FollowUpPlanner(
+                config=self._config,
+                expectation_store=self._expectation_store,
             )
-            await llm_detector.initialize()
-
-            # 5. 决策引擎
-            self._decision_engine = DecisionEngine(
-                rule_detector=rule_detector,
-                vector_detector=vector_detector,
-                llm_detector=llm_detector,
-                feedback_store=self._feedback_store,
-                personality=self._personality,
-                llm_confirmation_enabled=(self._proactive_mode == "hybrid"),
+            self._followup_planner.set_followup_reply_callback(
+                self._handle_followup_reply
             )
-            await self._decision_engine.initialize()
-
-            # 6. 上下文引擎
-            self._context_engine = ContextEngine(
-                embedding_manager=self._embedding_manager,
-                shared_state=self._shared_state,
-                feedback_store=self._feedback_store,
-                max_history=self._max_history,
-                max_text_tokens=self._max_text_tokens,
-                quiet_hours=self._quiet_hours,
-            )
-
-            # 7. 策略路由
-            self._strategy_router = StrategyRouter()
-
-            # 8. 反馈追踪
-            self._feedback_tracker = FeedbackTracker(
-                feedback_store=self._feedback_store,
-                scene_store=self._scene_store,
-            )
-
-            # 9. 场景初始化
-            self._scene_initializer = SceneInitializer(
-                scene_store=self._scene_store,
-                feedback_store=self._feedback_store,
-                embedding_manager=self._embedding_manager,
-            )
-            if self._scene_store:
-                try:
-                    await self._scene_initializer.initialize_scenes()
-                except Exception as e:
-                    logger.warning(f"Scene initialization failed: {e}")
+            if self._llm_provider:
+                self._followup_planner.set_llm_decide_callback(
+                    self._handle_followup_llm_decide
+                )
 
             self._initialized = True
-            logger.info("ProactiveManager initialized successfully")
+            logger.info("ProactiveManager v3 initialized successfully")
+
+    # ── 消息处理（v2 兼容接口）────────────────────────────────
 
     async def process_message(
         self,
@@ -195,7 +177,10 @@ class ProactiveManager:
         group_id: Optional[str] = None,
         extra: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
-        """处理消息，决定是否主动回复
+        """处理消息，生成信号入队
+
+        v3 不再同步返回回复决定，而是信号入队 + 定时聚合。
+        返回值保持 v2 接口兼容性但固定为 None（回复通过异步回调触发）。
 
         Args:
             messages: 最近消息列表
@@ -206,73 +191,73 @@ class ProactiveManager:
             extra: 额外上下文
 
         Returns:
-            回复信息字典（含 trigger_prompt, reply_params 等），
-            或 None（不回复）
+            None（v3 通过异步回调触发回复）
         """
-        if not self._enabled or not self._initialized:
+        if not self._config.enabled or not self._initialized:
             return None
 
-        # 白名单/黑名单过滤
+        # 白名单过滤
         if not self.is_group_allowed(group_id):
-            logger.debug(f"Group {group_id} not in whitelist, skipping proactive reply")
+            return None
+
+        # 私聊排除（不入信号队列）
+        if session_type == "private" or not group_id:
+            return None
+
+        # 静音时段检查
+        if self._is_quiet_hours():
             return None
 
         try:
-            # 1. 构建上下文
-            context = await self._context_engine.build_context(
-                messages=messages,
-                user_id=user_id,
-                session_key=session_key,
-                session_type=session_type,
-                group_id=group_id,
-                extra=extra,
-            )
+            # 从消息中提取信号
+            extra = extra or {}
+            emotion_intensity = float(extra.get("emotion_intensity", 0.0))
 
-            # 2. 决策
-            decision = await self._decision_engine.decide(context)
+            # 取最近一条消息文本
+            text = ""
+            if messages:
+                last_msg = messages[-1]
+                text = last_msg.get("text", "") or last_msg.get("content", "")
 
-            if not decision.should_reply:
-                logger.debug(
-                    f"Decision: no reply for {session_key} "
-                    f"(reason={decision.reason})"
-                )
+            if not text:
                 return None
 
-            # 3. 策略路由
-            strategy_result = self._strategy_router.route(context, decision)
+            # 生成信号
+            signals = self._signal_generator.generate(
+                text=text,
+                user_id=user_id,
+                group_id=group_id,
+                session_key=session_key,
+                emotion_intensity=emotion_intensity,
+            )
 
-            # 4. 记录回复
-            record_id = None
-            if self._feedback_tracker:
-                record_id = await self._feedback_tracker.record_reply(
-                    context, decision,
-                    content_summary=strategy_result.get("trigger_prompt", "")[:100],
+            # 入队
+            for signal in signals:
+                self._signal_queue.enqueue(signal)
+
+            # 更新最后消息时间
+            self._signal_queue.update_last_message_time(group_id)
+
+            # 确保群定时器运行
+            if self._config.signal_queue_enabled and self._group_scheduler:
+                self._group_scheduler.ensure_timer(group_id)
+
+            # 通知 FollowUpPlanner（如有活跃期待）
+            if self._followup_planner:
+                sender_name = ""
+                if messages:
+                    sender_name = messages[-1].get("sender_name", "")
+                self._followup_planner.on_user_message(
+                    user_id=user_id,
+                    group_id=group_id,
+                    message=text,
+                    sender_name=sender_name,
                 )
-
-            # 5. 返回结果
-            return {
-                "trigger_prompt": strategy_result["trigger_prompt"],
-                "reply_params": strategy_result["reply_params"],
-                "strategy_name": strategy_result["strategy_name"],
-                "decision": decision,
-                "context": context,
-                "record_id": record_id,
-            }
 
         except Exception as e:
             logger.error(f"ProactiveManager.process_message failed: {e}")
-            return None
 
-    async def process_user_response(
-        self,
-        session_key: str,
-        user_replied_directly: bool = False,
-    ) -> None:
-        """处理用户对主动回复的回应"""
-        if self._feedback_tracker:
-            await self._feedback_tracker.process_user_response(
-                session_key, user_replied_directly
-            )
+        return None
 
     def clear_pending_tasks_for_session(
         self,
@@ -281,58 +266,254 @@ class ProactiveManager:
     ) -> None:
         """清除会话的待处理任务
 
-        当用户发送新消息或 Bot 回复后调用，
-        清除该会话的待处理主动回复状态。
+        当 Bot 正常回复后调用，清除该会话的信号和跟进期待。
 
         Args:
             user_id: 用户 ID
-            group_id: 群组 ID（私聊为 None）
+            group_id: 群组 ID
         """
         session_key = self._build_session_key(user_id, group_id)
 
-        if self._feedback_tracker:
-            pending = self._feedback_tracker._pending_feedback
-            pending.pop(session_key, None)
+        if self._signal_queue:
+            self._signal_queue.clear_session(session_key)
 
-        if self._decision_engine:
-            self._decision_engine._followup_detector._reset_state(session_key)
+        if self._followup_planner and group_id:
+            self._followup_planner.clear_expectation(group_id)
 
         logger.debug(f"Cleared pending tasks for session {session_key}")
 
-    def _build_session_key(
+    # ── 回调处理 ──────────────────────────────────────────────
+
+    async def _handle_signal_reply(self, decision: AggregatedDecision) -> None:
+        """处理 SignalQueue 聚合决策触发的回复
+
+        Args:
+            decision: 聚合决策
+        """
+        # 检查是否有活跃 FollowUp 期待 → 延迟
+        if self._followup_planner and self._followup_planner.has_active_expectation(
+            decision.group_id
+        ):
+            logger.debug(
+                f"Active FollowUp expectation for group {decision.group_id}, "
+                f"deferring signal reply"
+            )
+            return
+
+        # 检查每日限额
+        if not self._check_daily_limit(decision.target_user_id):
+            logger.debug(
+                f"Daily limit reached for user {decision.target_user_id}"
+            )
+            return
+
+        # 构建回复结果
+        reply_result = self._build_signal_reply(decision)
+
+        # TODO: 通过事件系统发送实际回复
+        # 当前将结果存储，等待外部集成
+        logger.info(
+            f"Signal reply ready: group={decision.group_id}, "
+            f"user={decision.target_user_id}, "
+            f"weight={decision.aggregated_weight:.2f}"
+        )
+
+        # 创建 FollowUp 期待
+        if self._followup_planner and self._config.followup_enabled:
+            trigger_msg = ""
+            if decision.recent_messages:
+                trigger_msg = decision.recent_messages[-1].get("content", "")
+
+            self._followup_planner.create_expectation(
+                session_key=decision.session_key,
+                group_id=decision.group_id,
+                trigger_user_id=decision.target_user_id,
+                trigger_message=trigger_msg,
+                bot_reply_summary=reply_result.reason,
+                recent_context=decision.recent_messages,
+            )
+
+        self._increment_daily_count(decision.target_user_id)
+
+    async def _handle_followup_reply(
         self,
-        user_id: str,
-        group_id: Optional[str] = None,
-    ) -> str:
-        """构建会话键"""
-        if group_id:
-            return f"{user_id}:{group_id}"
-        return f"{user_id}:private"
+        reply_result: ProactiveReplyResult,
+        expectation: FollowUpExpectation,
+    ) -> None:
+        """处理 FollowUp 触发的回复"""
+        # 清除该群的信号
+        if self._signal_queue:
+            self._signal_queue.clear_group(expectation.group_id)
 
-    async def get_stats(self, days: int = 7) -> Dict[str, Any]:
-        """获取统计数据"""
-        if not self._feedback_store:
-            return {}
+        # TODO: 通过事件系统发送实际回复
+        logger.info(
+            f"FollowUp reply ready: group={expectation.group_id}, "
+            f"user={expectation.trigger_user_id}, "
+            f"count={expectation.followup_count + 1}"
+        )
+
+    async def _handle_llm_confirm(
+        self,
+        group_id: str,
+        signals: List[Signal],
+        recent_messages: List[Dict[str, Any]],
+    ) -> bool:
+        """处理 GroupScheduler 的 LLM 确认请求
+
+        使用 LLM 判断是否应该主动回复。
+
+        Returns:
+            是否应回复
+        """
         try:
-            daily = await self._feedback_store.get_daily_stats(days)
-            scene_count = 0
-            if self._scene_store:
-                scene_count = await self._scene_store.count()
-            return {
-                "daily_stats": daily,
-                "scene_count": scene_count,
-                "enabled": self._enabled,
-                "personality": self._personality,
-            }
-        except Exception as e:
-            logger.error(f"Failed to get stats: {e}")
-            return {}
+            msg_text = "\n".join(
+                f"  {m.get('sender_id', '用户')}: {m.get('content', '')}"
+                for m in recent_messages[-5:]
+            )
+            signal_info = ", ".join(
+                f"{s.signal_type.value}(w={s.weight:.2f})"
+                for s in signals[:5]
+            )
 
-    # ── 白名单管理 ──────────────────────────────────────────────
+            prompt = (
+                "判断以下群聊消息是否需要 Bot 主动回复。\n"
+                f"\n检测到的信号：{signal_info}\n"
+                f"\n近期对话：\n{msg_text}\n"
+                "\n仅回答 yes 或 no。"
+            )
+
+            result = await call_llm(
+                context=self._astrbot_context,
+                provider=self._llm_provider,
+                provider_id=self._llm_provider_id,
+                prompt=prompt,
+            )
+
+            if result.success and result.content:
+                return "yes" in result.content.lower().strip()
+
+            return False
+        except Exception as e:
+            logger.warning(f"LLM confirm failed: {e}")
+            return False
+
+    async def _handle_followup_llm_decide(
+        self, expectation: FollowUpExpectation
+    ) -> Optional[FollowUpDecision]:
+        """处理 FollowUpPlanner 的 LLM 判断请求"""
+        try:
+            prompt = build_followup_prompt(expectation)
+
+            result = await call_llm(
+                context=self._astrbot_context,
+                provider=self._llm_provider,
+                provider_id=self._llm_provider_id,
+                prompt=prompt,
+            )
+
+            if result.success and result.content:
+                return parse_followup_response(result.content)
+
+            return None
+        except Exception as e:
+            logger.warning(f"FollowUp LLM decision failed: {e}")
+            return None
+
+    # ── 回复构建 ──────────────────────────────────────────────
+
+    @staticmethod
+    def _build_signal_reply(decision: AggregatedDecision) -> ProactiveReplyResult:
+        """从聚合决策构建回复结果"""
+        msg_summary = "\n".join(
+            f"  {m.get('sender_id', '用户')}: {m.get('content', '')}"
+            for m in decision.recent_messages[-5:]
+        )
+
+        # 提取信号类型摘要
+        signal_types = list({s.signal_type.value for s in decision.signals})
+
+        trigger_prompt = (
+            "【主动回复场景】\n"
+            "你正在主动向用户发起对话，而不是回复用户的消息。\n"
+            f"触发原因：{decision.reason}\n"
+            f"检测到的信号：{', '.join(signal_types)}\n"
+        )
+
+        if msg_summary:
+            trigger_prompt += f"\n近期对话记录：\n{msg_summary}\n"
+
+        trigger_prompt += (
+            f"\n对话对象：{decision.target_user_id}\n"
+            "\n行为指导：\n"
+            "- 你的消息应该自然、简短，像是你忽然想到了什么而发起的对话\n"
+            "- 不要提及'系统检测'、'主动回复'等元信息\n"
+            "- 结合你对用户的记忆和近期话题来开启对话\n"
+            "- 避免重复之前已经讨论过的内容\n"
+            "- 语气要符合你的人格设定\n"
+            "- 如果是群聊环境，注意适度存在感，不要过度介入\n"
+        )
+
+        return ProactiveReplyResult(
+            trigger_prompt=trigger_prompt,
+            reply_params={
+                "max_tokens": 150,
+                "temperature": 0.7,
+            },
+            reason=decision.reason,
+            target_user=decision.target_user_id,
+            recent_messages=decision.recent_messages,
+            source="signal_queue",
+        )
+
+    # ── 配额控制 ──────────────────────────────────────────────
+
+    def _check_daily_limit(self, user_id: str) -> bool:
+        """检查每日限额"""
+        self._refresh_daily_counter()
+
+        if self._daily_reply_count >= self._config.max_daily_replies:
+            return False
+
+        user_count = self._per_user_daily.get(user_id, 0)
+        if user_count >= self._config.max_daily_per_user:
+            return False
+
+        return True
+
+    def _increment_daily_count(self, user_id: str) -> None:
+        """增加每日计数"""
+        self._refresh_daily_counter()
+        self._daily_reply_count += 1
+        self._per_user_daily[user_id] = self._per_user_daily.get(user_id, 0) + 1
+
+    def _refresh_daily_counter(self) -> None:
+        """刷新每日计数器（按日重置）"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if today != self._daily_reply_date:
+            self._daily_reply_count = 0
+            self._per_user_daily.clear()
+            self._daily_reply_date = today
+
+    def _is_quiet_hours(self) -> bool:
+        """检查是否在静音时段"""
+        quiet = self._config.quiet_hours
+        if not quiet or len(quiet) < 2:
+            return False
+
+        hour = datetime.now().hour
+        start, end = quiet[0], quiet[1]
+
+        if start <= end:
+            return start <= hour < end
+        else:
+            # 跨午夜
+            return hour >= start or hour < end
+
+    # ── 白名单管理（v2 兼容）──────────────────────────────────
 
     @property
     def group_whitelist(self) -> List[str]:
-        """已加入白名单/黑名单的群组 ID 列表"""
+        """已加入白名单的群组 ID 列表"""
         return self._group_whitelist
 
     @group_whitelist.setter
@@ -341,7 +522,7 @@ class ProactiveManager:
 
     @property
     def group_whitelist_mode(self) -> bool:
-        """True = 白名单模式（仅列表中的群允许）；False = 黑名单模式"""
+        """True = 白名单模式"""
         return self._group_whitelist_mode
 
     @group_whitelist_mode.setter
@@ -351,13 +532,13 @@ class ProactiveManager:
     def is_group_allowed(self, group_id: Optional[str]) -> bool:
         """判断群组是否允许主动回复"""
         if not group_id:
-            return True  # 私聊始终允许
+            return True
         if not self._group_whitelist_mode:
-            return True  # 未启用白名单模式，全部允许
+            return True
         return group_id in self._group_whitelist
 
     def add_group_to_whitelist(self, group_id: str) -> bool:
-        """将群组加入白名单，返回 True 表示新增成功，False 表示已存在"""
+        """将群组加入白名单"""
         if group_id in self._group_whitelist:
             return False
         self._group_whitelist.append(group_id)
@@ -365,7 +546,7 @@ class ProactiveManager:
         return True
 
     def remove_group_from_whitelist(self, group_id: str) -> bool:
-        """将群组从白名单移除，返回 True 表示移除成功，False 表示不存在"""
+        """将群组从白名单移除"""
         if group_id not in self._group_whitelist:
             return False
         self._group_whitelist.remove(group_id)
@@ -381,27 +562,25 @@ class ProactiveManager:
         return list(self._group_whitelist)
 
     def serialize_whitelist(self) -> Dict[str, Any]:
-        """序列化白名单状态，用于 KV 存储持久化"""
+        """序列化白名单状态"""
         return {
             "group_whitelist": self._group_whitelist,
             "group_whitelist_mode": self._group_whitelist_mode,
         }
 
     def deserialize_whitelist(self, data: Any) -> None:
-        """从 KV 存储反序列化白名单状态
-        
-        注意：KV 存储的值优先于配置文件，运行时通过 /proactive_reply 命令控制。
-        """
+        """从 KV 存储反序列化白名单状态"""
         if not isinstance(data, dict):
             return
         default_mode = self._group_whitelist_mode
         self._group_whitelist = list(data.get("group_whitelist", []))
         self._group_whitelist_mode = bool(data.get("group_whitelist_mode", False))
-        
+
         if default_mode != self._group_whitelist_mode and self._group_whitelist_mode:
             logger.info(
-                f"Whitelist mode restored from KV storage (mode={self._group_whitelist_mode}, "
-                f"groups={len(self._group_whitelist)}). Config file value ignored."
+                f"Whitelist mode restored from KV storage "
+                f"(mode={self._group_whitelist_mode}, "
+                f"groups={len(self._group_whitelist)})"
             )
         else:
             logger.debug(
@@ -409,18 +588,52 @@ class ProactiveManager:
                 f"groups={self._group_whitelist}"
             )
 
+    # ── 统计与辅助 ──────────────────────────────────────────────
+
+    def _build_session_key(
+        self,
+        user_id: str,
+        group_id: Optional[str] = None,
+    ) -> str:
+        """构建会话键"""
+        if group_id:
+            return f"{user_id}:{group_id}"
+        return f"{user_id}:private"
+
+    async def get_stats(self, days: int = 7) -> Dict[str, Any]:
+        """获取统计数据"""
+        return {
+            "enabled": self._config.enabled,
+            "mode": self._config.proactive_mode,
+            "signal_queue_enabled": self._config.signal_queue_enabled,
+            "followup_enabled": self._config.followup_enabled,
+            "daily_reply_count": self._daily_reply_count,
+            "total_signals": (
+                self._signal_queue.total_signals if self._signal_queue else 0
+            ),
+            "active_groups": (
+                self._group_scheduler.active_group_count
+                if self._group_scheduler else 0
+            ),
+            "active_expectations": (
+                self._followup_planner.active_expectation_count
+                if self._followup_planner else 0
+            ),
+        }
+
     async def close(self) -> None:
         """关闭并释放所有资源"""
-        if self._feedback_store:
-            await self._feedback_store.close()
-            self._feedback_store = None
+        if self._group_scheduler:
+            await self._group_scheduler.close()
+            self._group_scheduler = None
 
-        if self._scene_store:
-            await self._scene_store.close()
-            self._scene_store = None
+        if self._followup_planner:
+            await self._followup_planner.close()
+            self._followup_planner = None
 
-        if self._decision_engine:
-            await self._decision_engine.close()
+        self._signal_queue = None
+        self._signal_generator = None
+        self._expectation_store = None
 
         self._initialized = False
-        logger.info("ProactiveManager closed")
+        logger.info("ProactiveManager v3 closed")

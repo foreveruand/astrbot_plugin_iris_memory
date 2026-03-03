@@ -346,12 +346,14 @@ class ServiceInitializer:
         """初始化主动回复组件"""
         chroma_mgr = self._deps.storage.chroma_manager
         embedding_mgr = chroma_mgr.embedding_manager if chroma_mgr else None
+        llm_processor = self._deps.llm_enhanced.llm_processor
         await self._deps.proactive.initialize(
             cfg=self._deps.cfg,
             plugin_data_path=self._deps.plugin_data_path,
             chroma_manager=chroma_mgr,
             embedding_manager=embedding_mgr,
             shared_state=self._deps.shared_state,
+            llm_provider=llm_processor,
         )
 
     async def _init_image_analyzer(self) -> None:

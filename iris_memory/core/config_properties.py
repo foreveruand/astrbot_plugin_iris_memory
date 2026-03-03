@@ -55,13 +55,17 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
     "proactive_reply_group_whitelist_mode": _ConfigProp(
         "proactive_reply.group_whitelist_mode", False
     ),
-    "proactive_reply_personality": _ConfigProp(
-        "proactive_reply.personality",
-        DEFAULTS.proactive_reply.personality,
-    ),
     "proactive_reply_quiet_hours": _ConfigProp(
         "proactive_reply.quiet_hours",
         DEFAULTS.proactive_reply.quiet_hours,
+    ),
+    "proactive_quiet_hours_start": _ConfigProp(
+        "proactive_reply.quiet_hours_start",
+        DEFAULTS.proactive_reply.quiet_hours[0] if DEFAULTS.proactive_reply.quiet_hours else 23,
+    ),
+    "proactive_quiet_hours_end": _ConfigProp(
+        "proactive_reply.quiet_hours_end",
+        DEFAULTS.proactive_reply.quiet_hours[1] if len(DEFAULTS.proactive_reply.quiet_hours) > 1 else 7,
     ),
     "proactive_reply_max_daily_per_user": _ConfigProp(
         "proactive_reply.max_daily_per_user",
@@ -70,6 +74,14 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
     "proactive_reply_web_dashboard": _ConfigProp(
         "proactive_reply.web_dashboard",
         DEFAULTS.proactive_reply.web_dashboard,
+    ),
+    "proactive_followup_window_seconds": _ConfigProp(
+        "proactive_reply.followup_window_seconds",
+        DEFAULTS.proactive_reply.followup_window_seconds,
+    ),
+    "proactive_max_followup_count": _ConfigProp(
+        "proactive_reply.max_followup_count",
+        DEFAULTS.proactive_reply.followup_max_count,
     ),
 
     # ── 图片分析 ──

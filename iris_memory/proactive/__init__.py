@@ -1,47 +1,46 @@
 """
-主动回复模块（v2）
+主动回复模块（v3）
 
 架构概览：
-- manager.py          : ProactiveManager (Facade)
-- core/               : 上下文引擎、决策引擎、反馈追踪、数据模型
-- detectors/          : 三级漏斗检测器 (Rule → Vector → LLM)
-- strategies/         : 回复策略 (Question / Emotion / Chat / FollowUp)
-- storage/            : 场景向量存储 (ChromaDB) + 反馈数据存储 (SQLite)
-- data/               : 预定义场景 + 场景初始化器
-- web/                : Web 管理界面 (可选)
+- manager.py            : ProactiveManager (Facade)
+- config.py             : 配置 dataclass
+- models.py             : 数据模型（Signal, FollowUpExpectation 等）
+- signal_queue.py       : 信号队列（按群隔离）
+- signal_generator.py   : 信号生成器（改造自 v2 RuleDetector）
+- group_scheduler.py    : 群定时器调度器
+- followup_planner.py   : FollowUp 跟进规划器
+- storage/              : ExpectationStore（内存存储）
 """
 
-from iris_memory.proactive.core.models import (
-    UrgencyLevel,
-    ReplyType,
-    DecisionType,
-    SceneType,
-    PersonalityType,
-    ProactiveContext,
-    ProactiveDecision,
-    ReplyRecord,
-    ReplyFeedback,
-    ProactiveScene,
-    PersonalityConfig,
-    get_personality_config,
+from iris_memory.proactive.config import (
+    FollowUpConfig,
+    ProactiveConfig,
+    SignalQueueConfig,
 )
-
 from iris_memory.proactive.manager import ProactiveManager
+from iris_memory.proactive.models import (
+    AggregatedDecision,
+    FollowUpDecision,
+    FollowUpExpectation,
+    FollowUpReplyType,
+    ProactiveReplyResult,
+    Signal,
+    SignalType,
+)
 
 __all__ = [
     # Facade
     "ProactiveManager",
+    # 配置
+    "ProactiveConfig",
+    "SignalQueueConfig",
+    "FollowUpConfig",
     # 数据模型
-    "UrgencyLevel",
-    "ReplyType",
-    "DecisionType",
-    "SceneType",
-    "PersonalityType",
-    "ProactiveContext",
-    "ProactiveDecision",
-    "ReplyRecord",
-    "ReplyFeedback",
-    "ProactiveScene",
-    "PersonalityConfig",
-    "get_personality_config",
+    "Signal",
+    "SignalType",
+    "FollowUpExpectation",
+    "FollowUpReplyType",
+    "FollowUpDecision",
+    "AggregatedDecision",
+    "ProactiveReplyResult",
 ]

@@ -208,7 +208,7 @@ class MessageProcessingDefaults:
 class ProactiveReplyDefaults:
     """主动回复默认配置
 
-    v2 重构：三级漏斗检测 + 场景向量匹配 + 反馈学习。
+    v3 重构：SignalQueue + GroupScheduler + FollowUpPlanner。
     用户可见的配置通过 AstrBot 管理界面修改，高级参数在此设置默认值。
     """
     # ===== 用户可见配置 =====
@@ -223,12 +223,6 @@ class ProactiveReplyDefaults:
     # 群聊白名单模式（开启后需管理员用指令控制各群聊的主动回复开关）
     group_whitelist_mode: bool = False
 
-    # 个性设定: reserved / balanced / proactive
-    personality: str = "balanced"
-
-    # 群聊黑名单
-    group_blacklist: list = field(default_factory=list)
-
     # 静音时段 [start, end]，支持跨午夜，如 [23, 7] 表示 23:00-07:00
     quiet_hours: list = field(default_factory=lambda: [23, 7])
 
@@ -238,51 +232,22 @@ class ProactiveReplyDefaults:
     # Web 界面开关
     web_dashboard: bool = False
 
-    # 检测阈值（高级，保留旧配置向后兼容）
-    high_emotion_threshold: float = 0.7
-    question_threshold: float = 0.8
-    mention_threshold: float = 0.9
+    # ===== v3 SignalQueue 高级配置 =====
+    signal_check_interval_seconds: int = 30     # 群定时器检查间隔
+    signal_silence_timeout_seconds: int = 600   # 沉默超时（定时器销毁）
+    signal_min_silence_seconds: int = 60        # 最小沉默时间才触发判断
+    signal_ttl_emotion_high: int = 180          # emotion_high 信号 TTL（秒）
+    signal_ttl_rule_match: int = 300            # rule_match 信号 TTL（秒）
+    signal_weight_direct_reply: float = 0.8     # 直接回复阈值
+    signal_weight_llm_confirm: float = 0.5      # LLM 确认阈值
 
-    # ===== 新系统高级配置 =====
-
-    # -- 上下文引擎 --
-    context_max_history: int = 10               # 最近消息条数
-    context_silence_threshold: int = 300         # 沉默阈值（秒）
-    context_max_text_tokens: int = 150           # 向量化文本最大 token 数
-
-    # -- L1: 规则检测器（私聊阈值更低，更容易触发）--
-    detector_rule_direct_reply_private: float = 0.6
-    detector_rule_direct_reply_group: float = 0.7
-    detector_rule_fast_reject_private: float = 0.15
-    detector_rule_fast_reject_group: float = 0.2
-
-    # -- L2: 向量检测器 --
-    detector_vector_collection: str = "proactive_scenes"
-    detector_vector_top_k: int = 5
-    detector_vector_threshold_high: float = 0.85
-    detector_vector_threshold_mid: float = 0.6
-
-    # -- L3: LLM 检测器（按 session 限流）--
-    detector_llm_max_per_hour_per_session: int = 5
-    detector_llm_prompt_tokens: int = 500
-
-    # -- 多轮跟进 --
-    followup_max_count: int = 2
-    followup_time_window: int = 120              # 秒
-    followup_similarity_threshold: float = 0.6
-
-    # -- 反馈追踪 --
-    feedback_tracking_window: int = 300          # 反馈追踪窗口（秒）
-    feedback_update_batch_size: int = 10
-    feedback_data_retention_days: int = 30
-
-    # -- 场景库 --
-    scene_embedding_model: str = "local"
-    scene_initial_batch_size: int = 100
-
-    # -- 冷启动 --
-    cold_start_exploration_threshold: int = 50
-    cold_start_calibration_threshold: int = 200
+    # ===== v3 FollowUp 高级配置 =====
+    followup_window_seconds: int = 120          # FollowUp 窗口时长
+    followup_max_count: int = 2                 # 最大跟进次数
+    followup_short_window_seconds: int = 10     # 短期窗口
+    followup_llm_max_tokens: int = 500          # LLM 判断最大 token
+    followup_llm_temperature: float = 0.3       # LLM 判断温度
+    followup_fallback_to_rule: bool = True      # LLM 失败时降级到规则判断
 
 
 @dataclass
