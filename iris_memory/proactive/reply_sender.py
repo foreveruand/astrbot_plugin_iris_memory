@@ -58,6 +58,7 @@ class ProactiveReplySender:
         get_group_umo: Callable[[str], Optional[str]],
         llm_provider: Optional[Any] = None,
         llm_provider_id: Optional[str] = None,
+        configured_provider_id: Optional[str] = None,
     ) -> None:
         self._context = astrbot_context
         self._prepare_llm_context = prepare_llm_context
@@ -65,6 +66,8 @@ class ProactiveReplySender:
         self._get_group_umo = get_group_umo
         self._llm_provider = llm_provider
         self._llm_provider_id = llm_provider_id
+        # 延迟解析用的配置 provider_id（AstrBot 先加载插件后加载 provider）
+        self._configured_provider_id = configured_provider_id or llm_provider_id
 
     async def send_reply(
         self,
@@ -117,15 +120,25 @@ class ProactiveReplySender:
                 trigger_prompt=result.trigger_prompt,
             )
 
-            # 4. 解析 LLM provider（懒加载：优先用缓存值，否则按 umo 解析当前对话 provider）
+            # 4. 解析 LLM provider（懒加载：优先用缓存值，否则按配置或默认解析）
             provider = self._llm_provider
             provider_id = self._llm_provider_id
             if not provider and not provider_id:
-                provider, provider_id = get_default_provider(self._context, umo)
+                # 首次使用时懒加载解析 provider（此时 AstrBot 的 provider 已加载完毕）
+                if self._configured_provider_id:
+                    from iris_memory.core.provider_utils import get_provider_by_id
+                    provider, provider_id = get_provider_by_id(
+                        self._context, self._configured_provider_id
+                    )
+                if not provider:
+                    provider, provider_id = get_default_provider(self._context, umo)
                 if not provider and not provider_id:
                     # 最后兜底：不带 umo 的全局默认 provider
                     provider, provider_id = get_default_provider(self._context)
                 if provider_id:
+                    # 缓存解析结果，避免每次发送都重新解析
+                    self._llm_provider = provider
+                    self._llm_provider_id = provider_id
                     logger.debug(
                         f"ProactiveReplySender: lazily resolved provider "
                         f"for group={group_id}: {provider_id}"

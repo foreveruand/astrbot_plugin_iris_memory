@@ -121,11 +121,14 @@ class LLMEnhancedBase(ABC):
         return self._limiter.remaining
     
     async def _resolve_provider(self) -> bool:
-        """LLM 提供者解析（委托给 llm_helper）"""
+        """LLM 提供者解析（委托给 llm_helper）
+
+        采用延迟初始化策略：仅在成功解析后缓存结果。
+        AstrBot 先加载插件后加载 provider，首次调用时 provider 可能尚不可用，
+        因此失败时不设置 _provider_initialized，允许后续调用重试。
+        """
         if self._provider_initialized:
             return self._resolved_provider is not None
-        
-        self._provider_initialized = True
         
         provider, resolved_id = resolve_llm_provider(
             self._astrbot_context,
@@ -135,7 +138,9 @@ class LLMEnhancedBase(ABC):
         if provider:
             self._resolved_provider = provider
             self._resolved_provider_id = resolved_id
+            self._provider_initialized = True
             return True
+        # 不设置 _provider_initialized = True，允许后续重试
         return False
     
     async def _call_llm(self, prompt: str) -> LLMCallResult:

@@ -356,6 +356,9 @@ class MemoryService:
         在所有组件和服务完成初始化后调用。
         将 ProactiveReplySender 注入到 ProactiveManager，
         使其能够通过完整的 LLM 流程发送主动回复（记忆注入、画像注入等）。
+
+        注意：不在此处解析 provider，因为 AstrBot 先加载插件后加载 provider，
+        此时 provider 尚不可用。ProactiveReplySender 将在首次发送时懒加载解析。
         """
         manager = self.proactive_manager
         if not manager:
@@ -363,24 +366,17 @@ class MemoryService:
 
         try:
             from iris_memory.proactive.reply_sender import ProactiveReplySender
-            from iris_memory.utils.llm_helper import resolve_llm_provider
 
-            # 解析主动回复使用的 LLM provider（使用默认 provider，而非智能增强 provider）
-            # 主动回复检测使用智能增强 provider，但发送应使用与被动回复相同的默认 provider
-            default_pid = self.cfg.llm_provider_id
-            llm_provider, llm_provider_id = resolve_llm_provider(
-                self.context,
-                default_pid,
-                label="ProactiveReply",
-            )
+            # 仅传递配置的 provider_id，不在初始化阶段解析 provider
+            # ProactiveReplySender 将在实际发送时懒加载解析 provider
+            configured_pid = self.cfg.llm_provider_id
 
             sender = ProactiveReplySender(
                 astrbot_context=self.context,
                 prepare_llm_context=self.prepare_llm_context,
                 record_chat_message=self.record_chat_message,
                 get_group_umo=manager.get_group_umo,
-                llm_provider=llm_provider,
-                llm_provider_id=llm_provider_id,
+                configured_provider_id=configured_pid,
             )
 
             self.proactive.setup_reply_sender(sender)

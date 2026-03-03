@@ -433,11 +433,15 @@ class KGExtractor:
             return []
 
     async def _ensure_provider(self) -> bool:
-        """确保 LLM provider 可用"""
+        """确保 LLM provider 可用
+
+        采用延迟初始化策略：仅在成功解析后缓存结果。
+        AstrBot 先加载插件后加载 provider，首次调用时 provider 可能尚不可用，
+        因此失败时不设置 _provider_initialized，允许后续调用重试。
+        """
         if self._provider_initialized:
             return self._provider is not None
 
-        self._provider_initialized = True
         try:
             from iris_memory.utils.llm_helper import resolve_llm_provider
             provider, resolved_provider_id = resolve_llm_provider(
@@ -448,10 +452,12 @@ class KGExtractor:
             if provider:
                 self._provider = provider
                 self._resolved_provider_id = resolved_provider_id
+                self._provider_initialized = True
                 return True
         except Exception as e:
             logger.warning(f"Failed to resolve LLM provider for KGExtractor: {e}")
 
+        # 不设置 _provider_initialized = True，允许后续重试
         return False
 
     # ================================================================
