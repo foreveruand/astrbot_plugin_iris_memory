@@ -113,6 +113,9 @@ class ProactiveManager:
         self._daily_reply_date: str = ""
         self._per_user_daily: Dict[str, int] = {}
 
+        # 冷却时间控制（group_id -> 最后回复时间戳）
+        self._last_reply_time: Dict[str, float] = {}
+
     # ── 属性 ──────────────────────────────────────────────────
 
     @property
@@ -430,7 +433,7 @@ class ProactiveManager:
         """处理 SignalQueue 聚合决策触发的回复
 
         完整流程：
-        1. 检查 FollowUp 冲突和每日限额
+        1. 检查静音时段、冷却时间、FollowUp 冲突和每日限额
         2. 构建回复结果
         3. 通过 ReplySender 发送（经过记忆/画像注入 → LLM → 平台发送）
         4. 创建 FollowUp 期待
@@ -438,6 +441,20 @@ class ProactiveManager:
         Args:
             decision: 聚合决策
         """
+        # 检查静音时段
+        if self._is_quiet_hours():
+            logger.debug(
+                f"Quiet hours, skipping signal reply for group {decision.group_id}"
+            )
+            return
+
+        # 检查冷却时间
+        if not self._check_rate_limit(decision.group_id):
+            logger.debug(
+                f"Rate limit: group {decision.group_id} in cooldown"
+            )
+            return
+
         # 检查是否有活跃 FollowUp 期待 → 延迟
         if self._followup_planner and self._followup_planner.has_active_expectation(
             decision.group_id
@@ -467,6 +484,9 @@ class ProactiveManager:
             )
             return
 
+        # 更新冷却时间
+        self._update_last_reply_time(decision.group_id)
+
         # 创建 FollowUp 期待
         if self._followup_planner and self._config.followup_enabled:
             trigger_msg = ""
@@ -492,14 +512,38 @@ class ProactiveManager:
         """处理 FollowUp 触发的回复
 
         完整流程：
-        1. 清除该群的信号队列
-        2. 通过 ReplySender 发送（经过记忆/画像注入 → LLM → 平台发送）
-        3. 记录发送结果
+        1. 检查静音时段、冷却时间和每日限额
+        2. 清除该群的信号队列
+        3. 通过 ReplySender 发送（经过记忆/画像注入 → LLM → 平台发送）
+        4. 记录发送结果
 
         Args:
             reply_result: 回复结果
             expectation: 跟进期待
         """
+        # 检查静音时段
+        if self._is_quiet_hours():
+            logger.debug(
+                f"Quiet hours, skipping followup reply for group {expectation.group_id}"
+            )
+            return
+
+        # 检查冷却时间
+        if not self._check_rate_limit(expectation.group_id):
+            logger.debug(
+                f"Rate limit: group {expectation.group_id} in cooldown, "
+                f"skipping followup"
+            )
+            return
+
+        # 检查每日限额
+        if not self._check_daily_limit(expectation.trigger_user_id):
+            logger.debug(
+                f"Daily limit reached for user {expectation.trigger_user_id}, "
+                f"skipping followup"
+            )
+            return
+
         # 清除该群的信号
         if self._signal_queue:
             self._signal_queue.clear_group(expectation.group_id)
@@ -508,6 +552,10 @@ class ProactiveManager:
         bot_reply = await self._send_proactive_reply(reply_result)
 
         if bot_reply:
+            # 更新冷却时间和计数
+            self._update_last_reply_time(expectation.group_id)
+            self._increment_daily_count(expectation.trigger_user_id)
+
             logger.info(
                 f"FollowUp reply sent: group={expectation.group_id}, "
                 f"user={expectation.trigger_user_id}, "
@@ -663,6 +711,39 @@ class ProactiveManager:
         )
 
     # ── 配额控制 ──────────────────────────────────────────────
+
+    def _check_rate_limit(self, group_id: str) -> bool:
+        """检查冷却时间限制
+
+        Args:
+            group_id: 群组 ID
+
+        Returns:
+            True 如果可以通过（冷却时间已过），False 如果还在冷却中
+        """
+        cooldown = self._config.cooldown_seconds
+        if cooldown <= 0:
+            return True
+
+        last_time = self._last_reply_time.get(group_id)
+        if last_time is None:
+            return True
+
+        import time
+        elapsed = time.time() - last_time
+        if elapsed < cooldown:
+            logger.debug(
+                f"Rate limit: group {group_id} in cooldown "
+                f"({elapsed:.0f}s < {cooldown}s)"
+            )
+            return False
+
+        return True
+
+    def _update_last_reply_time(self, group_id: str) -> None:
+        """更新最后回复时间"""
+        import time
+        self._last_reply_time[group_id] = time.time()
 
     def _check_daily_limit(self, user_id: str) -> bool:
         """检查每日限额"""
