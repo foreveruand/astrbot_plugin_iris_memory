@@ -53,7 +53,8 @@ class ProactiveModule:
 
         logger.debug(LogTemplates.COMPONENT_INIT.format(component="proactive reply"))
 
-        if not cfg.proactive_reply_enabled:
+        followup_after_all = cfg.proactive_followup_after_all_replies
+        if not cfg.proactive_reply_enabled and not followup_after_all:
             logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Proactive reply"))
             return
 
@@ -70,7 +71,7 @@ class ProactiveModule:
             proactive_mode = cfg.proactive_mode
 
             config = ProactiveConfig(
-                enabled=True,
+                enabled=cfg.proactive_reply_enabled,
                 signal_queue_enabled=True,
                 followup_enabled=True,
                 followup_after_all_replies=cfg.proactive_followup_after_all_replies,

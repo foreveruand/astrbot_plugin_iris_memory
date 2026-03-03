@@ -290,13 +290,13 @@
         "description": "启用主动回复",
         "type": "bool",
         "default": false,
-        "hint": "检测到对话信号后在沉默期自动主动发送消息"
+        "hint": "在群聊沉默期间，根据群内容，主动发送消息（消耗LLM）"
       },
       "followup_after_all_replies": {
-        "description": "Bot 所有回复后创建跟进期待",
+        "description": "Bot回复后继续跟进",
         "type": "bool",
         "default": false,
-        "hint": "启用后 Bot 的每次回复（包括正常回复）都会创建 FollowUp 期待，以便在用户沉默时主动跟进。仅在启用主动回复时生效"
+        "hint": "Bot 的每次回复后，智能跟进对话（消耗LLM）。与主动回复开关独立生效"
       },
       "group_whitelist_mode": {
         "description": "群聊白名单模式",
@@ -308,7 +308,7 @@
         "description": "跟进窗口时长（秒）",
         "type": "int",
         "default": 120,
-        "hint": "Bot 主动回复后等待用户回应的时间窗口"
+        "hint": "Bot 回复后等待该跟进最长时间"
       },
       "max_followup_count": {
         "description": "最大跟进次数",

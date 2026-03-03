@@ -304,7 +304,7 @@ class ProactiveManager:
             user_message: 用户原始消息
             bot_reply: Bot 回复内容
         """
-        if not self._initialized or not self._config.enabled:
+        if not self._initialized:
             return
 
         if not self._config.followup_after_all_replies:

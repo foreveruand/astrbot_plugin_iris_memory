@@ -234,6 +234,25 @@ class TestRuleFallbackDecision:
         assert decision is not None
         assert decision.should_reply is False
 
+    def test_no_messages_followup_after_all_replies(
+        self, config: ProactiveConfig, store: ExpectationStore
+    ) -> None:
+        """followup_after_all_replies=True 且无用户消息时应主动跟进"""
+        config.followup_after_all_replies = True
+        planner = FollowUpPlanner(config=config, expectation_store=store)
+        exp = FollowUpExpectation(
+            session_key="u1:g1",
+            group_id="g1",
+            trigger_user_id="u1",
+            trigger_message="hi",
+            bot_reply_summary="hello",
+            followup_window_end=datetime.now() + timedelta(minutes=2),
+        )
+        decision = planner._rule_fallback_decision(exp)
+        assert decision is not None
+        assert decision.should_reply is True
+        assert decision.reply_type == FollowUpReplyType.CONTINUE_TOPIC
+
     def test_short_reply_no_followup(self, planner: FollowUpPlanner) -> None:
         exp = FollowUpExpectation(
             session_key="u1:g1",
@@ -494,3 +513,102 @@ class TestBuildFollowupReply:
         assert "跟进回复" in result.reason
         assert "你好" in result.trigger_prompt
         assert result.target_user == "u1"
+        assert "跟进回复场景" in result.trigger_prompt
+
+    def test_build_reply_no_user_response(self) -> None:
+        """无用户回应时使用主动跟进 prompt"""
+        exp = FollowUpExpectation(
+            session_key="u1:g1",
+            group_id="g1",
+            trigger_user_id="u1",
+            trigger_message="hi",
+            bot_reply_summary="你最近怎么样",
+            followup_window_end=datetime.now() + timedelta(minutes=2),
+            aggregated_messages=[],
+        )
+        decision = FollowUpDecision(
+            should_reply=True,
+            reason="主动跟进",
+            reply_type=FollowUpReplyType.CONTINUE_TOPIC,
+            suggested_direction="关心用户状态",
+        )
+        result = FollowUpPlanner._build_followup_reply(exp, decision)
+        assert isinstance(result, ProactiveReplyResult)
+        assert result.source == "followup"
+        assert "主动跟进场景" in result.trigger_prompt
+        assert "你最近怎么样" in result.trigger_prompt
+        assert "用户还没有进一步发言" in result.trigger_prompt
+        assert result.recent_messages == []
+
+
+class TestFollowUpAfterAllReplies:
+    """followup_after_all_replies 独立开关测试"""
+
+    @pytest.mark.asyncio
+    async def test_window_expired_no_messages_triggers_when_mode_enabled(
+        self, store: ExpectationStore
+    ) -> None:
+        """followup_after_all_replies=True 时窗口到期无用户消息也触发 LLM 判断"""
+        reply_cb = AsyncMock()
+        config = ProactiveConfig(
+            enabled=False,  # 主动回复关闭
+            followup_enabled=True,
+            followup_after_all_replies=True,
+            followup_window_seconds=1,
+            max_followup_count=1,
+            followup=FollowUpConfig(fallback_to_rule_on_llm_error=True),
+        )
+        planner = FollowUpPlanner(
+            config=config,
+            expectation_store=store,
+            on_followup_reply=reply_cb,
+        )
+
+        planner.create_expectation(
+            session_key="u1:g1",
+            group_id="g1",
+            trigger_user_id="u1",
+            trigger_message="hi",
+            bot_reply_summary="你好",
+        )
+
+        # 等待窗口到期
+        await asyncio.sleep(1.5)
+
+        # 回复回调应被触发（即使用户没有发言）
+        assert reply_cb.called
+        await planner.close()
+
+    @pytest.mark.asyncio
+    async def test_window_expired_no_messages_no_trigger_when_mode_disabled(
+        self, store: ExpectationStore
+    ) -> None:
+        """followup_after_all_replies=False 时窗口到期无用户消息不触发"""
+        reply_cb = AsyncMock()
+        config = ProactiveConfig(
+            enabled=True,
+            followup_enabled=True,
+            followup_after_all_replies=False,
+            followup_window_seconds=1,
+            max_followup_count=2,
+            followup=FollowUpConfig(fallback_to_rule_on_llm_error=True),
+        )
+        planner = FollowUpPlanner(
+            config=config,
+            expectation_store=store,
+            on_followup_reply=reply_cb,
+        )
+
+        planner.create_expectation(
+            session_key="u1:g1",
+            group_id="g1",
+            trigger_user_id="u1",
+            trigger_message="hi",
+            bot_reply_summary="你好",
+        )
+
+        await asyncio.sleep(1.5)
+
+        # 没有用户消息，不应触发回复
+        assert not reply_cb.called
+        await planner.close()

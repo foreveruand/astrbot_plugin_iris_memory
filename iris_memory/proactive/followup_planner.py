@@ -298,22 +298,23 @@ class FollowUpPlanner:
             if self._closed:
                 return
 
-            expectation = self._store.get(group_id)
+            # 使用 remove() 而非 get()：窗口计时器到期时 get() 会因窗口过期而
+            # 自动删除并返回 None，导致跟进逻辑无法执行。remove() 跳过过期检查。
+            expectation = self._store.remove(group_id)
             if expectation is None:
                 return
 
-            # 如果有聚合消息且短期窗口还没触发过 LLM 判断
-            if expectation.has_aggregated_messages:
+            self._cancel_short_window_timer(group_id)
+
+            # followup_after_all_replies 模式下不等待用户发言，直接触发跟进
+            # 其他情况下只有用户有发言时才判断
+            if expectation.has_aggregated_messages or self._config.followup_after_all_replies:
                 await self._trigger_llm_decision(expectation)
             else:
-                # 无用户发言，直接清除
                 logger.debug(
                     f"FollowUp window expired for group {group_id}, "
                     f"no user messages, clearing"
                 )
-
-            self._store.remove(group_id)
-            self._cancel_short_window_timer(group_id)
 
         except asyncio.CancelledError:
             pass
@@ -407,9 +408,17 @@ class FollowUpPlanner:
     ) -> Optional[FollowUpDecision]:
         """规则降级判断
 
-        简单策略：有聚合消息就回复，否则不回复。
+        followup_after_all_replies 模式：即使无用户回应也主动跟进。
+        普通模式：有聚合消息才回复。
         """
         if not expectation.has_aggregated_messages:
+            if self._config.followup_after_all_replies:
+                return FollowUpDecision(
+                    should_reply=True,
+                    reason="主动跟进（Bot 回复后，用户尚未回应）",
+                    reply_type=FollowUpReplyType.CONTINUE_TOPIC,
+                    suggested_direction="自然延续话题或关心用户状态",
+                )
             return FollowUpDecision(
                 should_reply=False,
                 reason="无用户回应",
@@ -440,25 +449,37 @@ class FollowUpPlanner:
         decision: FollowUpDecision,
     ) -> ProactiveReplyResult:
         """构建跟进回复结果"""
-        # 聚合消息摘要
-        msg_summary = "\n".join(
-            f"  {m.get('sender_name', '用户')}: {m.get('content', '')}"
-            for m in expectation.aggregated_messages[-5:]
-        )
-
         reason = f"跟进回复（{decision.reply_type.value}）: {decision.reason}"
 
-        trigger_prompt = (
-            "【跟进回复场景】\n"
-            "你之前主动发起了对话，用户已经回应，现在继续跟进。\n"
-            f"你上次说的：{expectation.bot_reply_summary}\n"
-            f"用户回应：\n{msg_summary}\n"
-            f"回复方向：{decision.suggested_direction}\n"
-            "\n行为指导：\n"
-            "- 自然延续对话，不要重复之前说过的内容\n"
-            "- 简短回应，不要啰嗦\n"
-            "- 如果用户明确表示不感兴趣，可以自然结束话题\n"
-        )
+        if expectation.has_aggregated_messages:
+            # 用户有回应：继续对话
+            msg_summary = "\n".join(
+                f"  {m.get('sender_name', '用户')}: {m.get('content', '')}"
+                for m in expectation.aggregated_messages[-5:]
+            )
+            trigger_prompt = (
+                "【跟进回复场景】\n"
+                "你之前说了一些话，用户已经有所回应，现在继续跟进。\n"
+                f"你上次说的：{expectation.bot_reply_summary}\n"
+                f"用户回应：\n{msg_summary}\n"
+                f"回复方向：{decision.suggested_direction}\n"
+                "\n行为指导：\n"
+                "- 自然延续对话，不要重复之前说过的内容\n"
+                "- 简短回应，不要啰嗦\n"
+                "- 如果用户明确表示不感兴趣，可以自然结束话题\n"
+            )
+        else:
+            # 用户尚未回应：主动跟进关怀
+            trigger_prompt = (
+                "【主动跟进场景】\n"
+                "你刚刚回复了用户，但用户还没有进一步发言，现在主动跟进延续话题。\n"
+                f"你上次说的：{expectation.bot_reply_summary}\n"
+                f"回复方向：{decision.suggested_direction}\n"
+                "\n行为指导：\n"
+                "- 自然地延续或深化刚才的话题，不要生硬地重复同一问题\n"
+                "- 简短自然，像朋友闲聊一样\n"
+                "- 不要提及\"用户没有回复\"等元信息\n"
+            )
 
         recent_messages = [
             {

@@ -484,6 +484,31 @@ class TestNotifyBotReply:
         assert len(exp.bot_reply_summary) <= 200
         await m.close()
 
+    @pytest.mark.asyncio
+    async def test_notify_works_when_proactive_disabled(
+        self, tmp_path_fixture: Path,
+    ) -> None:
+        """主动回复关闭时 notify_bot_reply 仍可工作（独立开关）"""
+        cfg = ProactiveConfig(
+            enabled=False,  # 主动回复关闭
+            quiet_hours=[],
+            followup_after_all_replies=True,
+            followup_enabled=True,
+        )
+        m = ProactiveManager(plugin_data_path=tmp_path_fixture, config=cfg)
+        await m.initialize()
+
+        m.notify_bot_reply(
+            user_id="u1",
+            group_id="g1",
+            user_message="你好",
+            bot_reply="你好呀",
+        )
+
+        # FollowUp 期待应成功创建，与主动回复开关无关
+        assert m._followup_planner.has_active_expectation("g1")
+        await m.close()
+
 
 class TestQuietHours:
     """静音时段测试"""
