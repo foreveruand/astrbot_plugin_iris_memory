@@ -116,6 +116,9 @@ class ProactiveManager:
         # 冷却时间控制（group_id -> 最后回复时间戳）
         self._last_reply_time: Dict[str, float] = {}
 
+        # 正常 LLM 回复时间（group_id -> 时间戳），用于抑制批处理器滞后触发的主动信号
+        self._last_normal_reply_time: Dict[str, float] = {}
+
         # CooldownModule 状态检查回调（group_id -> 是否处于冷却中）
         # 由服务层注入，检查用户通过 /冷却 命令激活的冷却状态
         self._cooldown_checker: Optional[Callable[[str], bool]] = None
@@ -270,6 +273,19 @@ class ProactiveManager:
         if self._is_quiet_hours():
             return None
 
+        # 正常 LLM 回复抑制：若近期已有正常回复（被动消息触发的 Bot 回复），
+        # 批处理器后续生成的主动信号不应再触发重复回复
+        if group_id and self._config.cooldown_seconds > 0:
+            import time
+            last_normal = self._last_normal_reply_time.get(group_id, 0.0)
+            elapsed = time.time() - last_normal
+            if elapsed < self._config.cooldown_seconds:
+                logger.debug(
+                    f"Normal reply {elapsed:.0f}s ago (< {self._config.cooldown_seconds}s), "
+                    f"suppressing proactive signal for group {group_id}"
+                )
+                return None
+
         try:
             # 从消息中提取信号
             extra = extra or {}
@@ -342,6 +358,11 @@ class ProactiveManager:
             group_id: 群组 ID
         """
         session_key = self._build_session_key(user_id, group_id)
+
+        # 记录正常回复时间，用于抑制批处理器稍后生成的主动信号
+        if group_id:
+            import time
+            self._last_normal_reply_time[group_id] = time.time()
 
         if self._signal_queue:
             self._signal_queue.clear_session(session_key)

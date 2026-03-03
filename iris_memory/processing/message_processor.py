@@ -4,6 +4,7 @@
 封装 LLM Hook、消息装饰和普通消息处理逻辑。
 """
 
+import asyncio
 from typing import Optional, Any, List, TYPE_CHECKING
 
 from astrbot.api.event import AstrMessageEvent
@@ -316,41 +317,83 @@ class MessageProcessor:
         if not self._service.batch_processor:
             return None
 
-        image_description = ""
-        if self._service.image_analyzer:
-            try:
-                _, mem_format = await self._service.analyze_images(
-                    message_chain=event.message_obj.message,
-                    user_id=user_id,
-                    group_id=group_id,
-                    context_text=message,
-                    umo=event.unified_msg_origin,
-                    session_id=SessionKeyBuilder.build(user_id, group_id)
-                )
-                image_description = mem_format
-            except Exception as e:
-                self._service.logger.warning(f"Image analysis failed: {e}")
-
-        context = await self._build_message_context(user_id, group_id)
-        context["sender_name"] = sender_name
-
         enriched_message = message
         if reply_info and reply_info.content:
             enriched_message = f"{message}\n{reply_info.format_for_buffer()}"
 
         raw_persona_id = get_event_persona_id(event)
         store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
-        await self._service.process_message_batch(
-            message=enriched_message,
-            user_id=user_id,
-            group_id=group_id,
-            context=context,
-            umo=event.unified_msg_origin,
-            image_description=image_description,
-            persona_id=store_persona,
+
+        # 将图片分析和批量处理放到后台任务，避免阻塞 LLM 响应（这些是记忆写入操作，
+        # 不需要在 Bot 回复前完成）
+        asyncio.create_task(
+            self._background_batch_process(
+                event=event,
+                user_id=user_id,
+                group_id=group_id,
+                message=message,
+                enriched_message=enriched_message,
+                sender_name=sender_name,
+                store_persona=store_persona,
+                umo=event.unified_msg_origin,
+            )
         )
 
         return None
+
+    async def _background_batch_process(
+        self,
+        event: AstrMessageEvent,
+        user_id: str,
+        group_id: Optional[str],
+        message: str,
+        enriched_message: str,
+        sender_name: str,
+        store_persona: Optional[str],
+        umo: str,
+    ) -> None:
+        """后台批量处理：图片分析 + 记忆批写入，不阻塞 LLM 响应
+
+        Args:
+            event: 消息事件对象
+            user_id: 用户 ID
+            group_id: 群聊 ID
+            message: 原始消息文本（用于图片分析 context_text）
+            enriched_message: 附带引用上下文的消息文本（写入记忆）
+            sender_name: 发送者名称
+            store_persona: 存储用 Persona ID
+            umo: unified_msg_origin
+        """
+        try:
+            image_description = ""
+            if self._service.image_analyzer:
+                try:
+                    _, mem_format = await self._service.analyze_images(
+                        message_chain=event.message_obj.message,
+                        user_id=user_id,
+                        group_id=group_id,
+                        context_text=message,
+                        umo=umo,
+                        session_id=SessionKeyBuilder.build(user_id, group_id)
+                    )
+                    image_description = mem_format
+                except Exception as e:
+                    self._service.logger.warning(f"Background image analysis failed: {e}")
+
+            context = await self._build_message_context(user_id, group_id)
+            context["sender_name"] = sender_name
+
+            await self._service.process_message_batch(
+                message=enriched_message,
+                user_id=user_id,
+                group_id=group_id,
+                context=context,
+                umo=umo,
+                image_description=image_description,
+                persona_id=store_persona,
+            )
+        except Exception as e:
+            self._service.logger.warning(f"Background batch processing failed: {e}")
 
     async def _build_message_context(
         self,
