@@ -436,24 +436,37 @@ class ProactiveManager:
             bot_reply: Bot 回复内容
             umo: unified_msg_origin，用于后续主动回复发送
         """
+        logger.debug(
+            f"notify_bot_reply called: user={user_id}, group={group_id}, "
+            f"initialized={self._initialized}, "
+            f"followup_after_all={self._config.followup_after_all_replies}, "
+            f"followup_enabled={self._config.followup_enabled}"
+        )
+        
         if not self._initialized:
+            logger.debug("notify_bot_reply: not initialized, skipping")
             return
 
         if not self._config.followup_after_all_replies:
+            logger.debug("notify_bot_reply: followup_after_all_replies disabled, skipping")
             return
 
         if not self._config.followup_enabled:
+            logger.debug("notify_bot_reply: followup_enabled disabled, skipping")
             return
 
         # 仅群聊创建期待
         if not group_id:
+            logger.debug("notify_bot_reply: not group chat, skipping")
             return
 
         # 白名单过滤
         if not self.is_group_allowed(group_id):
+            logger.debug(f"notify_bot_reply: group {group_id} not in whitelist, skipping")
             return
 
         if not self._followup_planner:
+            logger.warning("notify_bot_reply: _followup_planner is None, skipping")
             return
 
         # 记录群组 UMO（用于后续 FollowUp 回复发送）
