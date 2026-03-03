@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from iris_memory.proactive.config import ProactiveConfig
 from iris_memory.proactive.followup_planner import (
@@ -116,6 +116,10 @@ class ProactiveManager:
         # 冷却时间控制（group_id -> 最后回复时间戳）
         self._last_reply_time: Dict[str, float] = {}
 
+        # CooldownModule 状态检查回调（group_id -> 是否处于冷却中）
+        # 由服务层注入，检查用户通过 /冷却 命令激活的冷却状态
+        self._cooldown_checker: Optional[Callable[[str], bool]] = None
+
     # ── 属性 ──────────────────────────────────────────────────
 
     @property
@@ -140,6 +144,18 @@ class ProactiveManager:
         """
         self._reply_sender = sender
         logger.debug("Reply sender injected into ProactiveManager")
+
+    def set_cooldown_checker(self, checker: Callable[[str], bool]) -> None:
+        """注入 CooldownModule 状态检查回调
+
+        由服务层注入，用于检查用户通过 /冷却 命令激活的冷却状态。
+        主动回复在发送前会调用此回调，若群处于冷却中则跳过回复。
+
+        Args:
+            checker: 接受 group_id，返回 True 表示该群处于冷却中
+        """
+        self._cooldown_checker = checker
+        logger.debug("Cooldown checker injected into ProactiveManager")
 
     def set_context(
         self,
@@ -455,6 +471,14 @@ class ProactiveManager:
             )
             return
 
+        # 检查 CooldownModule（用户通过 /冷却 命令激活的冷却状态）
+        if self._cooldown_checker and self._cooldown_checker(decision.group_id):
+            logger.debug(
+                f"CooldownModule active for group {decision.group_id}, "
+                f"skipping signal reply"
+            )
+            return
+
         # 检查是否有活跃 FollowUp 期待 → 延迟
         if self._followup_planner and self._followup_planner.has_active_expectation(
             decision.group_id
@@ -533,6 +557,14 @@ class ProactiveManager:
             logger.debug(
                 f"Rate limit: group {expectation.group_id} in cooldown, "
                 f"skipping followup"
+            )
+            return
+
+        # 检查 CooldownModule（用户通过 /冷却 命令激活的冷却状态）
+        if self._cooldown_checker and self._cooldown_checker(expectation.group_id):
+            logger.debug(
+                f"CooldownModule active for group {expectation.group_id}, "
+                f"skipping followup reply"
             )
             return
 

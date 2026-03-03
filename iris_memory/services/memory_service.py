@@ -384,6 +384,10 @@ class MemoryService:
             )
 
             self.proactive.setup_reply_sender(sender)
+
+            # 注入 CooldownModule 状态检查回调，确保主动回复遵守用户 /冷却 命令
+            manager.set_cooldown_checker(self.cooldown.is_active)
+
             self.logger.info("Proactive reply sender wired successfully")
         except Exception as e:
             self.logger.warning(f"Failed to setup proactive reply sender: {e}")
