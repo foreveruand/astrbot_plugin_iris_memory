@@ -19,8 +19,8 @@ from __future__ import annotations
 from typing import Any, Callable, Coroutine, Dict, Optional
 
 from iris_memory.proactive.models import ProactiveReplyResult
-from iris_memory.utils.llm_helper import call_llm, resolve_llm_provider
-from iris_memory.core.provider_utils import get_default_provider, extract_provider_id
+from iris_memory.utils.llm_helper import call_llm
+from iris_memory.core.provider_utils import get_default_provider
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("proactive.reply_sender")
@@ -191,14 +191,15 @@ class ProactiveReplySender:
             text: 消息文本
         """
         try:
-            from astrbot.api.message_components import Plain
+            from astrbot.core.message.components import Plain
+            from astrbot.core.message.message_event_result import MessageChain
 
-            message_chain = [Plain(text)]
+            message_chain = MessageChain(chain=[Plain(text)])
             await self._context.send_message(umo, message_chain)
-        except ImportError:
+        except ImportError as e:
             logger.error(
-                "Cannot import astrbot.api.message_components.Plain, "
-                "message sending unavailable"
+                f"Cannot import AstrBot message types, "
+                f"message sending unavailable: {e}"
             )
         except Exception as e:
             logger.error(f"Failed to send message via AstrBot API: {e}")

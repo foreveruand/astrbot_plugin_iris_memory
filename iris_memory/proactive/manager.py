@@ -334,6 +334,39 @@ class ProactiveManager:
 
         logger.debug(f"Cleared pending tasks for session {session_key}")
 
+    def notify_message_for_followup(
+        self,
+        user_id: str,
+        group_id: str,
+        message: str,
+        sender_name: str = "",
+    ) -> None:
+        """实时消息通知 FollowUpPlanner
+
+        在消息处理流程中直接调用，绕过批量处理延迟，
+        确保 FollowUp 短期窗口内能及时收到用户消息。
+        仅在有活跃 FollowUp 期待时才执行，开销极小。
+
+        Args:
+            user_id: 用户 ID
+            group_id: 群组 ID
+            message: 消息内容
+            sender_name: 发送者名称
+        """
+        if not self._initialized or not self._followup_planner:
+            return
+        if not self._followup_planner.has_active_expectation(group_id):
+            return
+        try:
+            self._followup_planner.on_user_message(
+                user_id=user_id,
+                group_id=group_id,
+                message=message,
+                sender_name=sender_name,
+            )
+        except Exception as e:
+            logger.warning(f"notify_message_for_followup failed: {e}")
+
     def notify_bot_reply(
         self,
         user_id: str,

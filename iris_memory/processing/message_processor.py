@@ -300,6 +300,19 @@ class MessageProcessor:
 
         self._service.update_session_activity(user_id, group_id)
 
+        # FollowUp 实时通知：绕过批量处理，直接将消息传递给 FollowUpPlanner。
+        # batch_processor 处理消息有延迟（默认 20 条或 300s），而 FollowUp 短期
+        # 窗口仅 10s，必须在此处实时通知，否则用户回复永远无法被捕获。
+        if group_id:
+            proactive_mgr = getattr(self._service, 'proactive_manager', None)
+            if proactive_mgr and hasattr(proactive_mgr, 'notify_message_for_followup'):
+                proactive_mgr.notify_message_for_followup(
+                    user_id=user_id,
+                    group_id=group_id,
+                    message=message,
+                    sender_name=sender_name,
+                )
+
         if not self._service.batch_processor:
             return None
 
