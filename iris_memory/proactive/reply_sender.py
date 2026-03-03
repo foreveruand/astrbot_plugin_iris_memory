@@ -20,6 +20,7 @@ from typing import Any, Callable, Coroutine, Dict, Optional
 
 from iris_memory.proactive.models import ProactiveReplyResult
 from iris_memory.utils.llm_helper import call_llm, resolve_llm_provider
+from iris_memory.core.provider_utils import get_default_provider, extract_provider_id
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("proactive.reply_sender")
@@ -75,9 +76,10 @@ class ProactiveReplySender:
         1. 获取目标群组的 UMO
         2. 准备 LLM 上下文（记忆 + 画像 + 行为指导）
         3. 组合系统指令 + 主动回复指令
-        4. 调用 LLM 生成回复文本
-        5. 通过平台 API 发送消息
-        6. 记录 Bot 回复到聊天缓冲区
+        4. 懒加载解析 LLM provider（按 umo 获取当前对话的活跃 provider）
+        5. 调用 LLM 生成回复文本
+        6. 通过平台 API 发送消息
+        7. 记录 Bot 回复到聊天缓冲区
 
         Args:
             result: 主动回复结果，包含 trigger_prompt、目标信息等
@@ -115,11 +117,30 @@ class ProactiveReplySender:
                 trigger_prompt=result.trigger_prompt,
             )
 
-            # 4. 调用 LLM
+            # 4. 解析 LLM provider（懒加载：优先用缓存值，否则按 umo 解析当前对话 provider）
+            provider = self._llm_provider
+            provider_id = self._llm_provider_id
+            if not provider and not provider_id:
+                provider, provider_id = get_default_provider(self._context, umo)
+                if not provider and not provider_id:
+                    # 最后兜底：不带 umo 的全局默认 provider
+                    provider, provider_id = get_default_provider(self._context)
+                if provider_id:
+                    logger.debug(
+                        f"ProactiveReplySender: lazily resolved provider "
+                        f"for group={group_id}: {provider_id}"
+                    )
+                else:
+                    logger.warning(
+                        f"ProactiveReplySender: no LLM provider available "
+                        f"for group={group_id}, reply will be skipped"
+                    )
+
+            # 5. 调用 LLM
             llm_result = await call_llm(
                 context=self._context,
-                provider=self._llm_provider,
-                provider_id=self._llm_provider_id,
+                provider=provider,
+                provider_id=provider_id,
                 prompt=full_prompt,
             )
 
@@ -135,10 +156,10 @@ class ProactiveReplySender:
                 logger.debug("ProactiveReplySender: LLM returned empty reply")
                 return None
 
-            # 5. 发送消息
+            # 6. 发送消息
             await self._send_message(umo, reply_text)
 
-            # 6. 记录 Bot 回复
+            # 7. 记录 Bot 回复
             await self._record_chat_message(
                 sender_id="bot",
                 sender_name=None,
