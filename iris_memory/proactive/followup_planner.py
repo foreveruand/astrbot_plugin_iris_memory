@@ -281,6 +281,9 @@ class FollowUpPlanner:
             if not expectation.has_aggregated_messages:
                 return
 
+            # 取消 FollowUp 窗口超时定时器，防止重复触发
+            self._cancel_window_timeout_timer(group_id)
+
             # 触发 LLM 决策
             await self._trigger_llm_decision(expectation)
 
@@ -333,10 +336,26 @@ class FollowUpPlanner:
     ) -> None:
         """触发 LLM 判断
 
+        使用 _processing 标记防止短期窗口定时器和 FollowUp 窗口超时定时器
+        同时触发导致重复回复。
+
         Args:
             expectation: 跟进期待
         """
-        decision = await self._get_llm_decision(expectation)
+        # 防止竞态：两个定时器可能同时触发此方法
+        if getattr(expectation, '_processing', False):
+            logger.debug(
+                f"FollowUp decision already in progress for group "
+                f"{expectation.group_id}, skipping duplicate trigger"
+            )
+            return
+        expectation._processing = True  # type: ignore[attr-defined]
+
+        try:
+            decision = await self._get_llm_decision(expectation)
+        except Exception:
+            expectation._processing = False  # type: ignore[attr-defined]
+            raise
 
         if decision is None or not decision.should_reply:
             logger.debug(

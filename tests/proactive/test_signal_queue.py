@@ -167,18 +167,18 @@ class TestAggregateWeight:
         assert queue.aggregate_weight("g1") == pytest.approx(0.6)
 
     def test_multiple_signals_max_plus_decay(self, queue: SignalQueue) -> None:
-        """最大值 + 其余 0.3 衰减叠加"""
+        """最大值 + 其余 0.5 衰减叠加"""
         queue.enqueue(_make_signal(weight=0.6))
         queue.enqueue(_make_signal(weight=0.4, user_id="u2"))
-        # base=0.6, bonus=0.4*0.3=0.12 → 0.72
-        assert queue.aggregate_weight("g1") == pytest.approx(0.72)
+        # base=0.6, bonus=0.4*0.5=0.20 → 0.80
+        assert queue.aggregate_weight("g1") == pytest.approx(0.80)
 
     def test_capped_at_1(self, queue: SignalQueue) -> None:
         """总权重不超过 1.0"""
         queue.enqueue(_make_signal(weight=0.9))
         queue.enqueue(_make_signal(weight=0.8, user_id="u2"))
         queue.enqueue(_make_signal(weight=0.7, user_id="u3"))
-        # base=0.9, bonus=(0.8+0.7)*0.3=0.45 → 1.35 → capped at 1.0
+        # base=0.9, bonus=(0.8+0.7)*0.5=0.75 → 1.65 → capped at 1.0
         assert queue.aggregate_weight("g1") == 1.0
 
 

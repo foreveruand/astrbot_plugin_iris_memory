@@ -53,9 +53,16 @@ class SignalQueue:
         # 容量检查
         max_signals = self._config.signal_queue.max_signals_per_group
         if len(self._queues[group_id]) >= max_signals:
-            # 移除最早的信号
-            self._queues[group_id].pop(0)
-            logger.debug(f"Signal queue overflow for group {group_id}, removed oldest")
+            # 移除权重最低的信号（保留高权重信号）
+            min_idx = min(
+                range(len(self._queues[group_id])),
+                key=lambda i: self._queues[group_id][i].weight,
+            )
+            removed = self._queues[group_id].pop(min_idx)
+            logger.debug(
+                f"Signal queue overflow for group {group_id}, "
+                f"removed lowest weight signal (w={removed.weight:.2f})"
+            )
 
         self._queues[group_id].append(signal)
         logger.debug(
@@ -181,7 +188,7 @@ class SignalQueue:
 
         weights = sorted([s.weight for s in signals], reverse=True)
         base = weights[0]
-        bonus = sum(w * 0.3 for w in weights[1:])
+        bonus = sum(w * 0.5 for w in weights[1:])
         return min(1.0, base + bonus)
 
     @property

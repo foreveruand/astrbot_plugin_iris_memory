@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -33,6 +33,7 @@ from iris_memory.proactive.signal_queue import SignalQueue
 from iris_memory.proactive.storage.expectation_store import ExpectationStore
 from iris_memory.utils.llm_helper import call_llm, parse_llm_json
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.bounded_dict import BoundedDict
 
 logger = get_logger("proactive.manager")
 
@@ -111,7 +112,7 @@ class ProactiveManager:
         # 日统计（简单内存计数）
         self._daily_reply_count: int = 0
         self._daily_reply_date: str = ""
-        self._per_user_daily: Dict[str, int] = {}
+        self._per_user_daily: BoundedDict[str, int] = BoundedDict(max_size=10000)
 
         # 冷却时间控制（group_id -> 最后回复时间戳）
         self._last_reply_time: Dict[str, float] = {}
@@ -671,10 +672,25 @@ class ProactiveManager:
                 for s in signals[:5]
             )
 
+            # 提取信号元数据中的匹配规则
+            matched_rules: List[str] = []
+            for s in signals:
+                rules = s.metadata.get("matched_rules", [])
+                matched_rules.extend(rules)
+            rules_desc = ", ".join(set(matched_rules)) if matched_rules else "无"
+
             prompt = (
-                "判断以下群聊消息是否需要 Bot 主动回复。\n"
-                f"\n检测到的信号：{signal_info}\n"
-                f"\n近期对话：\n{msg_text}\n"
+                "你是一个智能助手，需要判断以下群聊消息是否需要 Bot 主动回复。\n"
+                "\n【检测到的信号】\n"
+                f"信号详情：{signal_info}\n"
+                f"匹配规则：{rules_desc}\n"
+                "\n【近期对话】\n"
+                f"{msg_text}\n"
+                "\n【判断标准】\n"
+                "- 用户是否在向 Bot 提问或寻求互动？\n"
+                "- 用户是否表达了强烈情感需要回应？\n"
+                "- 参与是否自然，还是会显得强行介入？\n"
+                "- 宁可保守不回，不要过度介入\n"
                 "\n仅回答 yes 或 no。"
             )
 
@@ -826,12 +842,17 @@ class ProactiveManager:
             self._daily_reply_date = today
 
     def _is_quiet_hours(self) -> bool:
-        """检查是否在静音时段"""
+        """检查是否在静音时段
+
+        使用配置的时区偏移（默认 UTC+8 北京时间）来判断当前小时，
+        避免服务器时区与用户时区不一致导致静音失效。
+        """
         quiet = self._config.quiet_hours
         if not quiet or len(quiet) < 2:
             return False
 
-        hour = datetime.now().hour
+        tz = timezone(timedelta(hours=self._config.timezone_offset))
+        hour = datetime.now(tz).hour
         start, end = quiet[0], quiet[1]
 
         if start <= end:

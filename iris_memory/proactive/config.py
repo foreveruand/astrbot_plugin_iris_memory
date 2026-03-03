@@ -25,8 +25,8 @@ class SignalQueueConfig:
     ttl_rule_match: int = 300               # 5 分钟
 
     # 权重阈值
-    weight_direct_reply: float = 0.8        # 直接回复阈值
-    weight_llm_confirm: float = 0.5         # LLM 确认阈值
+    weight_direct_reply: float = 0.6        # 直接回复阈值
+    weight_llm_confirm: float = 0.4         # LLM 确认阈值
 
     # 信号队列容量
     max_signals_per_group: int = 50         # 每个群最大信号数
@@ -82,6 +82,9 @@ class ProactiveConfig:
 
     # 静音时段
     quiet_hours: list = field(default_factory=lambda: [23, 7])
+
+    # 时区配置（UTC 偏移小时数，默认 +8 北京时间）
+    timezone_offset: int = 8
 
     # 主动回复模式（rule / hybrid）
     proactive_mode: str = "rule"

@@ -21,8 +21,8 @@ class TestSignalQueueConfig:
         assert c.min_silence_seconds == 60
         assert c.ttl_emotion_high == 180
         assert c.ttl_rule_match == 300
-        assert c.weight_direct_reply == 0.8
-        assert c.weight_llm_confirm == 0.5
+        assert c.weight_direct_reply == 0.6
+        assert c.weight_llm_confirm == 0.4
         assert c.max_signals_per_group == 50
 
     def test_override(self) -> None:
