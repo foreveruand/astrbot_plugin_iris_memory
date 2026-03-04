@@ -33,15 +33,21 @@ class LLMExtractor:
         # 缓存 provider
         self._resolved_provider = None
         self._resolved_provider_id: Optional[str] = None
+        self._provider_initialized = False
 
     def _is_within_limit(self) -> bool:
         """检查是否在每日限制内"""
         return self._limiter.is_within_limit()
 
     async def _resolve_provider(self) -> bool:
-        """解析 LLM 提供者（委托给 llm_helper）"""
-        if self._resolved_provider is not None:
-            return True
+        """解析 LLM 提供者（委托给 llm_helper）
+
+        采用延迟初始化策略：仅在成功解析后缓存结果。
+        AstrBot 先加载插件后加载 provider，首次调用时 provider 可能尚不可用，
+        因此失败时不设置 _provider_initialized，允许后续调用重试。
+        """
+        if self._provider_initialized:
+            return self._resolved_provider is not None
 
         provider, resolved_id = resolve_llm_provider(
             self._astrbot_context,
@@ -51,7 +57,10 @@ class LLMExtractor:
         if provider:
             self._resolved_provider = provider
             self._resolved_provider_id = resolved_id
+            self._provider_initialized = True
             return True
+
+        # 不设置 _provider_initialized = True，允许后续重试
         return False
 
     async def extract(
@@ -67,7 +76,10 @@ class LLMExtractor:
             return result
 
         if not await self._resolve_provider():
-            logger.debug("Persona LLM provider not available")
+            logger.warning(
+                "Persona LLM provider not available. "
+                "Check if LLM provider is configured in AstrBot, or set persona.extraction_mode='rule' to disable LLM extraction."
+            )
             return result
 
         try:

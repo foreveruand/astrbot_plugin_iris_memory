@@ -208,6 +208,9 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
     "image_analysis_provider_id": _ConfigProp(
         "llm_providers.image_analysis_provider_id", "", normalize_provider=True
     ),
+    "persona_llm_provider": _ConfigProp(
+        "llm_providers.persona_provider_id", "", normalize_provider=True
+    ),
 
     # ── 人格隔离 ──
     "memory_query_by_persona": _ConfigProp(
