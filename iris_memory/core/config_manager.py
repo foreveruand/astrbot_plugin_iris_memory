@@ -1,91 +1,98 @@
 """
-配置管理器 - 统一配置访问接口
+配置管理器 — 向后兼容适配层
 
-负责：
-1. 合并用户配置和默认配置
-2. 提供简化的配置访问API
+将所有配置读取委托给 ``iris_memory.config.ConfigStore``，
+保留原有公共 API (get / __getattr__ / get_config_manager / init_config_manager)。
+
+新代码推荐直接使用::
+
+    from iris_memory.config import get_store
+    store = get_store()
+    val = store.get("basic.enable_memory")
 """
 
-import threading
-import time
+from __future__ import annotations
+
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
-from iris_memory.core.defaults import DEFAULTS, get_default
-from iris_memory.core.config_registry import CONFIG_REGISTRY, get_registry_mapping
-from iris_memory.core.config_properties import CONFIG_PROPERTIES
+
+from iris_memory.config.schema import ALIAS_MAP, SCHEMA
+from iris_memory.config.store import ConfigStore
+from iris_memory.config import get_store, init_store, reset_store
 from iris_memory.core.activity_config import (
     ActivityAwareConfigProvider, GroupActivityTracker
 )
 from iris_memory.core.provider_utils import normalize_provider_id
 
 
-# CONFIG_KEY_MAPPING 由 CONFIG_REGISTRY 自动生成
-CONFIG_KEY_MAPPING: Dict[str, tuple] = {
-    key: (defn.section, defn.attr, defn.default)
-    for key, defn in CONFIG_REGISTRY.items()
-}
-
-
 class ConfigManager:
-    """配置管理器
-    
-    统一管理用户配置和默认配置的访问。
-    线程安全：对 _cache 和 _user_config 的读写均通过锁保护。
+    """配置管理器（向后兼容适配层）
+
+    内部委托给 ``ConfigStore``，保留旧版属性访问和群级自适应方法。
     """
-    
-    # 默认配置缓存 TTL（秒），可通过构造参数覆盖
+
     DEFAULT_CACHE_TTL: float = 10.0
 
-    def __init__(self, user_config: Any = None, *, cache_ttl: Optional[float] = None):
-        """初始化配置管理器
-        
-        Args:
-            user_config: AstrBot用户配置对象
-            cache_ttl: 配置缓存 TTL（秒），None 使用默认值
-        """
-        self._lock = threading.Lock()
-        self._user_config = user_config
-        self._cache: Dict[str, Tuple[Any, float]] = {}  # key -> (value, expire_time)
-        self._cache_ttl: float = cache_ttl if cache_ttl is not None else self.DEFAULT_CACHE_TTL
-        
+    def __init__(
+        self,
+        user_config: Any = None,
+        *,
+        cache_ttl: Optional[float] = None,
+        plugin_data_path: Optional[Path] = None,
+    ):
+        self._store: ConfigStore = ConfigStore(
+            user_config=user_config,
+            plugin_data_path=plugin_data_path,
+            cache_ttl=cache_ttl,
+        )
         # 场景自适应组件（延迟初始化）
         self._activity_provider: Optional[ActivityAwareConfigProvider] = None
-        
-    def set_user_config(self, config: Any):
-        """设置用户配置（线程安全）"""
-        with self._lock:
-            self._user_config = config
-            self._cache.clear()
-    
-    def invalidate_cache(self, key: Optional[str] = None):
-        """主动失效配置缓存
-        
-        当外部直接修改了配置对象的属性时调用此方法。
-        
-        Args:
-            key: 特定的配置键，为 None 则清除所有缓存
-        """
-        with self._lock:
-            if key is None:
-                self._cache.clear()
-            else:
-                self._cache.pop(key, None)
-    
+
+    # ── 底层 Store 访问 ──
+
+    @property
+    def store(self) -> ConfigStore:
+        """获取底层 ConfigStore（供新代码直接使用）"""
+        return self._store
+
+    def set_user_config(self, config: Any) -> None:
+        """替换用户配置并重新加载"""
+        self._store.set_user_config(config)
+
+    def invalidate_cache(self, key: Optional[str] = None) -> None:
+        """清除缓存"""
+        self._store.invalidate_cache(key)
+
+    # ========== 核心读取 ==========
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """获取配置值（线程安全，带 TTL 缓存）"""
+        return self._store.get(key, default)
+
+    # ========== 属性访问（向后兼容）==========
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        # 委托给 ConfigStore 的别名查找
+        key = ALIAS_MAP.get(name)
+        if key is not None:
+            value = self._store.get(key)
+            field = SCHEMA.get(key)
+            if field and field.normalize_provider:
+                return normalize_provider_id(value)
+            return value
+        raise AttributeError(
+            f"'{type(self).__name__}' has no attribute '{name}'"
+        )
+
     # ========== 场景自适应配置 ==========
-    
+
     def init_activity_provider(
         self,
         tracker: GroupActivityTracker,
         enabled: Optional[bool] = None,
     ) -> ActivityAwareConfigProvider:
-        """初始化活跃度感知配置提供者
-        
-        Args:
-            tracker: 群活跃度追踪器实例
-            enabled: 是否启用（None 则读取配置）
-            
-        Returns:
-            ActivityAwareConfigProvider 实例
-        """
         if enabled is None:
             enabled = self.get("activity_adaptive.enable", True)
         self._activity_provider = ActivityAwareConfigProvider(
@@ -93,144 +100,35 @@ class ConfigManager:
             enabled=enabled,
         )
         return self._activity_provider
-    
+
     @property
     def activity_provider(self) -> Optional[ActivityAwareConfigProvider]:
-        """获取活跃度感知配置提供者"""
         return self._activity_provider
-    
+
     def get_group_config(self, group_id: Optional[str], key: str) -> Any:
-        """获取群级自适应配置值
-        
-        如果启用了活跃度自适应，返回根据群活跃度调整的值；
-        否则返回用户在「高级参数」中设置的值或全局默认值。
-        
-        Args:
-            group_id: 群 ID（None 则返回默认）
-            key: 配置键，如 "cooldown_seconds"
-            
-        Returns:
-            配置值
-        """
-        # 群聊 + 启用自适应 → 返回活跃度调整值
+        """获取群级自适应配置值"""
         if self._activity_provider and self._activity_provider.enabled and group_id:
             return self._activity_provider.get_config(group_id, key)
-        
-        # 私聊 or 禁用自适应 → 读取用户配置的 advanced.* 或默认值
         advanced_key = f"advanced.{key}"
-        user_value = self._get_from_user_config(advanced_key)
-        if user_value is not None:
-            return user_value
-        
-        # 回退到内置默认值
+        val = self._store.get(advanced_key)
+        if val is not None:
+            return val
         if self._activity_provider:
             return self._activity_provider._get_default(key)
         return None
-    
+
     @property
     def enable_activity_adaptive(self) -> bool:
         return self.get("activity_adaptive.enable", True)
-        
-    def get(self, key: str, default: Any = None) -> Any:
-        """获取配置值（线程安全，带 TTL 缓存）
-        
-        缓存条目在 _CACHE_TTL 秒后自动过期，确保外部修改能被感知。
-        
-        Args:
-            key: 配置键，格式如 "basic.enable_memory"
-            default: 默认值（如果未指定，使用内置默认值）
-            
-        Returns:
-            配置值
-        """
-        now = time.monotonic()
-        with self._lock:
-            # 检查缓存（含 TTL 检查）
-            if key in self._cache:
-                cached_value, expire_at = self._cache[key]
-                if now < expire_at:
-                    return cached_value
-                # 缓存过期，移除并重新获取
-                del self._cache[key]
-                
-            value = self._get_value(key, default)
-            self._cache[key] = (value, now + self._cache_ttl)
-            return value
-    
-    def _get_value(self, key: str, default: Any = None) -> Any:
-        """内部获取配置值"""
-        # 1. 尝试直接从用户配置获取
-        user_value = self._get_from_user_config(key)
-        if user_value is not None:
-            return user_value
-            
-        # 2. 检查配置键映射
-        if key in CONFIG_KEY_MAPPING:
-            section, attr, builtin_default = CONFIG_KEY_MAPPING[key]
-            return self._get_default_value(section, attr, 
-                                          default if default is not None else builtin_default)
-        
-        # 3. 尝试直接访问默认配置（格式：section.key）
-        if '.' in key:
-            section, attr = key.split('.', 1)
-            default_val = get_default(section, attr, default)
-            if default_val is not None:
-                return default_val
-                    
-        # 4. 返回默认值
-        return default
-    
-    def _get_from_user_config(self, key: str) -> Any:
-        """从用户配置获取值"""
-        if self._user_config is None:
-            return None
-            
-        try:
-            keys = key.split('.')
-            value = self._user_config
-            for k in keys:
-                if hasattr(value, k):
-                    value = getattr(value, k)
-                elif isinstance(value, dict) and k in value:
-                    value = value[k]
-                else:
-                    return None
-            return value if value is not None else None
-        except (AttributeError, KeyError, TypeError):
-            return None
-    
-    def _get_default_value(self, section: str, attr: str, fallback: Any = None) -> Any:
-        """从默认配置获取值"""
-        return get_default(section, attr, fallback)
-    
-    # ========== 数据驱动属性查找 ==========
-    
-    def __getattr__(self, name: str) -> Any:
-        """数据驱动的配置属性访问
-        
-        当常规属性查找失败时，从 CONFIG_PROPERTIES 表查找并返回
-        对应 self.get(config_key, default) 的值。
-        """
-        prop = CONFIG_PROPERTIES.get(name)
-        if prop is None:
-            raise AttributeError(
-                f"'{type(self).__name__}' has no attribute '{name}'"
-            )
-        value = self.get(prop.config_key, prop.default)
-        if prop.normalize_provider:
-            return normalize_provider_id(value)
-        return value
-    
+
     # ========== 保留自定义逻辑的属性 ==========
 
     @property
     def proactive_mode(self) -> str:
-        """L3 确认模式: rule=跳过L3, hybrid=正常进行L3"""
-        return self.get("llm_enhanced.proactive_mode", DEFAULTS.llm_enhanced.proactive_mode)
+        return self.get("llm_enhanced.proactive_mode", "rule")
 
     @property
     def llm_enhanced_enabled(self) -> bool:
-        """判断是否有任何模块启用了LLM增强"""
         modes = [
             self.sensitivity_mode,
             self.trigger_mode,
@@ -239,107 +137,89 @@ class ConfigManager:
             self.retrieval_mode,
         ]
         return any(mode in ("llm", "hybrid") for mode in modes)
-    
+
     @property
     def default_persona_id(self) -> str:
-        """默认人格ID"""
-        return DEFAULTS.persona_isolation.default_persona_id
-    
+        return self.get("persona_isolation.default_persona_id", "default")
+
     @property
     def persona_id_max_length(self) -> int:
-        """persona_id 最大长度"""
-        return DEFAULTS.persona_isolation.persona_id_max_length
-    
+        return self.get("persona_isolation.persona_id_max_length", 64)
+
     @property
     def persona_llm_provider(self) -> str:
-        provider_id = normalize_provider_id(self.get("llm_providers.persona_provider_id", ""))
+        provider_id = normalize_provider_id(
+            self.get("llm_providers.persona_provider_id", "")
+        )
         return provider_id or "default"
 
-    # ========== 批量处理动态配置 ==========
-    
-    def _with_group_override(self, group_id: Optional[str], key: str, fallback_key: str, default: Any) -> Any:
-        """通用群级自适应配置查询。
+    # ========== 群级自适应快捷方法 ==========
 
-        优先返回群级配置 ``get_group_config(group_id, key)``，
-        不存在时回退到全局 ``self.get(fallback_key, default)``。
-        """
+    def _with_group_override(
+        self, group_id: Optional[str], key: str, fallback_key: str, default: Any
+    ) -> Any:
         val = self.get_group_config(group_id, key)
         return val if val is not None else self.get(fallback_key, default)
-    
+
     def get_batch_threshold_count(self, group_id: Optional[str] = None) -> int:
-        """获取批量处理阈值（群级自适应）"""
-        return self._with_group_override(group_id, "batch_threshold_count",
-                                         "message_processing.batch_threshold_count",
-                                         DEFAULTS.message_processing.batch_threshold_count)
-    
+        return self._with_group_override(
+            group_id, "batch_threshold_count",
+            "message_processing.batch_threshold_count", 20,
+        )
+
     def get_batch_threshold_interval(self, group_id: Optional[str] = None) -> int:
-        """获取批量处理间隔（群级自适应）"""
-        return self._with_group_override(group_id, "batch_threshold_interval",
-                                         "message_processing.batch_threshold_interval",
-                                         DEFAULTS.message_processing.batch_threshold_interval)
-    
+        return self._with_group_override(
+            group_id, "batch_threshold_interval",
+            "message_processing.batch_threshold_interval", 300,
+        )
+
     def get_chat_context_count(self, group_id: Optional[str] = None) -> int:
-        """获取聊天上下文数量（群级自适应）"""
-        return self._with_group_override(group_id, "chat_context_count",
-                                         "advanced.chat_context_count",
-                                         DEFAULTS.llm_integration.chat_context_count)
-    
+        return self._with_group_override(
+            group_id, "chat_context_count",
+            "advanced.chat_context_count", 15,
+        )
+
     def get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
-        """获取主动回复冷却时间（群级自适应）"""
-        return self._with_group_override(group_id, "cooldown_seconds",
-                                         "proactive_reply.cooldown_seconds",
-                                         DEFAULTS.proactive_reply.cooldown_seconds)
-    
+        return self._with_group_override(
+            group_id, "cooldown_seconds",
+            "proactive_reply.cooldown_seconds", 60,
+        )
+
     def get_max_daily_replies(self, group_id: Optional[str] = None) -> int:
-        """获取每日最大回复次数（群级自适应）"""
-        return self._with_group_override(group_id, "max_daily_replies",
-                                         "proactive_reply.max_daily_replies",
-                                         DEFAULTS.proactive_reply.max_daily_replies)
-    
+        return self._with_group_override(
+            group_id, "max_daily_replies",
+            "proactive_reply.max_daily_replies", 20,
+        )
+
     def get_daily_analysis_budget(self, group_id: Optional[str] = None) -> int:
-        """获取每日分析预算（群级自适应）"""
-        return self._with_group_override(group_id, "daily_analysis_budget",
-                                         "image_analysis.daily_analysis_budget",
-                                         DEFAULTS.image_analysis.daily_analysis_budget)
-    
+        return self._with_group_override(
+            group_id, "daily_analysis_budget",
+            "image_analysis.daily_analysis_budget", 100,
+        )
+
     def get_reply_temperature(self, group_id: Optional[str] = None) -> float:
-        """获取回复温度（群级自适应）"""
-        return self._with_group_override(group_id, "reply_temperature",
-                                         "proactive_reply.reply_temperature",
-                                         DEFAULTS.proactive_reply.reply_temperature)
-    
-    
+        return self._with_group_override(
+            group_id, "reply_temperature",
+            "proactive_reply.reply_temperature", 0.7,
+        )
+
+    # ========== 人格 ID ==========
+
     def get_persona_id_for_storage(self, event_persona_id: Optional[str]) -> str:
-        """获取存储时使用的人格ID（始终记录，便于后续开启隔离）
-        
-        Args:
-            event_persona_id: 从事件获取的人格ID
-            
-        Returns:
-            有效的 persona_id 字符串
-        """
         if event_persona_id and event_persona_id.strip():
             normalized = event_persona_id.strip()
             if len(normalized) > self.persona_id_max_length:
                 normalized = normalized[:self.persona_id_max_length]
             return normalized
         return self.default_persona_id
-    
-    def get_persona_id_for_query(self, event_persona_id: Optional[str], module: str = "memory") -> Optional[str]:
-        """获取查询时使用的人格ID（根据开关决定是否过滤）
-        
-        Args:
-            event_persona_id: 从事件获取的人格ID
-            module: 模块名称 ("memory" 或 "knowledge_graph")
-            
-        Returns:
-            persona_id 或 None（None 表示不过滤）
-        """
+
+    def get_persona_id_for_query(
+        self, event_persona_id: Optional[str], module: str = "memory"
+    ) -> Optional[str]:
         if module == "memory" and not self.memory_query_by_persona:
             return None
         if module == "knowledge_graph" and not self.kg_query_by_persona:
             return None
-        
         if event_persona_id and event_persona_id.strip():
             normalized = event_persona_id.strip()
             if len(normalized) > self.persona_id_max_length:
@@ -348,8 +228,7 @@ class ConfigManager:
         return self.default_persona_id
 
 
-# 全局配置管理器 — 通过 ServiceContainer 管理
-# 保留原有公共 API (get_config_manager / init_config_manager / reset_config_manager)
+# ━━━ 全局公共 API（向后兼容）━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def get_config_manager() -> ConfigManager:
     """获取全局配置管理器（线程安全）"""
@@ -362,24 +241,28 @@ def get_config_manager() -> ConfigManager:
     return mgr
 
 
-def init_config_manager(user_config: Any) -> ConfigManager:
+def init_config_manager(
+    user_config: Any,
+    plugin_data_path: Optional[Path] = None,
+) -> ConfigManager:
     """初始化全局配置管理器（线程安全）
-    
-    Args:
-        user_config: AstrBot用户配置对象
-        
-    Returns:
-        配置管理器实例
+
+    同时初始化底层 ConfigStore 全局单例。
     """
     from iris_memory.core.service_container import ServiceContainer
     container = ServiceContainer.instance()
-    mgr = ConfigManager(user_config)
+
+    # 初始化全局 ConfigStore
+    store = init_store(user_config, plugin_data_path)
+
+    mgr = ConfigManager(user_config, plugin_data_path=plugin_data_path)
     container.register("config_manager", mgr)
     return mgr
 
 
-def reset_config_manager():
+def reset_config_manager() -> None:
     """重置配置管理器（主要用于测试）"""
     from iris_memory.core.service_container import ServiceContainer
     container = ServiceContainer.instance()
     container.unregister("config_manager")
+    reset_store()

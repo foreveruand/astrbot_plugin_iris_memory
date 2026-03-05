@@ -100,7 +100,7 @@ class MemoryService:
         self.context = context
         self.config = config
         self.plugin_data_path = plugin_data_path
-        self.cfg = init_config_manager(config)
+        self.cfg = init_config_manager(config, plugin_data_path)
         self.logger = get_logger("memory_service")
 
         self._is_initialized: bool = False

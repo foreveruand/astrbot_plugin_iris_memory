@@ -12,12 +12,6 @@ from iris_memory.core.activity_config import (
     GroupActivityTracker,
     ActivityAwareConfigProvider,
 )
-from iris_memory.core.config_registry import (
-    ConfigDefinition,
-    CONFIG_REGISTRY,
-    get_registry_default,
-    get_registry_mapping,
-)
 from iris_memory.core.service_container import ServiceContainer
 from iris_memory.core.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
 from iris_memory.core.provider_utils import (
@@ -32,6 +26,17 @@ from iris_memory.core.detection import (
     LLMEnhancedDetector,
 )
 
+# 新配置系统（推荐）
+from iris_memory.config import (
+    ConfigStore,
+    get_store,
+    init_store,
+    reset_store,
+    SCHEMA,
+    AccessLevel,
+    config_events,
+)
+
 __all__ = [
     'DEFAULTS',
     'get_default',
@@ -44,10 +49,6 @@ __all__ = [
     'init_config_manager',
     'GroupActivityTracker',
     'ActivityAwareConfigProvider',
-    'ConfigDefinition',
-    'CONFIG_REGISTRY',
-    'get_registry_default',
-    'get_registry_mapping',
     'ServiceContainer',
     'UpgradeEvaluator',
     'UpgradeMode',
@@ -58,4 +59,12 @@ __all__ = [
     'BaseDetectionResult',
     'DetectionMode',
     'LLMEnhancedDetector',
+    # 新配置系统
+    'ConfigStore',
+    'get_store',
+    'init_store',
+    'reset_store',
+    'SCHEMA',
+    'AccessLevel',
+    'config_events',
 ]
