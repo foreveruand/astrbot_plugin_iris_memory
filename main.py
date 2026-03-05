@@ -282,4 +282,4 @@ class IrisMemoryPlugin(Star):
             await self._service.terminate()
 
         if self._web_ui:
-            await self._web_ui.cleanup()
+            await self._web_ui.stop()
