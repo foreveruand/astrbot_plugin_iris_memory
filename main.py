@@ -34,7 +34,7 @@ from iris_memory.processing.markdown_stripper import MarkdownStripper
 from iris_memory.core.constants import PROACTIVE_EXTRA_KEY
 
 
-@register("iris_memory", "YourName", "基于companion-memory框架的三层记忆插件", "1.9.1")
+@register("astrbot_plugin_iris_memory", "Iris Memory", "基于 companion-memory 框架的三层记忆插件", "1.10.2")
 class IrisMemoryPlugin(Star):
     """
     Iris 记忆插件 - 主入口
@@ -157,11 +157,11 @@ class IrisMemoryPlugin(Star):
         duration_minutes: int = 20,
         reason: str = "群聊较活跃，暂时进入安静模式",
     ) -> str:
-        """设置群聊冷却模式，在此期间AI将暂停主动回复。
+        """设置群聊冷却模式，在此期间 AI 将暂停主动回复。
         适用于群聊过于活跃、用户需要专注时间、深夜时段等场景。
 
         Args:
-            duration_minutes(number): 冷却时长（分钟），范围5-180，默认20
+            duration_minutes(number): 冷却时长（分钟），范围 5-180，默认 20
             reason(string): 设置冷却的原因说明
         """
         from iris_memory.utils.event_utils import get_group_id
@@ -199,91 +199,86 @@ class IrisMemoryPlugin(Star):
         self,
         event: AstrMessageEvent,
     ) -> str:
-        """取消当前群聊的冷却模式，恢复正常主动回复。
-        当用户明确要求恢复时调用。
+        """取消当前群聊的冷却模式，立即恢复 AI 的主动回复能力。
         """
         from iris_memory.utils.event_utils import get_group_id
 
         group_id = get_group_id(event)
         if not group_id:
-            return "非群聊环境，无冷却状态"
+            return "非群聊环境，无需取消冷却"
 
         cooldown_mgr = self._service.cooldown.cooldown_manager
-        return cooldown_mgr.deactivate(group_id)
+        return cooldown_mgr.deactivate(group_id=group_id, initiated_by="llm")
 
-    @filter.on_decorating_result()
-    async def on_decorating_result(self, event: AstrMessageEvent) -> None:
+    # ── LLM 工具：记忆操作 ──
+
+    @llm_tool(name="save_memory")
+    async def save_memory_tool(
+        self,
+        event: AstrMessageEvent,
+        content: str,
+    ) -> str:
+        """手动保存记忆。当用户明确表达重要信息（如喜好、习惯、身份）时调用。
+
+        Args:
+            content(string): 要保存的记忆内容，应该是一个完整的陈述句
         """
-        消息发送前拦截，处理链：
-        1. 错误消息友好化
-        2. Markdown 格式去除
+        from iris_memory.models.memory import Memory
+        from iris_memory.core.types import MemoryScope
+
+        scope = MemoryScope.PRIVATE if not get_group_id(event) else MemoryScope.GROUP
+        memory = Memory(
+            content=content,
+            scope=scope,
+            confidence=0.9,
+            source="llm_tool",
+        )
+        await self._service.capture.capture_memory(
+            event,
+            [memory],
+            from_llm=True,
+        )
+        return f"已保存记忆：{content}"
+
+    @llm_tool(name="search_memory")
+    async def search_memory_tool(
+        self,
+        event: AstrMessageEvent,
+        query: str,
+    ) -> str:
+        """搜索相关记忆。在需要回忆用户信息时调用。
+
+        Args:
+            query(string): 搜索关键词或问题
         """
-        result = event.get_result()
-        if not result:
-            return
+        results = await self._service.retrieval.search(query, event, top_k=3)
+        if not results:
+            return "未找到相关记忆"
 
-        # 1. 错误消息友好化
-        if self._error_processor and self._error_processor.should_process(event):
-            self._error_processor.process_result(result)
+        formatted = []
+        for i, r in enumerate(results, 1):
+            formatted.append(f"{i}. {r.memory.content} (置信度：{r.memory.confidence})")
+        return "\n".join(formatted)
 
-        # 2. Markdown 格式去除
-        if self._markdown_stripper and self._markdown_stripper.should_process(event):
-            self._markdown_stripper.process_result(result)
-
-    @filter.on_llm_request()
-    async def on_llm_request(self, event: AstrMessageEvent, req: Any) -> None:
-        """在 LLM 请求前注入上下文"""
+    async def on_decorating(self, event: AstrMessageEvent) -> None:
+        """消息预处理 Hook：在 LLM 请求前注入记忆"""
         if self._message_processor:
-            await self._message_processor.prepare_llm_context(event, req)
+            await self._message_processor.on_decorating(event)
 
-    @filter.on_llm_response()
-    async def on_llm_response(self, event: AstrMessageEvent, resp: Any) -> None:
-        """在 LLM 响应后记录回复并捕获记忆"""
+    async def on_post_send(self, event: AstrMessageEvent) -> None:
+        """消息后处理 Hook：在 LLM 响应后捕获记忆"""
         if self._message_processor:
-            await self._message_processor.handle_llm_response(event, resp)
+            await self._message_processor.on_post_send(event)
 
-    @filter.event_message_type(filter.EventMessageType.ALL)
-    async def on_all_messages(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
-        """
-        统一处理所有普通消息
-
-        职责：
-        1. 记录消息到聊天缓冲区
-        2. 分层处理：immediate/batch/discard
-        3. 主动回复事件检测与 LLM 请求转发
-        """
-        if not self._message_processor:
-            return
-
-        prompt = await self._message_processor.process_normal_message(event)
-
-        if prompt is not None:
-            yield event.request_llm(prompt=prompt)
+        # 主动回复：检测用户是否需要帮助
+        if self._service.proactive and self._service.cfg.proactive.enabled:
+            await self._service.proactive.signal_queue.enqueue(event)
 
     async def terminate(self) -> None:
-        """插件销毁"""
-        import asyncio
+        """插件终止时的清理工作"""
+        if self._service:
+            await self._service.save_to_kv(self.put_kv_data)
+            await self._service.cleanup()
 
         if self._web_ui:
-            try:
-                await asyncio.wait_for(self._web_ui.stop(), timeout=10.0)
-            except asyncio.TimeoutError:
-                self._service.logger.warning("[Hot-Reload] Web UI stop timed out")
-            except Exception as e:
-                self._service.logger.warning(f"[Hot-Reload] Error stopping Web UI: {e}")
-
-        try:
-            await asyncio.wait_for(
-                self._service.save_to_kv(self.put_kv_data), timeout=3.0
-            )
-        except asyncio.TimeoutError:
-            self._service.logger.warning("[Hot-Reload] Save KV data timed out")
-        except Exception as e:
-            self._service.logger.warning(f"[Hot-Reload] Error saving KV data: {e}")
-
-        try:
-            await asyncio.wait_for(self._service.terminate(), timeout=30.0)
-        except asyncio.TimeoutError:
-            self._service.logger.error("[Hot-Reload] Service terminate timed out")
-        except Exception as e:
-            self._service.logger.error(f"[Hot-Reload] Error terminating service: {e}")
+            await self._web_ui.cleanup()
