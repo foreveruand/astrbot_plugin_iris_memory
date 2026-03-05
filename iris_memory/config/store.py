@@ -137,6 +137,24 @@ class ConfigStore:
         if name.startswith("_"):
             raise AttributeError(name)
 
+        # 处理计算属性
+        if name == "llm_enhanced_enabled":
+            modes = [
+                self.sensitivity_mode,
+                self.trigger_mode,
+                self.emotion_mode,
+                self.conflict_mode,
+                self.retrieval_mode,
+            ]
+            return any(mode in ("llm", "hybrid") for mode in modes)
+
+        if name == "persona_llm_provider":
+            from iris_memory.core.provider_utils import normalize_provider_id
+            provider_id = normalize_provider_id(
+                self.get("llm_providers.persona_provider_id", "")
+            )
+            return provider_id or "default"
+
         # 查找别名映射
         key = ALIAS_MAP.get(name)
         if key is not None:
