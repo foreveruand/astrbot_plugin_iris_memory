@@ -32,9 +32,12 @@ _LOG_CONFIG = {
     "backup_count": 5,
     "format": "%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s",
     "date_format": "%Y-%m-%d %H:%M:%S",
+    "when": "midnight",  # 每天轮转
+    "interval": 1,       # 每 1 天
 }
 
-_STARTUP_TIME: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+# 使用固定文件名，让 RotatingFileHandler 正确管理轮转
+_LOG_FILENAME = "iris_memory.log"
 
 # 已创建的logger缓存
 _loggers: Dict[str, logging.Logger] = {}
@@ -110,7 +113,7 @@ def setup_logging(
 
 
 def _configure_logger(logger: logging.Logger, name: str) -> None:
-    """配置单个logger"""
+    """配置单个 logger"""
     logger.handlers = []
     logger.setLevel(getattr(logging, _LOG_CONFIG["level"]))
     
@@ -126,14 +129,19 @@ def _configure_logger(logger: logging.Logger, name: str) -> None:
     
     # 2. 文件输出（仅在 AstrBot 不可用时输出到控制台）
     if _LOG_CONFIG["log_dir"]:
-        # 带时间码的日志文件，避免重启覆盖
-        log_filename = f"iris_memory_{_STARTUP_TIME}.log"
-        unified_log = _LOG_CONFIG["log_dir"] / log_filename
-        file_handler = logging.handlers.RotatingFileHandler(
-            unified_log,
-            maxBytes=_LOG_CONFIG["max_bytes"],
+        # 使用固定文件名 + TimedRotatingFileHandler
+        # 按时间轮转（每天）+ 按大小轮转的双重保护
+        log_path = _LOG_CONFIG["log_dir"] / _LOG_FILENAME
+        
+        # 使用 TimedRotatingFileHandler 按天轮转
+        file_handler = logging.handlers.TimedRotatingFileHandler(
+            log_path,
+            when=_LOG_CONFIG["when"],
+            interval=_LOG_CONFIG["interval"],
             backupCount=_LOG_CONFIG["backup_count"],
-            encoding="utf-8"
+            encoding="utf-8",
+            atTime=None,  # 在午夜轮转
+            utc=False,    # 使用本地时间
         )
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
@@ -171,7 +179,38 @@ def init_logging_from_config(config: Any, plugin_data_path: Path) -> None:
     max_bytes = DEFAULTS.log.max_file_size * 1024 * 1024
     backup_count = DEFAULTS.log.backup_count
     
+    # 清理旧的日志文件（可选）
+    _cleanup_old_logs(log_dir)
+    
     setup_logging(log_dir=log_dir, level=level, max_bytes=max_bytes, backup_count=backup_count)
+
+
+def _cleanup_old_logs(log_dir: Path) -> None:
+    """清理超过备份数量的旧日志文件
+    
+    TimedRotatingFileHandler 会在文件名后添加日期后缀（如 iris_memory.log.2026-03-05）
+    保留最近 N 个日志文件
+    """
+    if not log_dir.exists():
+        return
+    
+    try:
+        # 查找所有轮转后的日志文件（格式：iris_memory.log.YYYY-MM-DD）
+        log_files = [
+            f for f in log_dir.glob("iris_memory.log.*")
+            if f.is_file() and not f.name.endswith(".gz")
+        ]
+        
+        # 按修改时间排序
+        log_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        
+        # 删除超出备份数量的旧文件
+        backup_count = _LOG_CONFIG["backup_count"]
+        for old_file in log_files[backup_count:]:
+            old_file.unlink()
+            logging.getLogger("iris_memory").debug(f"清理旧日志文件：{old_file}")
+    except Exception as e:
+        logging.getLogger("iris_memory").warning(f"清理旧日志文件失败：{e}")
 
 
 __all__ = ["get_logger", "setup_logging", "init_logging_from_config"]
