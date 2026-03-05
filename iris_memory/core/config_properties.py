@@ -85,7 +85,7 @@ CONFIG_PROPERTIES: dict[str, _ConfigProp] = {
     ),
     "proactive_max_followup_count": _ConfigProp(
         "proactive_reply.max_followup_count",
-        DEFAULTS.proactive_reply.followup_max_count,
+        DEFAULTS.proactive_reply.max_followup_count,
     ),
 
     # ── 图片分析 ──

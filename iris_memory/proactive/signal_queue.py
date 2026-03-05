@@ -51,7 +51,7 @@ class SignalQueue:
             self._queues[group_id] = []
 
         # 容量检查
-        max_signals = self._config.signal_queue.max_signals_per_group
+        max_signals = self._config.signal_max_signals_per_group
         if len(self._queues[group_id]) >= max_signals:
             # 移除权重最低的信号（保留高权重信号）
             min_idx = min(

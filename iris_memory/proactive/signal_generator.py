@@ -189,7 +189,7 @@ class SignalGenerator:
         if score < 0.2:  # 低于最低阈值，不生成信号
             return None
 
-        ttl = self._config.signal_queue.ttl_rule_match
+        ttl = self._config.signal_ttl_rule_match
         return Signal(
             signal_type=SignalType.RULE_MATCH,
             session_key=session_key,
@@ -218,7 +218,7 @@ class SignalGenerator:
         if emotion_intensity < 0.7:
             return None
 
-        ttl = self._config.signal_queue.ttl_emotion_high
+        ttl = self._config.signal_ttl_emotion_high
         weight = min(1.0, 0.7 + (emotion_intensity - 0.7) * 1.0)
 
         return Signal(

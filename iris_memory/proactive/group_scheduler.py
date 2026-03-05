@@ -96,8 +96,8 @@ class GroupScheduler:
         Args:
             group_id: 群组 ID
         """
-        check_interval = self._config.signal_queue.check_interval_seconds
-        silence_timeout = self._config.signal_queue.silence_timeout_seconds
+        check_interval = self._config.signal_check_interval_seconds
+        silence_timeout = self._config.signal_silence_timeout_seconds
 
         try:
             while not self._closed:
@@ -119,7 +119,7 @@ class GroupScheduler:
                     break
 
                 # 检查是否达到最小沉默时间
-                min_silence = self._config.signal_queue.min_silence_seconds
+                min_silence = self._config.signal_min_silence_seconds
                 if silence < min_silence:
                     continue  # 群还在活跃，跳过
 

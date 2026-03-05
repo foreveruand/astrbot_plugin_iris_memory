@@ -508,7 +508,7 @@ class ProactiveManager:
         # 恢复聚合消息并重新启动短期窗口定时器
         if new_exp and carried_messages:
             new_exp.aggregated_messages = carried_messages
-            short_window = self._config.followup.short_window_seconds
+            short_window = self._config.followup_short_window_seconds
             self._followup_planner.restart_short_window_timer(
                 group_id, short_window
             )

@@ -1,98 +1,91 @@
 """
-主动回复 v3 配置
+主动回复 v3 配置 - 简化版
 
-分为两层：
-- 用户可见配置：通过 AstrBot 管理界面修改（_conf_schema.json）
-- 高级配置：仅在 defaults.py 中设置，用户无需修改
+所有配置统一从全局 defaults.py 读取，减少调用链条复杂性。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from iris_memory.core.defaults import ProactiveReplyDefaults
 
 
-@dataclass
-class SignalQueueConfig:
-    """SignalQueue 高级配置（用户无需修改）"""
-
-    # 定时器
-    check_interval_seconds: int = 30        # 群定时器检查间隔
-    silence_timeout_seconds: int = 600      # 沉默超时（定时器销毁）
-    min_silence_seconds: int = 60           # 最小沉默时间才触发判断
-
-    # 信号 TTL（秒）
-    ttl_emotion_high: int = 180             # 3 分钟
-    ttl_rule_match: int = 300               # 5 分钟
-
-    # 权重阈值
-    weight_direct_reply: float = 0.6        # 直接回复阈值
-    weight_llm_confirm: float = 0.4         # LLM 确认阈值
-
-    # 信号队列容量
-    max_signals_per_group: int = 50         # 每个群最大信号数
-
-
-@dataclass
-class FollowUpConfig:
-    """FollowUpPlanner 高级配置（用户无需修改）"""
-
-    # 时间窗口
-    short_window_seconds: int = 15          # 短期窗口
-
-    # LLM 判断
-    llm_max_tokens: int = 500
-    llm_temperature: float = 0.3
-
-    # 降级策略
-    fallback_to_rule_on_llm_error: bool = True
-
-
-@dataclass
 class ProactiveConfig:
-    """主动回复 v3 完整配置
-
-    聚合用户可见配置和高级配置。
-    由 ProactiveModule 从 AstrBot 配置 + defaults 组合构建。
+    """主动回复配置 - 直接从全局 defaults 读取
+    
+    不再使用复杂的 dataclass 嵌套，所有属性直接映射到 defaults.py
     """
+    
+    def __init__(self, defaults: "ProactiveReplyDefaults") -> None:
+        """从全局 defaults 初始化配置
+        
+        Args:
+            defaults: ProactiveReplyDefaults 实例
+        """
+        # 总开关
+        self.enabled: bool = getattr(defaults, 'enable', False)
+        self.signal_queue_enabled: bool = True
+        self.followup_enabled: bool = True
+        
+        # 核心功能开关
+        self.followup_after_all_replies: bool = defaults.followup_after_all_replies
+        self.group_whitelist_mode: bool = defaults.group_whitelist_mode
+        self.proactive_mode: str = getattr(defaults, 'proactive_mode', 'rule')
+        
+        # 时间窗口配置
+        self.followup_window_seconds: int = defaults.followup_window_seconds
+        self.cooldown_seconds: int = defaults.cooldown_seconds
+        
+        # 限制配置
+        self.max_followup_count: int = defaults.max_followup_count
+        self.max_daily_replies: int = defaults.max_daily_replies
+        self.max_daily_per_user: int = defaults.max_daily_per_user
+        self.max_reply_tokens: int = defaults.max_reply_tokens
+        
+        # 回复参数
+        self.reply_temperature: float = defaults.reply_temperature
+        
+        # 白名单
+        self.group_whitelist: list = list(defaults.group_whitelist)
+        
+        # 静音时段
+        self.quiet_hours: list = list(defaults.quiet_hours)
+        self.quiet_hours_activity_exempt_minutes: int = getattr(
+            defaults, 'quiet_hours_activity_exempt_minutes', 20
+        )
+        self.timezone_offset: int = getattr(defaults, 'timezone_offset', 8)
+        
+        # SignalQueue 高级配置 (直接扁平化，不再嵌套)
+        self.signal_check_interval_seconds: int = defaults.signal_check_interval_seconds
+        self.signal_silence_timeout_seconds: int = defaults.signal_silence_timeout_seconds
+        self.signal_min_silence_seconds: int = defaults.signal_min_silence_seconds
+        self.signal_ttl_emotion_high: int = defaults.signal_ttl_emotion_high
+        self.signal_ttl_rule_match: int = defaults.signal_ttl_rule_match
+        self.signal_weight_direct_reply: float = defaults.signal_weight_direct_reply
+        self.signal_weight_llm_confirm: float = defaults.signal_weight_llm_confirm
+        self.signal_max_signals_per_group: int = getattr(
+            defaults, 'signal_max_signals_per_group', 50
+        )
+        
+        # FollowUp 高级配置 (直接扁平化)
+        self.followup_short_window_seconds: int = defaults.followup_short_window_seconds
+        self.followup_llm_max_tokens: int = defaults.followup_llm_max_tokens
+        self.followup_llm_temperature: float = defaults.followup_llm_temperature
+        self.followup_fallback_to_rule_on_llm_error: bool = defaults.followup_fallback_to_rule
+    
+    def to_dict(self) -> dict:
+        """导出配置为字典（用于调试）"""
+        return {
+            k: v for k, v in self.__dict__.items() 
+            if not k.startswith('_')
+        }
+    
+    def __repr__(self) -> str:
+        return f"ProactiveConfig(enabled={self.enabled}, followup={self.followup_enabled})"
 
-    # 总开关
-    enabled: bool = False
 
-    # SignalQueue 开关
-    signal_queue_enabled: bool = True
-
-    # FollowUp 开关（完全独立）
-    followup_enabled: bool = True
-
-    # FollowUp 在所有 Bot 回复后创建期待（不仅限于主动回复）
-    followup_after_all_replies: bool = False
-
-    # 用户可见配置
-    followup_window_seconds: int = 180      # FollowUp 窗口时长
-    max_followup_count: int = 3             # 最大跟进次数
-    max_reply_tokens: int = 150             # 最大回复 token 数
-    reply_temperature: float = 0.7          # 回复温度
-    cooldown_seconds: int = 60              # 回复冷却时间
-    max_daily_replies: int = 20             # 每日最大回复数
-    max_daily_per_user: int = 5             # 每用户每日最大回复数
-
-    # 白名单
-    group_whitelist_mode: bool = False
-    group_whitelist: list = field(default_factory=list)
-
-    # 静音时段
-    quiet_hours: list = field(default_factory=lambda: [23, 7])
-
-    # 智能静音：群活跃豁免窗口（分钟数，0=禁用）
-    # 若群组在此窗口内有用户发言，则自动豁免静音时段限制
-    quiet_hours_activity_exempt_minutes: int = 20
-
-    # 时区配置（UTC 偏移小时数，默认 +8 北京时间）
-    timezone_offset: int = 8
-
-    # 主动回复模式（rule / hybrid）
-    proactive_mode: str = "rule"
-
-    # 高级配置
-    signal_queue: SignalQueueConfig = field(default_factory=SignalQueueConfig)
-    followup: FollowUpConfig = field(default_factory=FollowUpConfig)
+# 保持向后兼容的导出
+SignalQueueConfig = None  # 已废弃，配置直接扁平化到 ProactiveConfig
+FollowUpConfig = None     # 已废弃，配置直接扁平化到 ProactiveConfig

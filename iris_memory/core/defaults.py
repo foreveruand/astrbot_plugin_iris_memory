@@ -244,7 +244,7 @@ class ProactiveReplyDefaults:
 
     # ===== v3 FollowUp 高级配置 =====
     followup_window_seconds: int = 120          # FollowUp 窗口时长
-    followup_max_count: int = 2                 # 最大跟进次数
+    max_followup_count: int = 2                 # 最大跟进次数
     followup_short_window_seconds: int = 10     # 短期窗口
     followup_llm_max_tokens: int = 500          # LLM 判断最大 token
     followup_llm_temperature: float = 0.3       # LLM 判断温度

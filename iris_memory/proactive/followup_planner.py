@@ -212,7 +212,7 @@ class FollowUpPlanner:
         })
 
         # 设置/重置短期窗口
-        short_window = self._config.followup.short_window_seconds
+        short_window = self._config.followup_short_window_seconds
         now = datetime.now()
         new_short_end = now + timedelta(seconds=short_window)
 
@@ -485,7 +485,7 @@ class FollowUpPlanner:
             except Exception as e:
                 logger.warning(f"LLM followup decision failed: {e}")
 
-                if not self._config.followup.fallback_to_rule_on_llm_error:
+                if not self._config.followup_fallback_to_rule_on_llm_error:
                     return None
 
                 logger.debug("Falling back to rule-based followup decision")

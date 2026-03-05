@@ -66,23 +66,10 @@ class ProactiveModule:
         try:
             from iris_memory.proactive.manager import ProactiveManager
             from iris_memory.proactive.config import ProactiveConfig
+            from iris_memory.core.defaults import DEFAULTS
 
-            quiet_hours = cfg.proactive_reply_quiet_hours
-            group_whitelist_mode = cfg.proactive_reply_group_whitelist_mode
-            proactive_mode = cfg.proactive_mode
-
-            config = ProactiveConfig(
-                enabled=cfg.proactive_reply_enabled,
-                signal_queue_enabled=True,
-                followup_enabled=True,
-                followup_after_all_replies=cfg.proactive_followup_after_all_replies,
-                group_whitelist_mode=group_whitelist_mode,
-                proactive_mode=proactive_mode,
-                quiet_hours=quiet_hours,
-                followup_window_seconds=cfg.proactive_followup_window_seconds,
-                max_followup_count=cfg.proactive_max_followup_count,
-                max_daily_replies=cfg.proactive_reply_max_daily,
-            )
+            # 直接从全局 defaults 创建配置，简化调用链条
+            config = ProactiveConfig(DEFAULTS.proactive_reply)
 
             self._manager = ProactiveManager(
                 plugin_data_path=plugin_data_path,
