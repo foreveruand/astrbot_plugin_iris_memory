@@ -21,7 +21,7 @@ plugin_root = Path(__file__).parent
 if str(plugin_root) not in sys.path:
     sys.path.insert(0, str(plugin_root))
 
-from astrbot.api.star import Context, Star, register, StarTools
+from astrbot.api.star import Context, Star, register
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import AstrBotConfig, llm_tool, logger
 
@@ -60,7 +60,7 @@ class IrisMemoryPlugin(Star):
         self.config = config
         self.name = "iris_memory"
 
-        data_path = Path(StarTools.get_data_dir())
+        data_path = Path(context.get_data_dir())
         self._service = MemoryService(context, config, data_path)
 
         self._command_handlers: Optional[CommandHandlers] = None
