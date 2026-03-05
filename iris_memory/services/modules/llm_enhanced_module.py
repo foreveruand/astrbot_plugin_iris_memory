@@ -94,9 +94,9 @@ class LLMEnhancedModule:
         from iris_memory.capture.conflict.llm_conflict_resolver import LLMConflictResolver
         from iris_memory.retrieval.llm_retrieval_router import LLMRetrievalRouter
 
-        provider_id = cfg.get("llm_enhanced.provider_id", None)
+        provider_id = cfg.get("llm_providers.enhanced_provider_id", None)
         logger.debug(f"[DEBUG] enhanced_provider_id from config: {repr(provider_id)}")
-        logger.debug(f"[DEBUG] raw config value: {repr(cfg.get('llm_enhanced.provider_id'))}")
+        logger.debug(f"[DEBUG] raw config value: {repr(cfg.get('llm_providers.enhanced_provider_id'))}")
         modes: list[str] = []
 
         _MAPPING = [

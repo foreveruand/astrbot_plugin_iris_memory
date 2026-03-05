@@ -284,6 +284,9 @@ _FIELDS: List[ConfigField] = [
        "过期天数", access=INT),
 
     # ── LLM 智能增强 ─────────────────────────────────
+    _f("llm_enhanced.enable", bool, False,
+       "启用 LLM 智能增强", access=RO,
+       alias="llm_enhanced_enabled"),
     _f("llm_enhanced.sensitivity_mode", str, "rule",
        "敏感度检测模式", access=RO,
        choices=("rule", "llm", "hybrid"),

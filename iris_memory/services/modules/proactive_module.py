@@ -73,7 +73,7 @@ class ProactiveModule:
             # 设置 AstrBot 上下文（用于 LLM 确认等内部调用）
             # 使用智能增强模块的 LLM 提供者（llm_providers.enhanced_provider_id）
             if context:
-                llm_provider_id = cfg.get("llm_enhanced.enhanced_provider_id", None)
+                llm_provider_id = cfg.get("llm_providers.enhanced_provider_id", None)
                 self._manager.set_context(
                     astrbot_context=context,
                     llm_provider_id=llm_provider_id,
