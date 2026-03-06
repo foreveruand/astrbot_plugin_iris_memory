@@ -513,3 +513,33 @@ class ActivityAwareConfigProvider:
         if group_id not in self._cache:
             self._cache[group_id] = {}
         self._cache[group_id][key] = (value, time.time() + self._cache_ttl)
+
+    # ---------- 群级自适应配置快捷方法 ----------
+
+    def get_batch_threshold_count(self, group_id: Optional[str] = None) -> int:
+        """获取批量处理数量阈值"""
+        return self.get_config(group_id, "batch_threshold_count")
+
+    def get_batch_threshold_interval(self, group_id: Optional[str] = None) -> int:
+        """获取批量处理时间间隔"""
+        return self.get_config(group_id, "batch_threshold_interval")
+
+    def get_chat_context_count(self, group_id: Optional[str] = None) -> int:
+        """获取聊天上下文数量"""
+        return self.get_config(group_id, "chat_context_count")
+
+    def get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
+        """获取冷却时间（秒）"""
+        return self.get_config(group_id, "cooldown_seconds")
+
+    def get_max_daily_replies(self, group_id: Optional[str] = None) -> int:
+        """获取每日最大回复数"""
+        return self.get_config(group_id, "max_daily_replies")
+
+    def get_daily_analysis_budget(self, group_id: Optional[str] = None) -> int:
+        """获取每日分析预算"""
+        return self.get_config(group_id, "daily_analysis_budget")
+
+    def get_reply_temperature(self, group_id: Optional[str] = None) -> float:
+        """获取回复温度"""
+        return self.get_config(group_id, "reply_temperature")

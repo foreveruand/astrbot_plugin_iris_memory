@@ -133,11 +133,9 @@ class ConfigStore:
 
     def __getattr__(self, name: str) -> Any:
         """通过属性名访问配置（向后兼容 ConfigManager 的属性访问模式）"""
-        # 避免无限递归：只处理非 _ 前缀的属性
         if name.startswith("_"):
             raise AttributeError(name)
 
-        # 处理计算属性
         if name == "llm_enhanced_enabled":
             modes = [
                 self.sensitivity_mode,
@@ -155,11 +153,21 @@ class ConfigStore:
             )
             return provider_id or "default"
 
-        # 查找别名映射
+        if name == "proactive_mode":
+            return self.get("proactive_reply.proactive_mode", "rule")
+
+        if name == "default_persona_id":
+            return self.get("persona_isolation.default_persona_id", "default")
+
+        if name == "persona_id_max_length":
+            return self.get("persona_isolation.persona_id_max_length", 64)
+
+        if name == "enable_activity_adaptive":
+            return self.get("activity_adaptive.enable", True)
+
         key = ALIAS_MAP.get(name)
         if key is not None:
             value = self.get(key)
-            # 需要 normalize_provider 的字段
             field = SCHEMA.get(key)
             if field and field.normalize_provider:
                 from iris_memory.core.provider_utils import normalize_provider_id
@@ -340,6 +348,36 @@ class ConfigStore:
             if current != field.default:
                 result[key] = (current, field.default)
         return result
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #  人格隔离相关
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def get_persona_id_for_storage(self, event_persona_id: Optional[str]) -> str:
+        """获取用于存储的人格 ID"""
+        if event_persona_id and event_persona_id.strip():
+            normalized = event_persona_id.strip()
+            max_len = self.persona_id_max_length
+            if len(normalized) > max_len:
+                normalized = normalized[:max_len]
+            return normalized
+        return self.default_persona_id
+
+    def get_persona_id_for_query(
+        self, event_persona_id: Optional[str], module: str = "memory"
+    ) -> Optional[str]:
+        """获取用于查询的人格 ID"""
+        if module == "memory" and not self.memory_query_by_persona:
+            return None
+        if module == "knowledge_graph" and not self.kg_query_by_persona:
+            return None
+        if event_persona_id and event_persona_id.strip():
+            normalized = event_persona_id.strip()
+            max_len = self.persona_id_max_length
+            if len(normalized) > max_len:
+                return normalized[:max_len]
+            return normalized
+        return self.default_persona_id
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     #  内部

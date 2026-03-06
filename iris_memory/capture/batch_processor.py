@@ -31,7 +31,7 @@ from iris_memory.core.constants import BatchSessionConfig
 
 if TYPE_CHECKING:
     from iris_memory.proactive.manager import ProactiveManager
-    from iris_memory.core.config_manager import ConfigManager
+    from iris_memory.core.activity_config import ActivityAwareConfigProvider
 
 logger = get_logger("batch_processor")
 
@@ -64,7 +64,7 @@ class MessageBatchProcessor:
         summary_prompt: Optional[str] = None,
         on_save_callback: Optional[Callable[[], Any]] = None,
         config: Optional[Dict[str, Any]] = None,
-        config_manager: Optional['ConfigManager'] = None
+        activity_provider: Optional['ActivityAwareConfigProvider'] = None
     ) -> None:
         self.capture_engine: MemoryCaptureEngine = capture_engine
         self.llm_processor: Optional[LLMMessageProcessor] = llm_processor
@@ -75,7 +75,7 @@ class MessageBatchProcessor:
         self.use_llm_summary: bool = use_llm_summary
         self.summary_prompt: Optional[str] = summary_prompt
         self.on_save_callback: Optional[Callable[[], Any]] = on_save_callback
-        self._config_manager: Optional['ConfigManager'] = config_manager
+        self._activity_provider: Optional['ActivityAwareConfigProvider'] = activity_provider
         
         cfg: Dict[str, Any] = config or {}
         
@@ -226,16 +226,16 @@ class MessageBatchProcessor:
     
     def _get_threshold_count(self, session_key: str) -> int:
         """获取会话的批量处理数量阈值"""
-        if self._config_manager:
+        if self._activity_provider:
             group_id = self._extract_group_id(session_key)
-            return self._config_manager.get_batch_threshold_count(group_id)
+            return self._activity_provider.get_batch_threshold_count(group_id)
         return self.threshold_count
     
     def _get_threshold_interval(self, session_key: str) -> int:
         """获取会话的批量处理时间间隔"""
-        if self._config_manager:
+        if self._activity_provider:
             group_id = self._extract_group_id(session_key)
-            return self._config_manager.get_batch_threshold_interval(group_id)
+            return self._activity_provider.get_batch_threshold_interval(group_id)
         return self.threshold_interval
     
     async def _check_threshold(self, session_key: str) -> bool:

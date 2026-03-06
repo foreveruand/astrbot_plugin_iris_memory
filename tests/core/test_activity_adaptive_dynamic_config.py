@@ -2,10 +2,13 @@
 
 from unittest.mock import Mock
 
-from iris_memory.core.activity_config import GroupActivityTracker
-from iris_memory.core.config_manager import ConfigManager
-from iris_memory.config import get_store
-from iris_memory.core.activity_config import ACTIVITY_PRESETS, GroupActivityLevel
+from iris_memory.core.activity_config import (
+    GroupActivityTracker,
+    ActivityAwareConfigProvider,
+    ACTIVITY_PRESETS,
+    GroupActivityLevel,
+)
+from iris_memory.config import get_store, init_store, reset_store
 
 
 def _build_user_config_with_advanced(**overrides):
@@ -19,9 +22,10 @@ class TestActivityAdaptiveDynamicConfig:
 
     def test_group_uses_activity_presets_when_enabled(self, monkeypatch):
         """启用自适应时，群聊应使用活跃度预设值"""
-        cfg = ConfigManager(user_config=Mock())
+        reset_store()
+        store = init_store(user_config=Mock())
         tracker = GroupActivityTracker()
-        cfg.init_activity_provider(tracker=tracker, enabled=True)
+        provider = ActivityAwareConfigProvider(tracker=tracker, enabled=True)
 
         monkeypatch.setattr(
             tracker,
@@ -30,69 +34,41 @@ class TestActivityAdaptiveDynamicConfig:
         )
 
         group_id = "group-active"
-        assert cfg.get_cooldown_seconds(group_id) == ACTIVITY_PRESETS.cooldown_seconds["active"]
-        assert cfg.get_max_daily_replies(group_id) == ACTIVITY_PRESETS.max_daily_replies["active"]
-        assert cfg.get_batch_threshold_count(group_id) == ACTIVITY_PRESETS.batch_threshold_count["active"]
-        assert cfg.get_batch_threshold_interval(group_id) == ACTIVITY_PRESETS.batch_threshold_interval["active"]
-        assert cfg.get_daily_analysis_budget(group_id) == ACTIVITY_PRESETS.daily_analysis_budget["active"]
-        assert cfg.get_chat_context_count(group_id) == ACTIVITY_PRESETS.chat_context_count["active"]
-        assert cfg.get_reply_temperature(group_id) == ACTIVITY_PRESETS.reply_temperature["active"]
+        assert provider.get_cooldown_seconds(group_id) == ACTIVITY_PRESETS.cooldown_seconds["active"]
+        assert provider.get_max_daily_replies(group_id) == ACTIVITY_PRESETS.max_daily_replies["active"]
+        assert provider.get_batch_threshold_count(group_id) == ACTIVITY_PRESETS.batch_threshold_count["active"]
+        assert provider.get_batch_threshold_interval(group_id) == ACTIVITY_PRESETS.batch_threshold_interval["active"]
+        assert provider.get_daily_analysis_budget(group_id) == ACTIVITY_PRESETS.daily_analysis_budget["active"]
+        assert provider.get_chat_context_count(group_id) == ACTIVITY_PRESETS.chat_context_count["active"]
+        assert provider.get_reply_temperature(group_id) == ACTIVITY_PRESETS.reply_temperature["active"]
 
-    def test_private_chat_uses_advanced_overrides_even_if_enabled(self):
-        """私聊（group_id=None）应走 advanced.* 覆盖值，不使用活跃度预设"""
-        user_config = _build_user_config_with_advanced(
-            cooldown_seconds=111,
-            max_daily_replies=12,
-            batch_threshold_count=28,
-            batch_threshold_interval=420,
-            daily_analysis_budget=77,
-            chat_context_count=9,
-            reply_temperature=0.66,
-        )
-        cfg = ConfigManager(user_config=user_config)
-        cfg.init_activity_provider(tracker=GroupActivityTracker(), enabled=True)
+    def test_private_chat_uses_defaults_when_enabled(self):
+        """私聊（group_id=None）应使用默认值"""
+        reset_store()
+        store = init_store(user_config=Mock())
+        tracker = GroupActivityTracker()
+        provider = ActivityAwareConfigProvider(tracker=tracker, enabled=True)
 
-        assert cfg.get_cooldown_seconds(None) == 111
-        assert cfg.get_max_daily_replies(None) == 12
-        assert cfg.get_batch_threshold_count(None) == 28
-        assert cfg.get_batch_threshold_interval(None) == 420
-        assert cfg.get_daily_analysis_budget(None) == 77
-        assert cfg.get_chat_context_count(None) == 9
-        assert cfg.get_reply_temperature(None) == 0.66
+        assert provider.get_cooldown_seconds(None) == get_store().get("proactive_reply.cooldown_seconds", 60)
+        assert provider.get_max_daily_replies(None) == get_store().get("proactive_reply.max_daily_replies", 20)
+        assert provider.get_batch_threshold_count(None) == get_store().get("message_processing.batch_threshold_count", 20)
+        assert provider.get_batch_threshold_interval(None) == get_store().get("message_processing.batch_threshold_interval", 300)
+        assert provider.get_daily_analysis_budget(None) == get_store().get("image_analysis.daily_analysis_budget", 100)
+        assert provider.get_chat_context_count(None) == get_store().get("llm_integration.chat_context_count", 15)
+        assert provider.get_reply_temperature(None) == get_store().get("proactive_reply.reply_temperature", 0.7)
 
-    def test_group_uses_advanced_overrides_when_adaptive_disabled(self):
-        """禁用自适应时，群聊也应走 advanced.* 覆盖值"""
-        user_config = _build_user_config_with_advanced(
-            cooldown_seconds=95,
-            max_daily_replies=33,
-            batch_threshold_count=40,
-            batch_threshold_interval=180,
-            daily_analysis_budget=123,
-            chat_context_count=14,
-            reply_temperature=0.73,
-        )
-        cfg = ConfigManager(user_config=user_config)
-        cfg.init_activity_provider(tracker=GroupActivityTracker(), enabled=False)
+    def test_group_uses_defaults_when_adaptive_disabled(self):
+        """禁用自适应时，群聊也应使用默认值"""
+        reset_store()
+        store = init_store(user_config=Mock())
+        tracker = GroupActivityTracker()
+        provider = ActivityAwareConfigProvider(tracker=tracker, enabled=False)
 
         group_id = "group-disabled"
-        assert cfg.get_cooldown_seconds(group_id) == 95
-        assert cfg.get_max_daily_replies(group_id) == 33
-        assert cfg.get_batch_threshold_count(group_id) == 40
-        assert cfg.get_batch_threshold_interval(group_id) == 180
-        assert cfg.get_daily_analysis_budget(group_id) == 123
-        assert cfg.get_chat_context_count(group_id) == 14
-        assert cfg.get_reply_temperature(group_id) == 0.73
-
-    def test_missing_advanced_values_fallback_to_defaults_when_disabled(self):
-        """禁用自适应且无 advanced 覆盖时，应回退到默认值"""
-        cfg = ConfigManager(user_config=None)
-        cfg.init_activity_provider(tracker=GroupActivityTracker(), enabled=False)
-
-        group_id = "group-default"
-        assert cfg.get_cooldown_seconds(group_id) == get_store().get("proactive_reply.cooldown_seconds", 60)
-        assert cfg.get_max_daily_replies(group_id) == get_store().get("proactive_reply.max_daily_replies", 20)
-        assert cfg.get_batch_threshold_count(group_id) == get_store().get("message_processing.batch_threshold_count", 20)
-        assert cfg.get_batch_threshold_interval(group_id) == get_store().get("message_processing.batch_threshold_interval", 300)
-        assert cfg.get_daily_analysis_budget(group_id) == get_store().get("image_analysis.daily_analysis_budget", 100)
-        assert cfg.get_chat_context_count(group_id) == get_store().get("advanced.chat_context_count", 15)
-        assert cfg.get_reply_temperature(group_id) == get_store().get("proactive_reply.reply_temperature", 0.7)
+        assert provider.get_cooldown_seconds(group_id) == get_store().get("proactive_reply.cooldown_seconds", 60)
+        assert provider.get_max_daily_replies(group_id) == get_store().get("proactive_reply.max_daily_replies", 20)
+        assert provider.get_batch_threshold_count(group_id) == get_store().get("message_processing.batch_threshold_count", 20)
+        assert provider.get_batch_threshold_interval(group_id) == get_store().get("message_processing.batch_threshold_interval", 300)
+        assert provider.get_daily_analysis_budget(group_id) == get_store().get("image_analysis.daily_analysis_budget", 100)
+        assert provider.get_chat_context_count(group_id) == get_store().get("llm_integration.chat_context_count", 15)
+        assert provider.get_reply_temperature(group_id) == get_store().get("proactive_reply.reply_temperature", 0.7)

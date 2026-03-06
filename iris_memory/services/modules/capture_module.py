@@ -111,6 +111,7 @@ class CaptureModule:
         llm_processor: Any = None,
         proactive_manager: Any = None,
         on_save_callback: Optional[Callable] = None,
+        activity_provider: Any = None,
     ) -> None:
         """初始化批量消息处理器"""
         from iris_memory.capture.batch_processor import MessageBatchProcessor
@@ -137,7 +138,7 @@ class CaptureModule:
             use_llm_summary=use_llm and llm_processor is not None,
             on_save_callback=on_save_callback,
             config=batch_config,
-            config_manager=cfg,
+            activity_provider=activity_provider,
         )
         await self._batch_processor.start()
         logger.debug(f"BatchProcessor initialized (threshold={threshold_count})")
