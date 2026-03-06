@@ -217,15 +217,17 @@ class IrisMemoryPlugin(Star):
             formatted.append(f"{i}. {r.memory.content} (置信度：{r.memory.confidence})")
         return "\n".join(formatted)
 
-    async def on_decorating(self, event: AstrMessageEvent) -> None:
+    @filter.on_llm_request()
+    async def on_llm_request(self, event: AstrMessageEvent, req) -> None:
         """消息预处理 Hook：在 LLM 请求前注入记忆"""
         if self._message_processor:
-            await self._message_processor.on_decorating(event)
+            await self._message_processor.prepare_llm_context(event, req)
 
-    async def on_post_send(self, event: AstrMessageEvent) -> None:
+    @filter.on_llm_response()
+    async def on_llm_response(self, event: AstrMessageEvent, resp) -> None:
         """消息后处理 Hook：在 LLM 响应后捕获记忆"""
         if self._message_processor:
-            await self._message_processor.on_post_send(event)
+            await self._message_processor.handle_llm_response(event, resp)
 
         # 主动回复：检测用户是否需要帮助
         if self._service.proactive and self._service.cfg.proactive.enabled:
