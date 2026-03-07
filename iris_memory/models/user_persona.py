@@ -1,6 +1,7 @@
 """
-UserPersona数据模型（v2 - 画像补完）
+UserPersona数据模型（v3 - 情感委托）
 支持：变更审计日志、注入视图生成、主动回复偏好、结构化DEBUG
+v3: 情感维度委托给 EmotionalState，消除数据冗余
 """
 
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ from iris_memory.models.persona_extraction_applier import (
 
 if TYPE_CHECKING:
     from iris_memory.persona.keyword_maps import ExtractionResult
+    from iris_memory.models.emotion_state import EmotionalState
 
 
 logger = get_logger("user_persona")
@@ -29,16 +31,18 @@ logger = get_logger("user_persona")
 # ---------------------------------------------------------------------------
 @dataclass
 class UserPersona:
-    """用户画像数据模型 v2
+    """用户画像数据模型 v3
 
     多维度画像，记录用户的特征、偏好、情感状态等。
     所有通过 ``apply_change`` 进行的字段变更都会被记录到 ``change_log`` 审计日志中。
+
+    v3 变更：情感维度委托给 EmotionalState，通过属性访问器提供向后兼容接口。
     """
 
     # ========== 基础信息 ==========
     user_id: str = ""
     display_name: Optional[str] = None  # 用户昵称/姓名
-    version: int = 2
+    version: int = 3
     last_updated: datetime = field(default_factory=datetime.now)
     update_count: int = 0  # 累计更新次数
 
@@ -54,7 +58,10 @@ class UserPersona:
     habits: List[str] = field(default_factory=list)
     life_preferences: Dict[str, Any] = field(default_factory=dict)
 
-    # ========== 情感维度 ==========
+    # ========== 情感维度（委托给 EmotionalState）==========
+    # 保留字段用于序列化兼容，实际通过属性访问器委托
+    _emotional_state: Optional["EmotionalState"] = field(default=None, repr=False, compare=False)
+    # 以下字段保留用于向后兼容的序列化/反序列化
     emotional_baseline: str = DEFAULT_EMOTION
     emotional_volatility: float = 0.5
     emotional_triggers: List[str] = field(default_factory=list)
@@ -107,10 +114,94 @@ class UserPersona:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
+    # 情感状态委托接口
+    # ------------------------------------------------------------------
+    def bind_emotional_state(self, emotional_state: "EmotionalState") -> None:
+        """绑定 EmotionalState 实例，启用委托模式
+
+        绑定后，情感相关字段将从 EmotionalState 读取，实现单一数据源。
+        """
+        self._emotional_state = emotional_state
+        self._sync_from_emotional_state()
+
+    def unbind_emotional_state(self) -> None:
+        """解绑 EmotionalState，回退到本地字段存储"""
+        self._emotional_state = None
+
+    def _sync_from_emotional_state(self) -> None:
+        """从 EmotionalState 同步情感字段到本地（用于序列化）"""
+        if self._emotional_state is None:
+            return
+        es = self._emotional_state
+        self.emotional_baseline = es.current.primary.value if es.current else DEFAULT_EMOTION
+        self.emotional_volatility = es.trajectory.volatility if es.trajectory else 0.5
+        self.emotional_patterns = dict(es.patterns)
+        self.emotional_trajectory = es.trajectory.trend.value if es.trajectory else None
+        self.negative_ratio = es.get_negative_ratio()
+        self.emotional_triggers = [t.get("description", "") for t in es.triggers if t.get("description")]
+        self.emotional_soothers = {s.get("type", ""): s.get("description", "") for s in es.soothers if s.get("type")}
+
+    def _sync_to_emotional_state(self) -> None:
+        """从本地字段同步到 EmotionalState（用于反向更新）"""
+        if self._emotional_state is None:
+            return
+        from iris_memory.models.emotion_state import (
+            EmotionalState, CurrentEmotionState, EmotionalTrajectory, TrendType
+        )
+        from iris_memory.core.types import EmotionType
+        es = self._emotional_state
+        try:
+            es.current = CurrentEmotionState(
+                primary=EmotionType(self.emotional_baseline),
+                intensity=es.current.intensity if es.current else 0.5,
+                confidence=es.current.confidence if es.current else 0.5,
+            )
+        except ValueError:
+            es.current = CurrentEmotionState(primary=EmotionType.NEUTRAL)
+        es.trajectory = EmotionalTrajectory(
+            trend=TrendType(self.emotional_trajectory) if self.emotional_trajectory else TrendType.STABLE,
+            volatility=self.emotional_volatility,
+        )
+        es.patterns = dict(self.emotional_patterns)
+
+    @property
+    def emotional_state(self) -> Optional["EmotionalState"]:
+        """获取绑定的 EmotionalState 实例"""
+        return self._emotional_state
+
+    def get_emotional_baseline(self) -> str:
+        """获取情感基线（优先从 EmotionalState 读取）"""
+        if self._emotional_state:
+            return self._emotional_state.current.primary.value
+        return self.emotional_baseline
+
+    def get_emotional_volatility(self) -> float:
+        """获取情感波动性（优先从 EmotionalState 读取）"""
+        if self._emotional_state:
+            return self._emotional_state.trajectory.volatility
+        return self.emotional_volatility
+
+    def get_emotional_trajectory(self) -> Optional[str]:
+        """获取情感轨迹（优先从 EmotionalState 读取）"""
+        if self._emotional_state:
+            return self._emotional_state.trajectory.trend.value
+        return self.emotional_trajectory
+
+    def get_negative_ratio(self) -> float:
+        """获取负面情感占比（优先从 EmotionalState 计算）"""
+        if self._emotional_state:
+            return self._emotional_state.get_negative_ratio()
+        return self.negative_ratio
+
+    # ------------------------------------------------------------------
     # 序列化
     # ------------------------------------------------------------------
     def to_dict(self) -> Dict[str, Any]:
-        """转换为可序列化字典"""
+        """转换为可序列化字典
+
+        序列化前会从绑定的 EmotionalState 同步情感字段，确保数据一致性。
+        """
+        self._sync_from_emotional_state()
         data: Dict[str, Any] = {}
         for key, value in self.__dict__.items():
             if key.startswith("_"):
