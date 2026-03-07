@@ -12,7 +12,7 @@ from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import PersonaStyle, LogTemplates
 from iris_memory.utils.command_utils import SessionKeyBuilder
 from iris_memory.utils.member_utils import format_member_tag
-from iris_memory.analysis.persona.persona_logger import persona_log
+from iris_memory.persona.persona_logger import persona_log
 
 if TYPE_CHECKING:
     from iris_memory.services.modules.storage_module import StorageModule

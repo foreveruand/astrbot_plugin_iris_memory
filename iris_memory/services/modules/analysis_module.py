@@ -13,8 +13,8 @@ from iris_memory.utils.logger import get_logger
 if TYPE_CHECKING:
     from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
     from iris_memory.analysis.rif_scorer import RIFScorer
-    from iris_memory.analysis.persona.persona_extractor import PersonaExtractor
-    from iris_memory.analysis.persona.persona_batch_processor import PersonaBatchProcessor
+    from iris_memory.persona.persona_extractor import PersonaExtractor
+    from iris_memory.persona.persona_batch_processor import PersonaBatchProcessor
     from iris_memory.analysis.reinforcement import MemoryReinforcementEngine
 
 logger = get_logger("module.analysis")
@@ -69,8 +69,8 @@ class AnalysisModule:
         context: Any,
     ) -> None:
         """初始化画像提取器"""
-        from iris_memory.analysis.persona.persona_extractor import PersonaExtractor
-        from iris_memory.analysis.persona.keyword_maps import KeywordMaps
+        from iris_memory.persona.persona_extractor import PersonaExtractor
+        from iris_memory.persona.keyword_maps import KeywordMaps
 
         mode = cfg.persona_extraction_mode
         logger.debug(f"Initializing persona extractor (mode={mode})")
@@ -82,7 +82,6 @@ class AnalysisModule:
         external_keyword_yaml = plugin_data_path.parent / "data" / "keyword_maps.yaml"
         package_keyword_yaml = (
             Path(__file__).resolve().parent.parent.parent
-            / "analysis"
             / "persona"
             / "keyword_maps.yaml"
         )
@@ -138,7 +137,7 @@ class AnalysisModule:
             logger.debug("Persona batch processor skipped: extractor not available")
             return
 
-        from iris_memory.analysis.persona.persona_batch_processor import (
+        from iris_memory.persona.persona_batch_processor import (
             PersonaBatchProcessor,
         )
 

@@ -9,7 +9,7 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 
 from iris_memory.utils.logger import get_logger
-from iris_memory.analysis.persona.persona_logger import persona_log
+from iris_memory.persona.persona_logger import persona_log
 from iris_memory.core.constants import DEFAULT_EMOTION
 
 # 模块logger

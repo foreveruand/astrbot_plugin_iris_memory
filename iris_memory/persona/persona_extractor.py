@@ -6,16 +6,16 @@
 - llm: 纯 LLM 提取（准确，有 token 成本）
 - hybrid: 混合模式（规则优先 + LLM 补充）
 
-关键词配置默认位于 iris_memory/analysis/persona/keyword_maps.yaml，支持外部覆盖与自定义扩展。
+关键词配置默认位于 iris_memory/persona/keyword_maps.yaml，支持外部覆盖与自定义扩展。
 """
 
 from typing import Dict, Any, Optional
 import re
 
 from iris_memory.utils.logger import get_logger
-from iris_memory.analysis.persona.keyword_maps import ExtractionResult, KeywordMaps
-from iris_memory.analysis.persona.rule_extractor import RuleExtractor
-from iris_memory.analysis.persona.llm_extractor import LLMExtractor
+from iris_memory.persona.keyword_maps import ExtractionResult, KeywordMaps
+from iris_memory.persona.rule_extractor import RuleExtractor
+from iris_memory.persona.llm_extractor import LLMExtractor
 
 logger = get_logger("persona_extractor")
 

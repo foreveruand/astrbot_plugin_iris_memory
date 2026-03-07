@@ -313,7 +313,7 @@ class PersistenceService:
     async def _load_user_personas(self, get_kv_data: Any) -> None:
         """加载用户画像（特殊处理）"""
         from iris_memory.models.user_persona import UserPersona
-        from iris_memory.analysis.persona.persona_logger import persona_log
+        from iris_memory.persona.persona_logger import persona_log
 
         personas_data = await get_kv_data(KVStoreKeys.USER_PERSONAS, {})
         if not personas_data:
@@ -410,7 +410,7 @@ class PersistenceService:
         if not self._state.user_personas:
             return
 
-        from iris_memory.analysis.persona.persona_logger import persona_log
+        from iris_memory.persona.persona_logger import persona_log
 
         personas_data = {}
         for uid, persona in self._state.user_personas.items():

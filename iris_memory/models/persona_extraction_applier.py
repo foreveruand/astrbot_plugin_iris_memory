@@ -15,7 +15,7 @@ from iris_memory.models.persona_change import PersonaChangeRecord
 
 if TYPE_CHECKING:
     from iris_memory.models.user_persona import UserPersona
-    from iris_memory.analysis.persona.keyword_maps import ExtractionResult
+    from iris_memory.persona.keyword_maps import ExtractionResult
 
 
 # ---------------------------------------------------------------------------

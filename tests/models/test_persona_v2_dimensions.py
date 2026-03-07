@@ -17,10 +17,10 @@ from unittest.mock import Mock
 from datetime import datetime
 
 from iris_memory.models.user_persona import UserPersona
-from iris_memory.analysis.persona.keyword_maps import ExtractionResult, KeywordMaps
-from iris_memory.analysis.persona.rule_extractor import RuleExtractor
-from iris_memory.analysis.persona.llm_extractor import LLMExtractor
-from iris_memory.analysis.persona.persona_extractor import PersonaExtractor
+from iris_memory.persona.keyword_maps import ExtractionResult, KeywordMaps
+from iris_memory.persona.rule_extractor import RuleExtractor
+from iris_memory.persona.llm_extractor import LLMExtractor
+from iris_memory.persona.persona_extractor import PersonaExtractor
 from iris_memory.core.types import MemoryType
 
 

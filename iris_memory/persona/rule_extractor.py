@@ -5,7 +5,7 @@
 import re
 from typing import Optional
 
-from iris_memory.analysis.persona.keyword_maps import ExtractionResult, KeywordMaps
+from iris_memory.persona.keyword_maps import ExtractionResult, KeywordMaps
 
 
 class RuleExtractor:

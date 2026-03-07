@@ -21,12 +21,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from iris_memory.analysis.persona.persona_batch_processor import (
+from iris_memory.persona.persona_batch_processor import (
     PersonaBatchProcessor,
     PersonaQueuedMessage,
     PersonaBatchStats,
 )
-from iris_memory.analysis.persona.keyword_maps import ExtractionResult
+from iris_memory.persona.keyword_maps import ExtractionResult
 
 
 # ---------------------------------------------------------------------------

@@ -18,10 +18,10 @@ from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING, Final
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.command_utils import SessionKeyBuilder
-from iris_memory.analysis.persona.keyword_maps import ExtractionResult
+from iris_memory.persona.keyword_maps import ExtractionResult
 
 if TYPE_CHECKING:
-    from iris_memory.analysis.persona.persona_extractor import PersonaExtractor
+    from iris_memory.persona.persona_extractor import PersonaExtractor
     from iris_memory.models.user_persona import UserPersona
 
 logger = get_logger("persona_batch_processor")

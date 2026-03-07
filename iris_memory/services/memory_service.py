@@ -397,7 +397,7 @@ class MemoryService:
         self, user_id: str, session_key: str, result: Any, msg: Any
     ) -> None:
         """画像批量处理结果回调 — 将提取结果应用到用户画像"""
-        from iris_memory.analysis.persona.persona_logger import persona_log
+        from iris_memory.persona.persona_logger import persona_log
 
         try:
             persona = self._shared_state.get_or_create_user_persona(user_id)
@@ -434,7 +434,7 @@ class MemoryService:
     @staticmethod
     def _fallback_rule_update(persona: Any, msg: Any) -> list:
         """当批量提取结果为空时，尝试规则引擎更新"""
-        from iris_memory.analysis.persona.persona_batch_processor import PersonaQueuedMessage
+        from iris_memory.persona.persona_batch_processor import PersonaQueuedMessage
 
         class _MemoryLike:
             def __init__(self, m: PersonaQueuedMessage):

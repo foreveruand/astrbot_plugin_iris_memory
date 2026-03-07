@@ -17,7 +17,7 @@ from iris_memory.models.persona_extraction_applier import (
 )
 
 if TYPE_CHECKING:
-    from iris_memory.analysis.persona.keyword_maps import ExtractionResult
+    from iris_memory.persona.keyword_maps import ExtractionResult
 
 
 logger = get_logger("user_persona")

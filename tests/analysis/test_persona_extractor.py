@@ -7,8 +7,8 @@ PersonaExtractor 动态阈值单元测试
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from iris_memory.analysis.persona.persona_extractor import PersonaExtractor
-from iris_memory.analysis.persona.keyword_maps import ExtractionResult
+from iris_memory.persona.persona_extractor import PersonaExtractor
+from iris_memory.persona.keyword_maps import ExtractionResult
 
 
 # ==============================================================

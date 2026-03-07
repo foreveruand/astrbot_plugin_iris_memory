@@ -9,7 +9,7 @@ from iris_memory.utils.logger import get_logger
 from iris_memory.utils.llm_helper import resolve_llm_provider, call_llm, parse_llm_json
 from iris_memory.utils.rate_limiter import DailyCallLimiter
 from iris_memory.core.provider_utils import normalize_provider_id
-from iris_memory.analysis.persona.keyword_maps import ExtractionResult, PERSONA_EXTRACTION_PROMPT
+from iris_memory.persona.keyword_maps import ExtractionResult, PERSONA_EXTRACTION_PROMPT
 
 logger = get_logger("persona_extractor")
 

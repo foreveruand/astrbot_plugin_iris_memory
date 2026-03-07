@@ -57,7 +57,7 @@ class BusinessServiceDeps:
     activity_tracker: Any = None
 from iris_memory.core.types import StorageLayer
 from iris_memory.utils.command_utils import MessageFilter
-from iris_memory.analysis.persona.persona_logger import persona_log
+from iris_memory.persona.persona_logger import persona_log
 from iris_memory.services.shared_state import SharedState
 
 logger = get_logger("memory_service.business")
