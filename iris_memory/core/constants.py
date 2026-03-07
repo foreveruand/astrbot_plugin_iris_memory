@@ -34,6 +34,10 @@ DEFAULT_EMOTION: Final[str] = "neutral"
 PROACTIVE_EXTRA_KEY: Final[str] = "iris_proactive"
 PROACTIVE_CONTEXT_KEY: Final[str] = "iris_proactive_context"
 
+# ── 消息处理标记 ──
+
+CHAT_RECORDED_KEY: Final[str] = "iris_chat_recorded"
+
 
 # ── 无限预算哨兵值 ──
 

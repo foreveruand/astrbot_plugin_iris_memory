@@ -217,6 +217,23 @@ class IrisMemoryPlugin(Star):
             formatted.append(f"{i}. {r.memory.content} (置信度：{r.memory.confidence})")
         return "\n".join(formatted)
 
+    @filter.on_all_messages()
+    async def on_all_messages(self, event: AstrMessageEvent) -> None:
+        """处理所有消息（包括不触发 LLM 的消息）
+
+        职责：
+        1. 记录用户消息到聊天缓冲区
+        2. 处理不触发 LLM 的普通消息（分层处理：immediate/batch/discard）
+
+        注意：
+        - 触发 LLM 的消息会同时触发 on_llm_request 和 on_llm_response
+        - on_llm_response 中也会捕获用户消息，但使用的是 capture_and_store_memory（立即存储）
+        - 这里使用 process_normal_message 进行分层处理（可能立即、批量或丢弃）
+        - 两者不冲突，因为触发 LLM 的消息不会进入 process_normal_message 的批量处理逻辑
+        """
+        if self._message_processor:
+            await self._message_processor.process_normal_message(event)
+
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req) -> None:
         """消息预处理 Hook：在 LLM 请求前注入记忆"""

@@ -16,6 +16,7 @@ from iris_memory.core.constants import (
     InputValidationConfig,
     PROACTIVE_EXTRA_KEY,
     PROACTIVE_CONTEXT_KEY,
+    CHAT_RECORDED_KEY,
 )
 
 if TYPE_CHECKING:
@@ -219,6 +220,12 @@ class MessageProcessor:
             )
             return
 
+        if event.get_extra(CHAT_RECORDED_KEY, False):
+            self._service.logger.debug(
+                f"User message already processed in on_all_messages, skipping capture"
+            )
+            return
+
         capture_message = message
         reply_info = extract_reply_info(event)
         if reply_info and reply_info.content:
@@ -246,8 +253,13 @@ class MessageProcessor:
 
         职责：
         1. 记录消息到聊天缓冲区（供LLM上下文注入）
-        2. 分层处理：immediate/batch/discard
+        2. 分层处理：immediate/batch/discard（仅对不触发 LLM 的消息）
         3. 主动回复事件检测与 LLM 请求转发
+
+        注意：
+        - 触发 LLM 的消息会同时触发 on_llm_response
+        - on_llm_response 中会立即捕获用户消息
+        - 这里只记录聊天缓冲区，不重复捕获记忆
 
         Args:
             event: 消息事件对象
@@ -306,6 +318,8 @@ class MessageProcessor:
         )
 
         self._service.update_session_activity(user_id, group_id)
+
+        event.set_extra(CHAT_RECORDED_KEY, True)
 
         # FollowUp 实时通知：绕过批量处理，直接将消息传递给 FollowUpPlanner。
         # batch_processor 处理消息有延迟（默认 20 条或 300s），而 FollowUp 短期
