@@ -24,6 +24,7 @@ from iris_memory.knowledge_graph.kg_models import (
 )
 from iris_memory.knowledge_graph.kg_patterns import (
     TRIPLE_EXTRACTION_PROMPT as _TRIPLE_EXTRACTION_PROMPT,
+    BATCH_TRIPLE_EXTRACTION_PROMPT as _BATCH_TRIPLE_EXTRACTION_PROMPT,
     RULE_TEXT_MAX_LENGTH,
     DEFAULT_DAILY_LIMIT as _DEFAULT_DAILY_LIMIT,
     RELATIONSHIP_SIGNAL_KEYWORDS as _RELATIONSHIP_SIGNAL_KEYWORDS,
@@ -389,42 +390,9 @@ class KGExtractor:
 
             triples: List[KGTriple] = []
             for item in data["triples"][:5]:
-                subject = item.get("subject", "").strip()
-                obj = item.get("object", "").strip()
-                predicate = item.get("predicate", "").strip()
-                if not subject or not obj or not predicate:
-                    continue
-
-                # 解析 relation_type
-                rt_str = item.get("relation_type", "related_to")
-                try:
-                    relation_type = KGRelationType(rt_str)
-                except ValueError:
-                    relation_type = KGRelationType.RELATED_TO
-
-                # 解析 node types
-                st_str = item.get("subject_type", "unknown")
-                ot_str = item.get("object_type", "unknown")
-                try:
-                    subject_type = KGNodeType(st_str)
-                except ValueError:
-                    subject_type = _guess_node_type(subject)
-                try:
-                    object_type = KGNodeType(ot_str)
-                except ValueError:
-                    object_type = _guess_node_type(obj)
-
-                triple = KGTriple(
-                    subject=subject,
-                    predicate=predicate,
-                    object=obj,
-                    subject_type=subject_type,
-                    object_type=object_type,
-                    relation_type=relation_type,
-                    confidence=float(item.get("confidence", 0.6)),
-                    source_text=text,
-                )
-                triples.append(triple)
+                triple = self._parse_single_triple(item, text)
+                if triple:
+                    triples.append(triple)
 
             return triples
 
@@ -537,3 +505,154 @@ class KGExtractor:
                 merged.append(t)
 
         return merged
+
+    # ================================================================
+    # 批量 LLM 提取
+    # ================================================================
+
+    async def batch_extract_by_llm(
+        self,
+        items: List[Dict[str, Any]],
+    ) -> Dict[int, List[KGTriple]]:
+        """批量提取：将多条消息合并为 1 次 LLM 调用
+
+        Args:
+            items: 列表，每项包含 text, user_id, sender_name, index（原始索引）
+
+        Returns:
+            { index: [KGTriple, ...] } 映射
+        """
+        if not items or not self._astrbot_context:
+            return {}
+
+        try:
+            if not await self._ensure_provider():
+                return {}
+
+            # 构建多消息 prompt
+            messages_parts: List[str] = []
+            for i, item in enumerate(items):
+                sender = item.get("sender_name") or "未知"
+                user_id = item.get("user_id", "")
+                messages_parts.append(
+                    f"### 消息{i} (发送者: {sender}, 用户ID: {user_id})\n{item['text']}"
+                )
+            messages_text = "\n\n".join(messages_parts)
+
+            prompt = _BATCH_TRIPLE_EXTRACTION_PROMPT.format(
+                messages_text=messages_text,
+                message_count=len(items),
+            )
+
+            from iris_memory.utils.llm_helper import call_llm, parse_llm_json
+
+            result = await call_llm(
+                self._astrbot_context,
+                self._provider,
+                self._resolved_provider_id,
+                prompt,
+                parse_json=True,
+            )
+
+            if not result.success or not result.content:
+                return {}
+
+            data = result.parsed_json or parse_llm_json(result.content)
+            return self._parse_batch_llm_response(data, items)
+
+        except Exception as e:
+            logger.warning(f"Batch LLM triple extraction failed: {e}")
+            return {}
+
+    def _parse_batch_llm_response(
+        self,
+        data: Any,
+        items: List[Dict[str, Any]],
+    ) -> Dict[int, List[KGTriple]]:
+        """解析批量 LLM 响应为 {index: [KGTriple]} 映射"""
+        result_map: Dict[int, List[KGTriple]] = {}
+
+        if data is None:
+            return result_map
+
+        # 支持数组或 { "results": [...] } 格式
+        if isinstance(data, list):
+            entries = data
+        elif isinstance(data, dict) and "results" in data:
+            entries = data["results"]
+        else:
+            return result_map
+
+        if not isinstance(entries, list):
+            return result_map
+
+        for entry_idx, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                continue
+
+            # 确定该结果对应哪条消息
+            msg_idx = entry.get("message_index", entry_idx)
+            if not isinstance(msg_idx, int) or msg_idx < 0 or msg_idx >= len(items):
+                msg_idx = entry_idx
+            if msg_idx >= len(items):
+                continue
+
+            raw_triples = entry.get("triples", [])
+            if not isinstance(raw_triples, list):
+                continue
+
+            text = items[msg_idx].get("text", "")
+            parsed: List[KGTriple] = []
+
+            for item_data in raw_triples[:5]:
+                triple = self._parse_single_triple(item_data, text)
+                if triple:
+                    parsed.append(triple)
+
+            if parsed:
+                orig_index = items[msg_idx].get("index", msg_idx)
+                result_map[orig_index] = parsed
+
+        return result_map
+
+    @staticmethod
+    def _parse_single_triple(
+        item_data: Dict[str, Any], source_text: str
+    ) -> Optional[KGTriple]:
+        """从单个 JSON dict 解析出一个 KGTriple"""
+        if not isinstance(item_data, dict):
+            return None
+
+        subject = item_data.get("subject", "").strip()
+        obj = item_data.get("object", "").strip()
+        predicate = item_data.get("predicate", "").strip()
+        if not subject or not obj or not predicate:
+            return None
+
+        rt_str = item_data.get("relation_type", "related_to")
+        try:
+            relation_type = KGRelationType(rt_str)
+        except ValueError:
+            relation_type = KGRelationType.RELATED_TO
+
+        st_str = item_data.get("subject_type", "unknown")
+        ot_str = item_data.get("object_type", "unknown")
+        try:
+            subject_type = KGNodeType(st_str)
+        except ValueError:
+            subject_type = _guess_node_type(subject)
+        try:
+            object_type = KGNodeType(ot_str)
+        except ValueError:
+            object_type = _guess_node_type(obj)
+
+        return KGTriple(
+            subject=subject,
+            predicate=predicate,
+            object=obj,
+            subject_type=subject_type,
+            object_type=object_type,
+            relation_type=relation_type,
+            confidence=float(item_data.get("confidence", 0.6)),
+            source_text=source_text,
+        )

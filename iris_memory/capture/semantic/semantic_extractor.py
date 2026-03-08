@@ -67,6 +67,41 @@ SEMANTIC_EXTRACTION_PROMPT = """你是一个记忆管理系统的语义提取助
 请仅返回JSON，不要有其他文字。"""
 
 
+BATCH_SEMANTIC_EXTRACTION_PROMPT = """你是一个记忆管理系统的语义提取助手。请从以下多个情景记忆聚类中，分别提取各自的核心语义信息。
+
+## 任务
+将每个聚类的多条具体情景记忆分别抽象为一条简洁的语义记忆（去除时间戳，保留核心含义）。
+
+## 用户信息
+用户ID：{user_id}
+
+## 聚类列表
+{clusters_text}
+
+## 输出格式
+请以JSON数组格式返回，每个聚类一个结果，顺序与输入一致：
+```json
+[
+  {{
+    "cluster_key": "聚类主题",
+    "content": "抽象化的语义内容",
+    "type": "fact/emotion/relationship",
+    "subtype": "preference/habit/relationship/trait/interest/value",
+    "contradiction_ids": []
+  }}
+]
+```
+
+## 注意事项
+1. 必须为每个聚类返回一个结果，数组长度={cluster_count}
+2. content 应该是抽象的、概括性的描述，不包含具体时间，应以用户视角表达
+3. 如果记忆之间有矛盾，在 contradiction_ids 中标注矛盾记忆的ID
+4. type 选择最匹配的记忆类型
+5. subtype 描述语义记忆的子分类
+
+请仅返回JSON数组，不要有其他文字。"""
+
+
 # ── 提取结果 ──
 
 class ExtractionResult:
@@ -98,6 +133,9 @@ class SemanticExtractor:
     5. 标记已提取的源记忆
     """
 
+    # 默认批量大小：一次 LLM 调用最多处理多少个聚类
+    DEFAULT_BATCH_SIZE: int = 5
+
     def __init__(
         self,
         chroma_manager: Optional[ChromaManager] = None,
@@ -108,6 +146,7 @@ class SemanticExtractor:
         source_expiry_days: int = 0,
         llm_max_tokens: int = 500,
         use_vector_clustering: bool = False,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
         self.chroma_manager = chroma_manager
         self.astrbot_context = astrbot_context
@@ -119,6 +158,7 @@ class SemanticExtractor:
         self.source_expiry_days = source_expiry_days
         self.llm_max_tokens = llm_max_tokens
         self.use_vector_clustering = use_vector_clustering
+        self.batch_size = max(1, batch_size)
 
     def set_llm_provider(self, provider: Any, provider_id: str = "") -> None:
         """显式设置 LLM 提供者"""
@@ -165,11 +205,8 @@ class SemanticExtractor:
 
         logger.debug(f"Produced {len(clusters)} clusters for extraction")
 
-        # 3. 对每个聚类执行 LLM 提取
-        results: List[ExtractionResult] = []
-        for cluster in clusters:
-            result = await self._extract_cluster(cluster)
-            results.append(result)
+        # 3. 批量提取：将多个聚类合并为更少的 LLM 调用
+        results = await self._extract_clusters_batch(clusters)
 
         # 4. 持久化结果
         success_count = 0
@@ -197,11 +234,200 @@ class SemanticExtractor:
         Returns:
             提取结果列表
         """
+        return await self._extract_clusters_batch(clusters)
+
+    # ── 批量聚类提取 ──
+
+    async def _extract_clusters_batch(
+        self, clusters: List[MemoryCluster]
+    ) -> List[ExtractionResult]:
+        """将多个聚类分批提取，每批合并为 1 次 LLM 调用
+
+        当 batch_size == 1 或只有 1 个聚类时退化为逐个提取。
+        """
+        if not clusters:
+            return []
+
+        results: List[ExtractionResult] = []
+        for i in range(0, len(clusters), self.batch_size):
+            batch = clusters[i : i + self.batch_size]
+            if len(batch) == 1:
+                result = await self._extract_cluster(batch[0])
+                results.append(result)
+            else:
+                batch_results = await self._extract_multi_clusters(batch)
+                results.extend(batch_results)
+        return results
+
+    async def _extract_multi_clusters(
+        self, clusters: List[MemoryCluster]
+    ) -> List[ExtractionResult]:
+        """对多个聚类发起 1 次 LLM 调用，返回各自的提取结果
+
+        如果批量调用失败，自动降级为逐个提取。
+        """
+        try:
+            self._ensure_llm_provider()
+
+            # 构建多聚类 prompt
+            ref_memory = clusters[0].memories[0]
+            clusters_text_parts: List[str] = []
+            for idx, cluster in enumerate(clusters, 1):
+                memories_text = self._format_memories_for_prompt(cluster.memories)
+                clusters_text_parts.append(
+                    f"### 聚类{idx}: {cluster.cluster_key}\n{memories_text}"
+                )
+            clusters_text = "\n\n".join(clusters_text_parts)
+
+            prompt = BATCH_SEMANTIC_EXTRACTION_PROMPT.format(
+                user_id=clusters[0].user_id or ref_memory.user_id,
+                clusters_text=clusters_text,
+                cluster_count=len(clusters),
+            )
+
+            llm_result = await call_llm(
+                self.astrbot_context,
+                self._llm_provider,
+                self._llm_resolved_id,
+                prompt,
+                parse_json=True,
+            )
+
+            # 解析数组响应
+            items = self._parse_batch_response(llm_result, len(clusters))
+            if items is not None:
+                return self._build_batch_results(clusters, items)
+
+            logger.warning(
+                "Batch extraction failed to parse array response, "
+                "falling back to per-cluster extraction"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Batch extraction error, falling back to per-cluster: {e}"
+            )
+
+        # 降级：逐个提取
         results: List[ExtractionResult] = []
         for cluster in clusters:
-            result = await self._extract_cluster(cluster)
+            results.append(await self._extract_cluster(cluster))
+        return results
+
+    def _parse_batch_response(
+        self, llm_result: Any, expected_count: int
+    ) -> Optional[List[Dict[str, Any]]]:
+        """解析批量提取的 LLM 数组响应
+
+        Returns:
+            解析成功则返回 list[dict]，否则 None
+        """
+        data = None
+        if llm_result.success and llm_result.parsed_json is not None:
+            data = llm_result.parsed_json
+        elif llm_result.content:
+            data = parse_llm_json(llm_result.content)
+
+        if data is None:
+            return None
+
+        # 响应可能是数组或包含 "results" key 的字典
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict) and "results" in data:
+            items = data["results"]
+        elif isinstance(data, dict):
+            # 单个结果字典 → 只在 expected_count == 1 时接受
+            if expected_count == 1:
+                items = [data]
+            else:
+                return None
+        else:
+            return None
+
+        if not isinstance(items, list):
+            return None
+
+        return items
+
+    def _build_batch_results(
+        self,
+        clusters: List[MemoryCluster],
+        items: List[Dict[str, Any]],
+    ) -> List[ExtractionResult]:
+        """将 LLM 数组响应与聚类一一对应，构建 ExtractionResult 列表"""
+        results: List[ExtractionResult] = []
+        for idx, cluster in enumerate(clusters):
+            if idx < len(items) and isinstance(items[idx], dict):
+                result = self._build_single_result(cluster, items[idx])
+            else:
+                result = ExtractionResult(
+                    cluster=cluster,
+                    semantic_memory=None,
+                    confidence_result=self.confidence_calculator.calculate(0),
+                    success=False,
+                    error=f"Batch response missing entry for cluster index {idx}",
+                )
             results.append(result)
         return results
+
+    def _build_single_result(
+        self, cluster: MemoryCluster, data: Dict[str, Any]
+    ) -> ExtractionResult:
+        """从解析后的单个 JSON dict 构建 ExtractionResult（共用逻辑）"""
+        content = data.get("content", "")
+        if not content:
+            return ExtractionResult(
+                cluster=cluster,
+                semantic_memory=None,
+                confidence_result=self.confidence_calculator.calculate(0),
+                success=False,
+                error="LLM returned empty content",
+            )
+
+        memory_type_str = data.get("type", "fact")
+        subtype = data.get("subtype", "")
+        contradiction_ids = data.get("contradiction_ids", [])
+
+        conf_result = self.confidence_calculator.calculate(
+            evidence_count=cluster.size,
+            contradiction_count=len(contradiction_ids) if contradiction_ids else 0,
+        )
+
+        try:
+            memory_type = MemoryType(memory_type_str)
+        except ValueError:
+            memory_type = MemoryType.FACT
+
+        ref_memory = cluster.memories[0]
+        review_status = "pending_review" if conf_result.needs_human_review else "approved"
+
+        semantic_memory = Memory(
+            id=str(uuid.uuid4()),
+            user_id=ref_memory.user_id,
+            group_id=ref_memory.group_id,
+            persona_id=ref_memory.persona_id,
+            scope=ref_memory.scope,
+            type=memory_type,
+            subtype=subtype or None,
+            content=content,
+            confidence=conf_result.confidence,
+            storage_layer=StorageLayer.SEMANTIC,
+            quality_level=QualityLevel.MODERATE,
+            source_type="semantic_extraction",
+            evidence_ids=cluster.memory_ids,
+            evidence_count=cluster.size,
+            last_validated=datetime.now(),
+            created_time=datetime.now(),
+            importance_score=min(0.9, 0.5 + cluster.size * 0.05),
+            review_status=review_status,
+        )
+
+        return ExtractionResult(
+            cluster=cluster,
+            semantic_memory=semantic_memory,
+            confidence_result=conf_result,
+            success=True,
+        )
 
     # ── 单个聚类提取 ──
 
@@ -249,70 +475,7 @@ class SemanticExtractor:
                         error=llm_result.error or "LLM returned empty/unparseable response",
                     )
 
-            # 解析 LLM 响应
-            data = llm_result.parsed_json
-            content = data.get("content", "")
-            memory_type_str = data.get("type", "fact")
-            subtype = data.get("subtype", "")
-            contradiction_ids = data.get("contradiction_ids", [])
-
-            if not content:
-                return ExtractionResult(
-                    cluster=cluster,
-                    semantic_memory=None,
-                    confidence_result=self.confidence_calculator.calculate(0),
-                    success=False,
-                    error="LLM returned empty content",
-                )
-
-            # 计算置信度
-            conf_result = self.confidence_calculator.calculate(
-                evidence_count=cluster.size,
-                contradiction_count=len(contradiction_ids) if contradiction_ids else 0,
-            )
-
-            # 映射记忆类型
-            try:
-                memory_type = MemoryType(memory_type_str)
-            except ValueError:
-                memory_type = MemoryType.FACT
-
-            # 创建语义记忆（ref_memory 已在上方构建 prompt 时取得）
-            # 低置信度设置为待审核状态
-            review_status: Optional[str] = None
-            if conf_result.needs_human_review:
-                review_status = "pending_review"
-            else:
-                review_status = "approved"
-
-            # 创建语义记忆
-            semantic_memory = Memory(
-                id=str(uuid.uuid4()),
-                user_id=ref_memory.user_id,
-                group_id=ref_memory.group_id,
-                persona_id=ref_memory.persona_id,
-                scope=ref_memory.scope,
-                type=memory_type,
-                subtype=subtype or None,
-                content=content,
-                confidence=conf_result.confidence,
-                storage_layer=StorageLayer.SEMANTIC,
-                quality_level=QualityLevel.MODERATE,
-                source_type="semantic_extraction",
-                evidence_ids=cluster.memory_ids,
-                evidence_count=cluster.size,
-                last_validated=datetime.now(),
-                created_time=datetime.now(),
-                importance_score=min(0.9, 0.5 + cluster.size * 0.05),
-                review_status=review_status,
-            )
-
-            return ExtractionResult(
-                cluster=cluster,
-                semantic_memory=semantic_memory,
-                confidence_result=conf_result,
-                success=True,
-            )
+            return self._build_single_result(cluster, llm_result.parsed_json)
 
         except Exception as e:
             logger.error(f"Error extracting cluster {cluster.cluster_id}: {e}", exc_info=True)

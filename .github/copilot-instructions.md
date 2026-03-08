@@ -84,8 +84,8 @@ def chroma_manager(self): return self._deps.storage.chroma_manager
 
 ```python
 from iris_memory.config import get_store
-store = get_store()
-value = store.child("embedding").get("local_model")
+cfg = get_store()
+value = cfg.child("embedding").get("local_model")
 ```
 
 新代码统一使用 `ConfigStore`；配置结构参见 [_conf_schema.json](../_conf_schema.json)。

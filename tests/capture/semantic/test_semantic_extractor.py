@@ -12,6 +12,7 @@ from iris_memory.capture.semantic.semantic_extractor import (
     SemanticExtractor,
     ExtractionResult,
     SEMANTIC_EXTRACTION_PROMPT,
+    BATCH_SEMANTIC_EXTRACTION_PROMPT,
 )
 from iris_memory.capture.semantic.semantic_clustering import MemoryCluster
 from iris_memory.capture.semantic.semantic_confidence import SemanticConfidenceCalculator
@@ -312,3 +313,210 @@ class TestRunFullPipeline:
         assert len(results) >= 1
         success_results = [r for r in results if r.success]
         assert len(success_results) >= 1
+
+
+class TestBatchExtraction:
+    """批量聚类提取测试"""
+
+    @pytest.mark.asyncio
+    async def test_batch_extraction_multiple_clusters(self):
+        """多个聚类合并为1次LLM调用"""
+        extractor = SemanticExtractor(batch_size=5)
+        extractor._llm_provider = Mock()
+        extractor._llm_resolved_id = "test_provider"
+
+        clusters = [
+            _make_cluster([
+                _make_memory("今天吃了火锅", "m1", 60),
+                _make_memory("火锅太辣了", "m2", 50),
+            ]),
+            MemoryCluster(
+                cluster_id="kw_2",
+                cluster_key="咖啡",
+                cluster_type="entity",
+                memories=[
+                    _make_memory("喝了杯拿铁", "m3", 40),
+                    _make_memory("咖啡好苦", "m4", 30),
+                ],
+            ),
+        ]
+
+        batch_response = LLMCallResult(
+            success=True,
+            content="[]",
+            parsed_json=[
+                {"content": "喜欢吃火锅", "type": "fact", "subtype": "preference", "contradiction_ids": []},
+                {"content": "关注咖啡口味", "type": "fact", "subtype": "interest", "contradiction_ids": []},
+            ],
+        )
+
+        with patch("iris_memory.capture.semantic.semantic_extractor.call_llm", return_value=batch_response) as mock_llm:
+            results = await extractor.extract_from_clusters(clusters)
+
+        # 只调用1次LLM（批量）
+        assert mock_llm.call_count == 1
+        assert len(results) == 2
+        assert results[0].success is True
+        assert results[0].semantic_memory.content == "喜欢吃火锅"
+        assert results[1].success is True
+        assert results[1].semantic_memory.content == "关注咖啡口味"
+
+    @pytest.mark.asyncio
+    async def test_batch_extraction_single_cluster_no_batch(self):
+        """单个聚类不走批量路径"""
+        extractor = SemanticExtractor(batch_size=5)
+        extractor._llm_provider = Mock()
+        extractor._llm_resolved_id = "test_provider"
+
+        clusters = [_make_cluster()]
+
+        single_response = LLMCallResult(
+            success=True,
+            content="{}",
+            parsed_json={"content": "喜欢吃火锅", "type": "fact", "subtype": "preference", "contradiction_ids": []},
+        )
+
+        with patch("iris_memory.capture.semantic.semantic_extractor.call_llm", return_value=single_response) as mock_llm:
+            results = await extractor.extract_from_clusters(clusters)
+
+        assert mock_llm.call_count == 1
+        assert len(results) == 1
+        assert results[0].success is True
+
+    @pytest.mark.asyncio
+    async def test_batch_extraction_fallback_on_failure(self):
+        """批量调用失败时降级为逐个提取"""
+        extractor = SemanticExtractor(batch_size=5)
+        extractor._llm_provider = Mock()
+        extractor._llm_resolved_id = "test_provider"
+
+        clusters = [
+            _make_cluster([
+                _make_memory("今天吃了火锅", "m1", 60),
+                _make_memory("火锅太辣了", "m2", 50),
+            ]),
+            MemoryCluster(
+                cluster_id="kw_2",
+                cluster_key="咖啡",
+                cluster_type="entity",
+                memories=[
+                    _make_memory("喝了杯拿铁", "m3", 40),
+                    _make_memory("咖啡好苦", "m4", 30),
+                ],
+            ),
+        ]
+
+        # 第一次调用（批量）失败，后续逐个调用成功
+        fail_result = LLMCallResult(success=False, error="timeout")
+        ok_result = LLMCallResult(
+            success=True,
+            content="{}",
+            parsed_json={"content": "语义内容", "type": "fact", "subtype": "preference", "contradiction_ids": []},
+        )
+
+        call_count = {"n": 0}
+        async def side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return fail_result
+            return ok_result
+
+        with patch("iris_memory.capture.semantic.semantic_extractor.call_llm", side_effect=side_effect) as mock_llm:
+            results = await extractor.extract_from_clusters(clusters)
+
+        # 1次批量失败 + 2次逐个 = 3次
+        assert mock_llm.call_count == 3
+        assert len(results) == 2
+        assert all(r.success for r in results)
+
+    @pytest.mark.asyncio
+    async def test_batch_size_splits_correctly(self):
+        """超过batch_size的聚类被分成多个批次"""
+        extractor = SemanticExtractor(batch_size=2)
+        extractor._llm_provider = Mock()
+        extractor._llm_resolved_id = "test_provider"
+
+        clusters = [
+            MemoryCluster(
+                cluster_id=f"kw_{i}",
+                cluster_key=f"topic_{i}",
+                cluster_type="entity",
+                memories=[_make_memory(f"内容{i}", f"m{i}", 60)],
+            )
+            for i in range(5)
+        ]
+
+        batch_response = LLMCallResult(
+            success=True,
+            content="[]",
+            parsed_json=[
+                {"content": f"语义{i}", "type": "fact", "subtype": "preference", "contradiction_ids": []}
+                for i in range(2)
+            ],
+        )
+        single_response = LLMCallResult(
+            success=True,
+            content="{}",
+            parsed_json={"content": "语义x", "type": "fact", "subtype": "preference", "contradiction_ids": []},
+        )
+
+        call_count = {"n": 0}
+        async def side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            # 批次1(2个), 批次2(2个), 批次3(1个=不走batch)
+            if call_count["n"] <= 2:
+                return batch_response
+            return single_response
+
+        with patch("iris_memory.capture.semantic.semantic_extractor.call_llm", side_effect=side_effect):
+            results = await extractor.extract_from_clusters(clusters)
+
+        # batch_size=2 → 5个聚类: [2, 2, 1] → 2次批量 + 1次单个 = 3次调用
+        assert call_count["n"] == 3
+        assert len(results) == 5
+
+    def test_parse_batch_response_array(self):
+        """解析数组响应"""
+        extractor = SemanticExtractor()
+        result = LLMCallResult(
+            success=True,
+            parsed_json=[{"content": "a"}, {"content": "b"}],
+        )
+        items = extractor._parse_batch_response(result, 2)
+        assert items is not None
+        assert len(items) == 2
+
+    def test_parse_batch_response_dict_with_results_key(self):
+        """解析包含 results key 的字典响应"""
+        extractor = SemanticExtractor()
+        result = LLMCallResult(
+            success=True,
+            parsed_json={"results": [{"content": "a"}]},
+        )
+        items = extractor._parse_batch_response(result, 1)
+        assert items is not None
+        assert len(items) == 1
+
+    def test_parse_batch_response_failure(self):
+        """解析失败返回 None"""
+        extractor = SemanticExtractor()
+        result = LLMCallResult(success=False, error="fail")
+        items = extractor._parse_batch_response(result, 2)
+        assert items is None
+
+    def test_build_single_result_empty_content(self):
+        """空 content 构建失败结果"""
+        extractor = SemanticExtractor()
+        cluster = _make_cluster()
+        result = extractor._build_single_result(cluster, {"content": "", "type": "fact"})
+        assert result.success is False
+
+    def test_batch_size_default(self):
+        """默认 batch_size"""
+        extractor = SemanticExtractor()
+        assert extractor.batch_size == SemanticExtractor.DEFAULT_BATCH_SIZE
+
+    def test_batch_size_minimum(self):
+        """batch_size 最小为 1"""
+        extractor = SemanticExtractor(batch_size=0)
+        assert extractor.batch_size == 1

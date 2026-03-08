@@ -61,6 +61,51 @@ TRIPLE_EXTRACTION_PROMPT = """从以下文本中提取实体关系三元组。
 仅返回JSON，不要有其他文字。"""
 
 
+BATCH_TRIPLE_EXTRACTION_PROMPT = """从以下多条消息中分别提取实体关系三元组。
+
+## 提取规则
+1. 为每条消息独立提取 (主语, 关系, 宾语) 三元组
+2. 主语和宾语应是具体的实体（人名、地名、组织、事物、概念等）
+3. 关系应是动词或动词短语
+4. 忽略代词（我、你、他），用实际名称替换（如已知）
+5. 每条消息最多提取 5 个最重要的三元组
+
+## 关系类型参考
+- 人际: friend_of, colleague_of, family_of, boss_of, subordinate_of, knows
+- 属性: lives_in, works_at, studies_at, belongs_to, owns
+- 行为: likes, dislikes, does, is, has, wants
+- 事件: participated_in, happened_at, caused_by
+- 通用: related_to
+
+## 实体类型参考
+- person, location, organization, object, event, concept, time, unknown
+
+## 消息列表
+{messages_text}
+
+## 输出格式
+请以JSON数组返回，每条消息一个结果，顺序与输入一致：
+```json
+[
+  {{{{
+    "message_index": 0,
+    "triples": [
+      {{{{
+        "subject": "实体A",
+        "subject_type": "person",
+        "predicate": "关系描述",
+        "relation_type": "likes",
+        "object": "实体B",
+        "object_type": "concept",
+        "confidence": 0.8
+      }}}}
+    ]
+  }}}}
+]
+```
+消息数量={message_count}，请确保返回数组长度与输入一致。仅返回JSON，不要有其他文字。"""
+
+
 # ── 规则模式匹配阈值 ──
 
 # 文本长度阈值：超过此长度跳过规则提取

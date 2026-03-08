@@ -314,6 +314,12 @@ _FIELDS: List[ConfigField] = [
        "低置信度阈值", access=INT),
     _f("knowledge_graph.staleness_days", int, 30,
        "过期天数", access=INT),
+    _f("knowledge_graph.batch_size", int, 5,
+       "批量 LLM 提取大小", access=INT,
+       min_val=1, max_val=20),
+    _f("knowledge_graph.batch_flush_interval", float, 10.0,
+       "批量 LLM 提取刷新间隔（秒）", access=INT,
+       min_val=1.0, max_val=300.0),
 
     # ── LLM 智能增强 ─────────────────────────────────
     _f("llm_enhanced.enable", bool, False,

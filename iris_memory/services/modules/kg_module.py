@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
+from iris_memory.config import get_store
 from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -26,6 +29,21 @@ if TYPE_CHECKING:
     from iris_memory.knowledge_graph.kg_quality import QualityReport
 
 logger = get_logger("module.kg")
+
+
+@dataclass
+class _PendingKGItem:
+    """待批量 LLM 提取的消息项"""
+    text: str
+    user_id: str
+    group_id: Optional[str]
+    memory_id: Optional[str]
+    sender_name: Optional[str]
+    existing_entities: Optional[List[str]]
+    persona_id: str
+    rule_triples: List[Any] = field(default_factory=list)
+    memory_ref: Any = None  # 原始 Memory 对象引用
+    enqueue_time: float = 0.0
 
 
 class KnowledgeGraphModule:
@@ -47,6 +65,14 @@ class KnowledgeGraphModule:
         self._quality: Optional[KGQualityReporter] = None
         self._scheduler: Optional[KGScheduler] = None
         self._enabled: bool = True
+
+        self._cfg = get_store()
+
+        self._pending_items: List[_PendingKGItem] = []
+        self._batch_size: int = self._cfg.get("knowledge_graph.batch_size", 5)
+        self._batch_flush_interval: float = self._cfg.get("knowledge_graph.batch_flush_interval", 10.0)
+        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_lock: asyncio.Lock = asyncio.Lock()
 
     # ── 属性 ──
 
@@ -186,6 +212,15 @@ class KnowledgeGraphModule:
 
     async def close(self) -> None:
         """关闭资源"""
+        # 先 flush 剩余的待处理项
+        await self.flush_pending_llm()
+        if self._flush_task and not self._flush_task.done():
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._flush_task = None
         if self._scheduler:
             await self._scheduler.stop()
             self._scheduler = None
@@ -202,14 +237,17 @@ class KnowledgeGraphModule:
     ) -> List["KGTriple"]:
         """从记忆中提取三元组并存入图谱
 
-        在 capture_and_store_memory() 之后调用。
+        优化策略：
+        - 规则提取立即执行并存储
+        - 若 hybrid 决策需要 LLM，则入队批量缓冲区
+        - 缓冲区满或定时器到期时统一发起 1 次 LLM 调用
 
         Args:
             memory: Memory 对象
-            persona_id: 人格 ID（始终写入节点/边）
+            persona_id: 人格 ID
 
         Returns:
-            提取到的三元组列表
+            规则提取到的三元组列表（LLM 部分稍后异步补充）
         """
         if not self.enabled or not self._extractor:
             return []
@@ -217,32 +255,161 @@ class KnowledgeGraphModule:
         try:
             _raw = persona_id or getattr(memory, "persona_id", None)
             _persona = _raw if isinstance(_raw, str) else "default"
-            triples = await self._extractor.extract_and_store(
-                text=memory.content,
-                user_id=memory.user_id,
-                group_id=memory.group_id,
-                memory_id=memory.id,
-                sender_name=memory.sender_name,
-                existing_entities=getattr(memory, "detected_entities", None),
-                persona_id=_persona,
-            )
 
-            # 更新 Memory 的 graph_nodes / graph_edges（可选）
-            if triples and hasattr(memory, "graph_nodes"):
+            ext = self._extractor
+
+            # 1. 始终执行规则提取
+            rule_triples: List[KGTriple] = []
+            if ext.mode in ("rule", "hybrid"):
+                rule_triples = ext._extract_by_rules(memory.content, memory.sender_name)
+                if rule_triples:
+                    ext._stats["rule_extractions"] += 1
+
+            # 2. 存储规则提取结果
+            for triple in rule_triples:
+                await ext._store_triple(
+                    triple, memory.user_id, memory.group_id, memory.id, _persona
+                )
+
+            # 3. 判断是否需要 LLM
+            need_llm = False
+            if ext.mode == "llm":
+                need_llm = True
+            elif ext.mode == "hybrid":
+                ext._stats["hybrid_decisions"] += 1
+                should_call, reason = ext._should_call_llm_hybrid(
+                    memory.content, rule_triples
+                )
+                if should_call and ext._limiter.is_within_limit():
+                    need_llm = True
+                    logger.debug(f"Hybrid LLM queued ({reason})")
+
+            # 4. 需要 LLM → 入队批量缓冲
+            if need_llm:
+                item = _PendingKGItem(
+                    text=memory.content,
+                    user_id=memory.user_id,
+                    group_id=memory.group_id,
+                    memory_id=memory.id,
+                    sender_name=memory.sender_name,
+                    existing_entities=getattr(memory, "detected_entities", None),
+                    persona_id=_persona,
+                    rule_triples=rule_triples,
+                    memory_ref=memory,
+                    enqueue_time=time.monotonic(),
+                )
+                self._pending_items.append(item)
+
+                # 缓冲区满 → 立即 flush
+                if len(self._pending_items) >= self._batch_size:
+                    await self.flush_pending_llm()
+                else:
+                    self._ensure_flush_timer()
+
+            # 5. 更新 Memory 的 graph 字段（仅规则结果）
+            if rule_triples and hasattr(memory, "graph_nodes"):
                 nodes_set = set(memory.graph_nodes or [])
                 edges_set = set(memory.graph_edges or [])
-                for triple in triples:
+                for triple in rule_triples:
                     nodes_set.add(triple.subject)
                     nodes_set.add(triple.object)
                     edges_set.add(f"{triple.subject}->{triple.predicate}->{triple.object}")
                 memory.graph_nodes = list(nodes_set)
                 memory.graph_edges = list(edges_set)
 
-            return triples
+            if rule_triples:
+                ext._stats["total_triples"] += len(rule_triples)
+
+            return rule_triples
 
         except Exception as e:
             logger.warning(f"Failed to process memory for KG: {e}")
             return []
+
+    # ── 批量 LLM Flush ──
+
+    def _ensure_flush_timer(self) -> None:
+        """确保定时 flush 任务在运行"""
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = asyncio.create_task(self._auto_flush_loop())
+
+    async def _auto_flush_loop(self) -> None:
+        """定时器：等待 flush_interval 后自动 flush"""
+        try:
+            await asyncio.sleep(self._batch_flush_interval)
+            await self.flush_pending_llm()
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"KG auto-flush error: {e}")
+
+    async def flush_pending_llm(self) -> None:
+        """将缓冲区中的待处理项合并为 1 次 LLM 调用
+
+        线程安全：通过 _flush_lock 防止并发 flush。
+        """
+        async with self._flush_lock:
+            if not self._pending_items or not self._extractor:
+                return
+
+            items = self._pending_items[:]
+            self._pending_items.clear()
+
+        ext = self._extractor
+
+        # 构建 batch_extract_by_llm 输入
+        batch_input: List[Dict[str, Any]] = []
+        for i, item in enumerate(items):
+            batch_input.append({
+                "text": item.text,
+                "user_id": item.user_id,
+                "sender_name": item.sender_name,
+                "index": i,
+            })
+
+        # 批量调用 LLM
+        llm_results = await ext.batch_extract_by_llm(batch_input)
+
+        if llm_results:
+            ext._limiter.increment()
+            ext._stats["llm_extractions"] += 1
+
+        # 处理结果：逐项合并 + 存储
+        for i, item in enumerate(items):
+            llm_triples = llm_results.get(i, [])
+
+            if llm_triples:
+                # 与规则结果合并（去重）
+                merged = ext._merge_triples(item.rule_triples, llm_triples)
+                # 只存储 LLM 新增的三元组（规则部分已在 process_memory 中存储）
+                new_triples = merged[len(item.rule_triples):]
+            else:
+                new_triples = []
+
+            for triple in new_triples:
+                await ext._store_triple(
+                    triple, item.user_id, item.group_id,
+                    item.memory_id, item.persona_id,
+                )
+
+            # 更新 memory 的 graph 字段
+            if new_triples and item.memory_ref and hasattr(item.memory_ref, "graph_nodes"):
+                nodes_set = set(item.memory_ref.graph_nodes or [])
+                edges_set = set(item.memory_ref.graph_edges or [])
+                for triple in new_triples:
+                    nodes_set.add(triple.subject)
+                    nodes_set.add(triple.object)
+                    edges_set.add(f"{triple.subject}->{triple.predicate}->{triple.object}")
+                item.memory_ref.graph_nodes = list(nodes_set)
+                item.memory_ref.graph_edges = list(edges_set)
+
+            if new_triples:
+                ext._stats["total_triples"] += len(new_triples)
+
+        logger.debug(
+            f"KG batch flush: {len(items)} messages → "
+            f"{sum(len(llm_results.get(i, [])) for i in range(len(items)))} LLM triples"
+        )
 
     # ── 检索阶段接口 ──
 
