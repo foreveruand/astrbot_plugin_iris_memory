@@ -23,6 +23,7 @@ import time
 from typing import Optional, Dict, Any, List
 
 from iris_memory.utils.logger import get_logger
+from iris_memory.utils.llm_helper import call_llm
 from iris_memory.utils.provider_utils import (
     get_default_provider,
     get_provider_by_id,
@@ -377,7 +378,7 @@ class ImageAnalyzer:
                     error="No image URL"
                 )
             
-            provider = await self._resolve_provider(umo)
+            provider, provider_id = await self._resolve_provider(umo)
             if not provider:
                 logger.warning("No LLM provider available for image analysis")
                 return ImageAnalysisResult(
@@ -398,22 +399,24 @@ class ImageAnalyzer:
             
             logger.debug(f"Calling LLM for image analysis, level={level}")
             
-            llm_resp = await provider.text_chat(
+            llm_result = await call_llm(
+                context=self.context,
+                provider=provider,
+                provider_id=provider_id,
                 prompt=prompt,
                 image_urls=[image_url],
-                context=[]
             )
             
-            if not llm_resp or not llm_resp.completion_text:
+            if not llm_result.success or not llm_result.content:
                 self._stats["errors"] += 1
                 return ImageAnalysisResult(
                     level=level,
                     description="[图片分析失败]",
                     token_cost=0,
-                    error="Empty LLM response"
+                    error=llm_result.error or "Empty LLM response"
                 )
             
-            description = llm_resp.completion_text.strip()
+            description = llm_result.content.strip()
             description = self._clean_description(description)
             
             token_cost = 100 if level == ImageAnalysisLevel.BRIEF else 300
@@ -436,10 +439,14 @@ class ImageAnalyzer:
                 error=str(e)
             )
     
-    async def _resolve_provider(self, umo: str = ""):
-        """解析 LLM 提供者"""
+    async def _resolve_provider(self, umo: str = "") -> tuple:
+        """解析 LLM 提供者
+        
+        Returns:
+            (provider, resolved_id) 或 (None, None)
+        """
         if not self.context:
-            return None
+            return None, None
         
         provider_id = normalize_provider_id(self._configured_provider_id)
         
@@ -448,13 +455,13 @@ class ImageAnalyzer:
                 provider, resolved_id = get_provider_by_id(self.context, provider_id)
                 if provider:
                     logger.debug(f"Using configured provider for image analysis: {resolved_id or provider_id}")
-                    return provider
+                    return provider, resolved_id or provider_id
                 logger.warning(f"Provider not found: {provider_id}, falling back to default")
             except Exception as e:
                 logger.warning(f"Failed to get provider list: {e}")
         
-        provider, _ = get_default_provider(self.context, umo=umo)
-        return provider
+        provider, resolved_id = get_default_provider(self.context, umo=umo)
+        return provider, resolved_id
     
     def _clean_description(self, description: str) -> str:
         """清理LLM返回的描述"""

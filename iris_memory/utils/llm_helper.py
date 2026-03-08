@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.core.provider_utils import (
@@ -29,7 +29,13 @@ logger = get_logger("llm_helper")
 @runtime_checkable
 class LLMProvider(Protocol):
     """LLM 提供者协议"""
-    async def text_chat(self, *, prompt: str, context: list[Any]) -> Any: ...
+    async def text_chat(
+        self,
+        *,
+        prompt: str,
+        context: list[Any],
+        image_urls: Optional[List[str]] = None,
+    ) -> Any: ...
 
 
 @runtime_checkable
@@ -170,6 +176,7 @@ async def call_llm(
     prompt: str,
     *,
     parse_json: bool = False,
+    image_urls: Optional[List[str]] = None,
 ) -> LLMCallResult:
     """统一的单次 LLM 调用（``llm_generate`` → ``text_chat`` fallback）。
 
@@ -179,12 +186,15 @@ async def call_llm(
         provider_id: provider ID（用于 ``llm_generate``）
         prompt: 提示词
         parse_json: 是否尝试从响应中解析 JSON
+        image_urls: 图片 URL 列表（多模态/Vision 模型支持）
 
     Returns:
         LLMCallResult
     """
-    # ① 尝试 context.llm_generate
-    if context and hasattr(context, "llm_generate") and provider_id:
+    is_multimodal = bool(image_urls)
+
+    # ① 尝试 context.llm_generate（不支持多模态，跳过）
+    if not is_multimodal and context and hasattr(context, "llm_generate") and provider_id:
         try:
             logger.debug(f"Calling context.llm_generate with provider_id={repr(provider_id)}, prompt_length={len(prompt)}")
             resp = await context.llm_generate(
@@ -210,11 +220,19 @@ async def call_llm(
                 f"prompt_preview={repr(prompt[:100])}..."
             )
 
-    # ② 回退：provider.text_chat
+    # ② provider.text_chat（支持多模态）
     if provider and hasattr(provider, "text_chat"):
         resolved_pid = provider_id or extract_provider_id(provider) or "unknown"
         try:
-            resp = await provider.text_chat(prompt=prompt, context=[])
+            kwargs: Dict[str, Any] = {"prompt": prompt, "context": []}
+            if is_multimodal:
+                kwargs["image_urls"] = image_urls
+                logger.debug(
+                    f"Calling provider.text_chat with multimodal, "
+                    f"provider_id={repr(resolved_pid)}, prompt_length={len(prompt)}, "
+                    f"image_count={len(image_urls)}"
+                )
+            resp = await provider.text_chat(**kwargs)
             text = _extract_text(resp)
             tokens = _estimate_tokens(prompt + text)
             return LLMCallResult(
@@ -234,7 +252,7 @@ async def call_llm(
 
     return LLMCallResult(
         success=False,
-        error=f"No suitable LLM method found (provider_id={repr(provider_id)})"
+        error=f"No suitable LLM method found (provider_id={repr(provider_id)}, multimodal={is_multimodal})"
     )
 
 

@@ -384,7 +384,7 @@ class TestKGExtractorBatch:
             }]
         )
 
-        with patch("iris_memory.knowledge_graph.kg_extractor.call_llm", return_value=llm_result):
+        with patch("iris_memory.utils.llm_helper.call_llm", return_value=llm_result):
             items = [{"text": "张三喜欢编程", "user_id": "u1", "sender_name": "张三", "index": 0}]
             result = run(ext.batch_extract_by_llm(items))
 
@@ -413,7 +413,7 @@ class TestKGExtractorBatch:
             ]
         )
 
-        with patch("iris_memory.knowledge_graph.kg_extractor.call_llm", return_value=llm_result):
+        with patch("iris_memory.utils.llm_helper.call_llm", return_value=llm_result):
             items = [
                 {"text": "张三喜欢编程", "user_id": "u1", "sender_name": "张三", "index": 0},
                 {"text": "李四讨厌加班", "user_id": "u1", "sender_name": "李四", "index": 1},
@@ -444,7 +444,7 @@ class TestKGExtractorBatch:
             ]
         )
 
-        with patch("iris_memory.knowledge_graph.kg_extractor.call_llm", return_value=llm_result):
+        with patch("iris_memory.utils.llm_helper.call_llm", return_value=llm_result):
             items = [{"text": "张三喜欢编程", "user_id": "u1", "sender_name": "张三", "index": 0}]
             result = run(ext.batch_extract_by_llm(items))
 
