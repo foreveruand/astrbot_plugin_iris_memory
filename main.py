@@ -181,7 +181,7 @@ class IrisMemoryPlugin(Star):
             content(string): 要保存的记忆内容，应该是一个完整的陈述句
         """
         from iris_memory.models.memory import Memory
-        from iris_memory.core.types import MemoryScope
+        from iris_memory.core.memory_scope import MemoryScope
 
         scope = MemoryScope.PRIVATE if not get_group_id(event) else MemoryScope.GROUP
         memory = Memory(
@@ -247,7 +247,7 @@ class IrisMemoryPlugin(Star):
             await self._message_processor.handle_llm_response(event, resp)
 
         # 主动回复：检测用户是否需要帮助
-        if self._service.proactive and self._service.cfg.proactive.enabled:
+        if self._service.proactive and self._service.cfg.get("proactive_reply.enable", False):
             await self._service.proactive.signal_queue.enqueue(event)
 
     async def terminate(self) -> None:
