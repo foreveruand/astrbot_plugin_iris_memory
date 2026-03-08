@@ -34,7 +34,7 @@ from iris_memory.processing.markdown_stripper import MarkdownStripper
 from iris_memory.core.constants import PROACTIVE_EXTRA_KEY
 
 
-@register("astrbot_plugin_iris_memory", "Iris Memory", "基于 companion-memory 框架的三层记忆插件", "1.10.2")
+@register("astrbot_plugin_iris_memory", "Iris Memory", "基于 companion-memory 框架的三层记忆插件", "1.10.3")
 class IrisMemoryPlugin(Star):
     """
     Iris 记忆插件 - 主入口

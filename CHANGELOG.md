@@ -3,6 +3,19 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.10.3] - 2026-03-08
+
+### Fixed
+- **NumPy 数组布尔判断错误修复** (`iris_memory/storage/chroma_manager.py`, `iris_memory/embedding/manager.py`)
+  - 修复 `_extract_memory_data` 方法中 `documents`、`embeddings`、`metadatas` 的布尔判断
+  - 修复 `_detect_existing_dimension` 方法中 `embeddings` 的布尔判断
+  - 将隐式布尔判断 `if embeddings and ...` 改为显式判断 `if embeddings is not None and ...`
+  - 解决 ChromaDB 某些情况下返回 NumPy 数组导致的 `ValueError: The truth value of an array with more than one element is ambiguous`
+
+- **MemoryScope 导入路径修复** (`main.py`)
+  - 修复 `save_memory_tool` 方法中 `MemoryScope` 的导入路径
+  - 将 `from iris_memory.core.types import MemoryScope` 改为 `from iris_memory.core.memory_scope import MemoryScope`
+
 ## [v1.10.2] - 2026-03-04
 
 ### Changed
