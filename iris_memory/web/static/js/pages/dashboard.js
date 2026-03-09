@@ -93,13 +93,11 @@ async function loadSystemOverview() {
     storage = storageRes?.data || {};
   }
 
-  const statusColor = health.status === 'healthy' ? 'var(--success)' :
-    health.status === 'degraded' ? 'var(--warning)' : 'var(--danger)';
-  const statusText = health.status === 'healthy' ? '健康' :
-    health.status === 'degraded' ? '降级' : health.status || '未知';
-
-  const chroma = storage.chroma || storage.memories || {};
-  const kg = storage.kg || {};
+  const healthStatus = health.status || 'ok';
+  const statusColor = healthStatus === 'healthy' || healthStatus === 'ok' ? 'var(--success)' :
+    healthStatus === 'degraded' ? 'var(--warning)' : 'var(--danger)';
+  const statusText = healthStatus === 'healthy' || healthStatus === 'ok' ? '健康' :
+    healthStatus === 'degraded' ? '降级' : healthStatus || '未知';
 
   container.innerHTML = `
     <div class="card">
@@ -107,7 +105,7 @@ async function loadSystemOverview() {
       <div class="system-overview-grid">
         <div class="system-stat">
           <div class="system-stat-icon" style="background:${statusColor}20;color:${statusColor}">
-            <span class="health-dot ${health.status || 'healthy'}"></span>
+            <span class="health-dot ${healthStatus === 'healthy' || healthStatus === 'ok' ? 'healthy' : 'unhealthy'}"></span>
           </div>
           <div class="system-stat-content">
             <div class="system-stat-value" style="color:${statusColor}">${esc(statusText)}</div>
@@ -153,46 +151,55 @@ async function loadLlmOverview() {
 
   container.innerHTML = '<div class="card"><div class="loading"><div class="spinner"></div></div></div>';
 
-  const [sumRes, aggRes] = await Promise.all([
-    api.get('/llm/summary'),
-    api.get('/llm/aggregated'),
-  ]);
+  try {
+    const [sumRes, aggRes] = await Promise.all([
+      api.get('/llm/summary'),
+      api.get('/llm/aggregated'),
+    ]);
 
-  if (!sumRes || sumRes.status !== 'ok') {
-    container.innerHTML = '<div class="card"><div style="text-align:center;color:var(--text2);padding:20px">LLM 统计不可用</div></div>';
-    return;
-  }
+    if (!sumRes || sumRes.status !== 'ok') {
+      container.innerHTML = '<div class="card"><div class="card-title">🤖 LLM 监控</div><div style="text-align:center;color:var(--text2);padding:20px">LLM 统计不可用</div></div>';
+      return;
+    }
 
-  const s = sumRes.data || {};
-  const agg = aggRes?.data || {};
+    const s = sumRes.data || {};
+    const agg = aggRes?.data || {};
 
-  container.innerHTML = `
-    <div class="card">
-      <div class="card-title">🤖 LLM 监控</div>
-      <div class="llm-overview-grid">
-        <div class="llm-stat">
-          <div class="llm-stat-value">${s.total_calls ?? 0}</div>
-          <div class="llm-stat-label">总调用</div>
-        </div>
-        <div class="llm-stat">
-          <div class="llm-stat-value">${s.total_tokens ?? 0}</div>
-          <div class="llm-stat-label">Token 消耗</div>
-        </div>
-        <div class="llm-stat">
-          <div class="llm-stat-value" style="color:${getSuccessRateColor(s.success_rate)}">${s.success_rate != null ? (s.success_rate * 100).toFixed(1) + '%' : '-'}</div>
-          <div class="llm-stat-label">成功率</div>
-        </div>
-        <div class="llm-stat">
-          <div class="llm-stat-value">${s.avg_duration_ms != null ? s.avg_duration_ms.toFixed(0) + 'ms' : '-'}</div>
-          <div class="llm-stat-label">平均耗时</div>
-        </div>
-      </div>
-      ${renderProviderStatsCompact(agg)}
-      ${renderSourceStatsCompact(agg)}
-    </div>`;
+    if (s.available === false) {
+      container.innerHTML = '<div class="card"><div class="card-title">🤖 LLM 监控</div><div style="text-align:center;color:var(--text2);padding:20px">LLM 统计未启用</div></div>';
+      return;
+    }
 
-  if (s.total_calls > 0) {
-    loadLlmRecent();
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-title">🤖 LLM 监控</div>
+        <div class="llm-overview-grid">
+          <div class="llm-stat">
+            <div class="llm-stat-value">${s.total_calls ?? 0}</div>
+            <div class="llm-stat-label">总调用</div>
+          </div>
+          <div class="llm-stat">
+            <div class="llm-stat-value">${s.total_tokens ?? 0}</div>
+            <div class="llm-stat-label">Token 消耗</div>
+          </div>
+          <div class="llm-stat">
+            <div class="llm-stat-value" style="color:${getSuccessRateColor(s.success_rate)}">${s.success_rate != null ? (s.success_rate * 100).toFixed(1) + '%' : '-'}</div>
+            <div class="llm-stat-label">成功率</div>
+          </div>
+          <div class="llm-stat">
+            <div class="llm-stat-value">${s.avg_duration_ms != null ? s.avg_duration_ms.toFixed(0) + 'ms' : '-'}</div>
+            <div class="llm-stat-label">平均耗时</div>
+          </div>
+        </div>
+        ${renderProviderStatsCompact(agg)}
+        ${renderSourceStatsCompact(agg)}
+      </div>`;
+
+    if (s.total_calls > 0) {
+      loadLlmRecent();
+    }
+  } catch (e) {
+    container.innerHTML = '<div class="card"><div class="card-title">🤖 LLM 监控</div><div style="text-align:center;color:var(--text2);padding:20px">加载失败</div></div>';
   }
 }
 
