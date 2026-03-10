@@ -28,6 +28,7 @@ import {
 import { switchIoTab, exportMemories, exportKg, handleFileDrop, handleFileSelect } from './pages/io.js';
 import { loadCooldown } from './pages/cooldown.js';
 import { loadLlm } from './pages/llm.js';
+import { loadSystem } from './pages/system.js';
 import { loadConfig, filterConfig, showDiff, exportSnapshot } from './pages/config.js';
 
 const pageLoaders = {
