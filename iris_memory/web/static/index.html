@@ -293,6 +293,17 @@
             <button class="btn btn-primary" onclick="exportKg()">导出</button>
           </div>
         </div>
+        <div class="card">
+          <div class="card-title">📤 导出用户画像</div>
+          <div class="filter-bar">
+            <input type="text" id="exp-persona-user" placeholder="用户ID (可选)">
+            <select id="exp-persona-format">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+            </select>
+            <button class="btn btn-primary" onclick="exportPersonas()">导出</button>
+          </div>
+        </div>
       </div>
       <!-- Import Tab -->
       <div id="io-tab-import" style="display:none">
@@ -317,6 +328,17 @@
           </div>
           <div id="import-kg-preview" style="margin-top:12px"></div>
           <div id="import-kg-result"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">📥 导入用户画像</div>
+          <div class="import-area" id="import-personas-area"
+               ondragover="this.classList.add('dragover');event.preventDefault()"
+               ondragleave="this.classList.remove('dragover')"
+               ondrop="handleFileDrop(event,'personas')">
+            拖拽文件到此处，或 <label style="color:var(--accent);cursor:pointer">选择文件<input type="file" accept=".json,.csv" onchange="handleFileSelect(this,'personas')" hidden></label>
+          </div>
+          <div id="import-personas-preview" style="margin-top:12px"></div>
+          <div id="import-personas-result"></div>
         </div>
       </div>
     </section>

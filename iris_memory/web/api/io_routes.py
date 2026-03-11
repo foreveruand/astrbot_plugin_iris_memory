@@ -62,6 +62,19 @@ def register_io_routes(app: "Quart", container: "WebContainer") -> None:
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
+    @app.route("/api/v1/io/export/personas", methods=["GET"])
+    async def api_export_personas():
+        svc = container.get("io_service")
+        data_str, content_type, filename = await svc.export_personas(
+            fmt=request.args.get("format", "json"),
+            user_id=request.args.get("user_id"),
+        )
+        return Response(
+            data_str,
+            mimetype=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     @app.route("/api/v1/io/import/kg", methods=["POST"])
     async def api_import_kg():
         fmt = request.args.get("format", "json")
@@ -78,6 +91,24 @@ def register_io_routes(app: "Quart", container: "WebContainer") -> None:
 
         svc = container.get("io_service")
         result = await svc.import_kg(data, fmt=fmt)
+        return success_response(result)
+
+    @app.route("/api/v1/io/import/personas", methods=["POST"])
+    async def api_import_personas():
+        fmt = request.args.get("format", "json")
+
+        files = await request.files
+        if "file" in files:
+            file = files["file"]
+            data = (await file.read()).decode("utf-8")
+        else:
+            data = (await request.get_data()).decode("utf-8")
+
+        if not data:
+            return error_response("未收到数据")
+
+        svc = container.get("io_service")
+        result = await svc.import_personas(data, fmt=fmt)
         return success_response(result)
 
     @app.route("/api/v1/io/preview", methods=["POST"])

@@ -17,6 +17,7 @@ logger = get_logger("web.io_svc")
 
 _EXPORT_MAX_MEMORIES = 10000
 _EXPORT_MAX_KG_ITEMS = 50000
+_EXPORT_MAX_PERSONAS = 10000
 _IMPORT_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 
@@ -314,6 +315,130 @@ class IoService:
         audit_log("import_kg", f"success={result['success_count']} fail={result['fail_count']}")
         return result
 
+    # ── 画像导出 ──
+
+    async def export_personas(
+        self,
+        fmt: str = "json",
+        user_id: Optional[str] = None,
+    ) -> Tuple[str, str, str]:
+        """导出用户画像数据，返回 (data_string, content_type, filename)"""
+        try:
+            personas = self._service._user_personas
+            if not personas:
+                if fmt == "csv":
+                    return "user_id,display_name,trust_level,intimacy_level,emotional_baseline,last_updated\n", "text/csv", "personas_empty.csv"
+                return json.dumps(
+                    {"personas": [], "exported_at": datetime.now().isoformat()},
+                    ensure_ascii=False,
+                ), "application/json", "personas_empty.json"
+
+            items = []
+            for uid, persona in personas.items():
+                if user_id and uid != user_id:
+                    continue
+                try:
+                    items.append({
+                        "user_id": uid,
+                        "persona_data": persona.to_dict(),
+                    })
+                except Exception as e:
+                    logger.warning(f"Export persona {uid} failed: {e}")
+                    continue
+
+                if len(items) >= _EXPORT_MAX_PERSONAS:
+                    break
+
+            if not items:
+                if fmt == "csv":
+                    return "user_id,display_name,trust_level,intimacy_level,emotional_baseline,last_updated\n", "text/csv", "personas_empty.csv"
+                return json.dumps(
+                    {"personas": [], "exported_at": datetime.now().isoformat()},
+                    ensure_ascii=False,
+                ), "application/json", "personas_empty.json"
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            if fmt == "csv":
+                return self._personas_to_csv(items), "text/csv", f"personas_{timestamp}.csv"
+
+            export_data = {
+                "version": "1.0",
+                "exported_at": datetime.now().isoformat(),
+                "total_count": len(items),
+                "filters": {"user_id": user_id},
+                "personas": items,
+            }
+            return (
+                json.dumps(export_data, ensure_ascii=False, indent=2, default=str),
+                "application/json",
+                f"personas_{timestamp}.json",
+            )
+
+        except Exception as e:
+            logger.error(f"Export personas error: {e}")
+            return json.dumps({"error": str(e)}), "application/json", "error.json"
+
+    # ── 画像导入 ──
+
+    async def import_personas(self, data: str, fmt: str = "json") -> Dict[str, Any]:
+        result: Dict[str, Any] = {"success_count": 0, "fail_count": 0, "errors": [], "skipped": 0}
+
+        try:
+            if len(data) > _IMPORT_MAX_FILE_SIZE:
+                result["errors"].append(f"文件过大，最大支持 {_IMPORT_MAX_FILE_SIZE // 1024 // 1024}MB")
+                return result
+
+            items = self._parse_csv_personas(data) if fmt == "csv" else self._parse_json_personas(data)
+
+            if not items:
+                result["errors"].append("未解析到有效画像数据")
+                return result
+
+            from iris_memory.models.user_persona import UserPersona
+
+            personas = self._service._user_personas
+
+            for item in items:
+                try:
+                    user_id = item.get("user_id")
+                    persona_data = item.get("persona_data", item)
+
+                    if not user_id:
+                        result["skipped"] += 1
+                        continue
+
+                    valid, err = self._validate_persona_import(persona_data)
+                    if not valid:
+                        result["fail_count"] += 1
+                        if len(result["errors"]) < 10:
+                            result["errors"].append(f"{user_id}: {err}")
+                        continue
+
+                    persona = UserPersona.from_dict(persona_data)
+                    persona.user_id = user_id
+
+                    if user_id in personas:
+                        existing = personas[user_id]
+                        if persona.update_count <= existing.update_count:
+                            result["skipped"] += 1
+                            continue
+
+                    personas[user_id] = persona
+                    result["success_count"] += 1
+
+                except Exception as e:
+                    result["fail_count"] += 1
+                    if len(result["errors"]) < 10:
+                        result["errors"].append(f"导入失败: {e}")
+
+        except Exception as e:
+            logger.error(f"Import personas error: {e}")
+            result["errors"].append(f"导入失败: {e}")
+
+        audit_log("import_personas", f"success={result['success_count']} fail={result['fail_count']} skipped={result['skipped']}")
+        return result
+
     # ── 导入预览 ──
 
     async def preview_import_data(
@@ -327,6 +452,14 @@ class IoService:
                 items = self._parse_csv_memories(data) if fmt == "csv" else self._parse_json_memories(data)
                 return {
                     "type": "memories",
+                    "total": len(items),
+                    "preview": items[:10],
+                    "fields": list(items[0].keys()) if items else [],
+                }
+            elif import_type == "personas":
+                items = self._parse_csv_personas(data) if fmt == "csv" else self._parse_json_personas(data)
+                return {
+                    "type": "personas",
                     "total": len(items),
                     "preview": items[:10],
                     "fields": list(items[0].keys()) if items else [],
@@ -403,4 +536,66 @@ class IoService:
             return False, "缺少 content 字段"
         if len(item["content"]) > 10000:
             return False, "content 长度超过 10000"
+        return True, ""
+
+    @staticmethod
+    def _personas_to_csv(items: List[Dict[str, Any]]) -> str:
+        if not items:
+            return "user_id,display_name,trust_level,intimacy_level,emotional_baseline,last_updated\n"
+
+        output = io.StringIO()
+        fieldnames = ["user_id", "display_name", "trust_level", "intimacy_level", "emotional_baseline", "emotional_volatility", "work_style", "lifestyle", "social_style", "proactive_reply_preference", "last_updated", "update_count"]
+        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for item in items:
+            persona_data = item.get("persona_data", item)
+            row = {"user_id": item.get("user_id", "")}
+            row.update(persona_data)
+            writer.writerow(row)
+        return output.getvalue()
+
+    @staticmethod
+    def _parse_json_personas(data: str) -> List[Dict[str, Any]]:
+        try:
+            parsed = json.loads(data) if isinstance(data, str) else data
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, dict):
+                return parsed.get("personas", [])
+            return []
+        except json.JSONDecodeError:
+            return []
+
+    @staticmethod
+    def _parse_csv_personas(data: str) -> List[Dict[str, Any]]:
+        try:
+            reader = csv.DictReader(io.StringIO(data))
+            items = []
+            for row in reader:
+                user_id = row.get("user_id", "")
+                if not user_id:
+                    continue
+                persona_data = dict(row)
+                persona_data.pop("user_id", None)
+                for key in ["trust_level", "intimacy_level", "emotional_volatility", "proactive_reply_preference"]:
+                    if key in persona_data:
+                        try:
+                            persona_data[key] = float(persona_data[key])
+                        except (ValueError, TypeError):
+                            pass
+                for key in ["update_count"]:
+                    if key in persona_data:
+                        try:
+                            persona_data[key] = int(persona_data[key])
+                        except (ValueError, TypeError):
+                            pass
+                items.append({"user_id": user_id, "persona_data": persona_data})
+            return items
+        except Exception:
+            return []
+
+    @staticmethod
+    def _validate_persona_import(item: Dict[str, Any]) -> Tuple[bool, str]:
+        if not item.get("user_id"):
+            return False, "缺少 user_id 字段"
         return True, ""

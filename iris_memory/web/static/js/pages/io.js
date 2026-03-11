@@ -6,7 +6,7 @@ import { esc } from '../utils/escape.js';
 import { downloadBlob, typeLabels, layerLabels } from '../utils/format.js';
 import { toast } from '../components/toast.js';
 
-let pendingImport = { memories: null, kg: null };
+let pendingImport = { memories: null, kg: null, personas: null };
 
 // ── Tab 切换 ──
 export function switchIoTab(tab) {
@@ -49,6 +49,24 @@ export async function exportKg() {
     const blob = await resp.blob();
     const ext = fmt === 'csv' ? 'csv' : 'json';
     downloadBlob(blob, `iris_kg_${Date.now()}.${ext}`);
+    toast.ok('导出完成');
+  } catch (e) {
+    toast.err(`导出失败: ${e.message}`);
+  }
+}
+
+export async function exportPersonas() {
+  const uid = val('exp-persona-user'), fmt = val('exp-persona-format');
+
+  toast.info('正在导出...');
+  try {
+    const resp = await api.download('/io/export/personas', {
+      format: fmt, user_id: uid,
+    });
+    if (!resp.ok) { toast.err('导出失败'); return; }
+    const blob = await resp.blob();
+    const ext = fmt === 'csv' ? 'csv' : 'json';
+    downloadBlob(blob, `iris_personas_${Date.now()}.${ext}`);
     toast.ok('导出完成');
   } catch (e) {
     toast.err(`导出失败: ${e.message}`);
@@ -120,7 +138,12 @@ export async function confirmImport(type) {
   resultEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   try {
-    const endpoint = type === 'memories' ? '/io/import/memories' : '/io/import/kg';
+    const endpoints = {
+      memories: '/io/import/memories',
+      kg: '/io/import/kg',
+      personas: '/io/import/personas',
+    };
+    const endpoint = endpoints[type] || '/io/import/memories';
     const ct = data.fmt === 'csv' ? 'text/csv' : 'application/json';
     const res = await api.postRaw(`${endpoint}?format=${data.fmt}`, data.text, ct);
 
@@ -128,7 +151,7 @@ export async function confirmImport(type) {
       const d = res.data || {};
       resultEl.innerHTML = `<div class="preview-summary" style="border-left:3px solid var(--success)">
         <strong>导入完成!</strong><br>
-        成功: ${d.success_count ?? 0} 条 | 失败: ${d.fail_count ?? 0} 条
+        成功: ${d.success_count ?? 0} 条 | 失败: ${d.fail_count ?? 0} 条${d.skipped ? ` | 跳过: ${d.skipped} 条` : ''}
         ${d.errors?.length ? `<br><span style="color:var(--danger)">错误: ${d.errors.slice(0, 3).map(e => esc(e)).join('; ')}</span>` : ''}
       </div>`;
       toast.ok('导入完成');
