@@ -92,27 +92,28 @@ class IrisMemoryPlugin(Star):
             config=self._service.cfg,
         )
 
-        self._register_result_modifiers()
-
         await self._web_ui.initialize()
 
-    def _register_result_modifiers(self) -> None:
-        """注册消息结果处理器到 AstrBot
-        
-        AstrBot 的 result_modifier 机制允许插件在消息发送前修改消息结果。
-        这里注册两个处理器：
+    @filter.on_decorating_result()
+    async def on_decorating_result(self, event: AstrMessageEvent) -> None:
+        """消息发送前事件处理器
+
+        AstrBot 的 on_decorating_result 事件在 ResultDecorateStage 阶段触发，
+        允许插件在消息发送前修改消息结果。
+
+        这里依次执行两个处理器：
         1. ErrorFriendlyProcessor: 将框架错误消息替换为友好提示
         2. MarkdownStripper: 根据配置去除 Markdown 格式标记
         """
-        if not hasattr(self.context, "result_modifier"):
-            logger.warning("AstrBot 上下文无 result_modifier 属性，无法注册消息结果处理器")
+        result = event.get_result()
+        if not result:
             return
-        
+
         if self._error_processor:
-            self.context.result_modifier(self._error_processor.process_result)
-        
+            self._error_processor.process_result(result)
+
         if self._markdown_stripper:
-            self.context.result_modifier(self._markdown_stripper.process_result)
+            self._markdown_stripper.process_result(result)
 
     @filter.command("memory")
     async def memory_command(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
