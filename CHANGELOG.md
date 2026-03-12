@@ -5,9 +5,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.11.0] - 2026-03-12
 
-### ⚠️注意
-本次更新优化了web管理界面的重载方式，基本上解决了web管理界面无法加载的问题，但需要完全重启Astrbot才能生效（重启docker或运行Astrbot机器）
-
 ### Fixed
 - **Hypercorn 兼容性修复** (`iris_memory/web/server.py`)
   - 修复 `worker_serve()` 不接受 `sockets` 参数的问题（新版 Hypercorn API 变更）
