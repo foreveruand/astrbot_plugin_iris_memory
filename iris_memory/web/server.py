@@ -170,8 +170,9 @@ class StandaloneWebServer:
         self._shutdown_event = asyncio.Event()
 
         try:
-            from hypercorn.asyncio import serve
-            from hypercorn.config import Config as HyperConfig
+            from hypercorn.asyncio.run import worker_serve
+            from hypercorn.config import Config as HyperConfig, Sockets
+            from hypercorn.utils import wrap_app
 
             config = HyperConfig()
             config.bind = [f"{self._host}:{self._port}"]
@@ -189,9 +190,22 @@ class StandaloneWebServer:
             sock.bind((self._host, self._port))
             sock.listen(128)
 
+            sockets = Sockets(
+                secure_sockets=[],
+                insecure_sockets=[sock],
+                quic_sockets=[],
+            )
+
+            app_wrapper = wrap_app(self._app, config.wsgi_max_body_size, "asgi")
+
             async def _serve_with_error_handling():
                 try:
-                    await serve(self._app, config, shutdown_trigger=self._shutdown_event.wait, sockets=[sock])  # type: ignore
+                    await worker_serve(
+                        app_wrapper,
+                        config,
+                        sockets=sockets,
+                        shutdown_trigger=self._shutdown_event.wait,
+                    )
                 except OSError as e:
                     if "Address already in use" in str(e) or "address already in use" in str(e):
                         logger.error(f"端口 {self._port} 已被占用，Web 服务器启动失败")
