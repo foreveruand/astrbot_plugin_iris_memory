@@ -178,14 +178,20 @@ class StandaloneWebServer:
             config.accesslog = None
             config.errorlog = "-"
             config.graceful_timeout = 3
-            config._socket_options = [
-                (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),
-                (socket.SOL_SOCKET, socket.SO_REUSEPORT, 1),
-            ]
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except (AttributeError, OSError):
+                pass
+            sock.setblocking(False)
+            sock.bind((self._host, self._port))
+            sock.listen(128)
 
             async def _serve_with_error_handling():
                 try:
-                    await serve(self._app, config, shutdown_trigger=self._shutdown_event.wait)  # type: ignore
+                    await serve(self._app, config, shutdown_trigger=self._shutdown_event.wait, sockets=[sock])  # type: ignore
                 except OSError as e:
                     if "Address already in use" in str(e) or "address already in use" in str(e):
                         logger.error(f"端口 {self._port} 已被占用，Web 服务器启动失败")
@@ -195,6 +201,11 @@ class StandaloneWebServer:
                     pass
                 except Exception as e:
                     logger.error(f"Web 服务器运行错误: {e}")
+                finally:
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
 
             self._task = asyncio.create_task(_serve_with_error_handling())
             self._started = True
