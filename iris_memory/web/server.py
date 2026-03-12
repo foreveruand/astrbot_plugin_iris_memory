@@ -155,16 +155,28 @@ class StandaloneWebServer:
         except Exception:
             return False
 
-    async def _wait_for_port(self, timeout: float = 5.0) -> bool:
+    async def _wait_for_port(self, timeout: float = 10.0) -> bool:
         """等待端口变为可用
         
         AstrBot 热重启时使用：等待旧进程释放端口
+        给旧进程更多时间完成优雅关闭
         """
         start_time = time.time()
+        check_interval = 0.2  # 每 200ms 检查一次
+        last_log_time = 0
+        
         while time.time() - start_time < timeout:
             if not self._is_port_in_use():
                 return True
-            await asyncio.sleep(0.1)
+            
+            # 每 3 秒记录一次日志，避免日志刷屏
+            if time.time() - last_log_time >= 3:
+                elapsed = int(time.time() - start_time)
+                logger.info(f"等待端口 {self._port} 释放中... ({elapsed}s/{timeout}s)")
+                last_log_time = time.time()
+            
+            await asyncio.sleep(check_interval)
+        
         return False
 
     async def start(self) -> None:
@@ -181,8 +193,16 @@ class StandaloneWebServer:
         # AstrBot 热重启时，等待旧进程释放端口
         if self._is_port_in_use():
             logger.info(f"端口 {self._port} 被占用，等待释放...")
-            if not await self._wait_for_port(timeout=5.0):
-                logger.warning(f"端口 {self._port} 未能在 5 秒内释放，尝试强制绑定...")
+            if not await self._wait_for_port(timeout=10.0):
+                logger.error(f"端口 {self._port} 被占用且未能在 10 秒内释放")
+                logger.error("可能原因：")
+                logger.error("  1. 重启或者更新，导致旧进程未完全退出（AstrBot 热重启时常见）")
+                logger.error("  2. 其他程序占用了该端口")
+                logger.error("解决方案：")
+                logger.error("  1. 完全重启 AstrBot（不是控制面板热重启）")
+                logger.error(f"  2. 更换端口配置（当前端口: {self._port}）")
+                logger.error("  3. 手动结束占用端口的进程")
+                return
 
         self._app = create_app(
             self._memory_service,
