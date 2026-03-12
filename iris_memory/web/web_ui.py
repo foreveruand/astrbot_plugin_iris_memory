@@ -62,7 +62,7 @@ class WebUIManager:
 
         if self._server:
             try:
-                await asyncio.wait_for(self._server.stop(), timeout=10.0)
+                await asyncio.wait_for(self._server.stop(), timeout=3.0)
             except asyncio.TimeoutError:
                 logger.warning("Web UI 停止超时")
             except Exception as e:

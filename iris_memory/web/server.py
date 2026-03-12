@@ -299,15 +299,15 @@ class StandaloneWebServer:
         # 等待任务完成
         if self._task:
             try:
-                # 给优雅关闭 5 秒时间
-                await asyncio.wait_for(self._task, timeout=5.0)
+                # 给优雅关闭 2 秒时间
+                await asyncio.wait_for(self._task, timeout=2.0)
                 logger.debug("Web 服务器优雅关闭完成")
             except asyncio.TimeoutError:
-                logger.warning("Web 服务器优雅关闭超时，强制取消")
+                logger.debug("Web 服务器优雅关闭超时，强制取消")
                 self._task.cancel()
                 try:
-                    # 再给 2 秒强制关闭
-                    await asyncio.wait_for(self._task, timeout=2.0)
+                    # 再给 1 秒强制关闭
+                    await asyncio.wait_for(self._task, timeout=1.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
             except asyncio.CancelledError:
@@ -323,12 +323,10 @@ class StandaloneWebServer:
         self._app = None
         self._shutdown_event = None
 
-        # 等待端口完全释放（最多 3 秒）
-        for i in range(30):
+        # 等待端口完全释放（最多 1 秒）
+        for i in range(10):
             if not self._is_port_in_use():
                 break
             await asyncio.sleep(0.1)
-        else:
-            logger.warning(f"端口 {self._port} 可能未完全释放")
 
         logger.info("Web 服务器已停止")
