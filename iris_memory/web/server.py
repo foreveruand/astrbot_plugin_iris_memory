@@ -163,12 +163,6 @@ class StandaloneWebServer:
             logger.warning("Web 服务器已在运行中，跳过启动")
             return
 
-        if self._is_port_in_use():
-            logger.warning(f"端口 {self._port} 已被占用，等待释放...")
-            if not await self._wait_for_port(timeout=3.0):
-                logger.error(f"端口 {self._port} 无法释放，Web 服务器启动失败")
-                return
-
         self._app = create_app(
             self._memory_service,
             access_key=self._access_key,
@@ -184,6 +178,10 @@ class StandaloneWebServer:
             config.accesslog = None
             config.errorlog = "-"
             config.graceful_timeout = 3
+            config._socket_options = [
+                (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),
+                (socket.SOL_SOCKET, socket.SO_REUSEPORT, 1),
+            ]
 
             async def _serve_with_error_handling():
                 try:
@@ -241,4 +239,10 @@ class StandaloneWebServer:
 
         self._app = None
         self._shutdown_event = None
+
+        for _ in range(10):
+            if not self._is_port_in_use():
+                break
+            await asyncio.sleep(0.1)
+
         logger.info("Web 服务器已停止")
