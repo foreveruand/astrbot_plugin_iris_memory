@@ -1,7 +1,8 @@
 """
 记忆可见性智能分类器
 
-LLM+规则双层架构：强隐私规则优先 → 敏感度检查 → 群公告规则 → LLM 分类 → 默认。
+LLM+规则双层架构：强隐私规则优先 → 敏感度检查 → 个人模式 → 群公告规则 → LLM 分类 → 默认 GROUP_SHARED。
+群聊默认共享，根据规则降级为私有。
 """
 
 import re
@@ -46,8 +47,8 @@ class ScopeClassifier:
         '消息: "{message}"\n发送者: {sender}\n群组: {group_id}\n\n'
         "判断该消息产生的记忆应该属于哪种可见性范围:\n"
         "- USER_PRIVATE: 用户个人隐私，仅用户自己可见\n"
-        "- GROUP_PRIVATE: 群内个人记忆，仅发送者在该群可见（默认）\n"
-        "- GROUP_SHARED: 群共享信息，群内所有人可见\n\n"
+        "- GROUP_PRIVATE: 群内个人记忆，仅发送者在该群可见\n"
+        "- GROUP_SHARED: 群共享信息，群内所有人可见（默认）\n\n"
         '返回JSON: {{"scope": "...", "confidence": 0.0-1.0, "reason": "..."}}'
     )
 
@@ -59,39 +60,36 @@ class ScopeClassifier:
         message: str,
         context: Optional[Dict[str, Any]] = None,
     ) -> MemoryScope:
-        """智能分类记忆可见性"""
+        """智能分类记忆可见性
+        
+        群聊默认 GROUP_SHARED，根据规则降级为私有。
+        """
         if context is None:
             context = {}
 
         is_group = bool(context.get("is_group") or context.get("group_id"))
 
-        # 私聊 → USER_PRIVATE
         if not is_group:
             return MemoryScope.USER_PRIVATE
 
-        # 层级 1: 强隐私规则
         for pattern in self.STRONG_PRIVATE_PATTERNS:
             if re.search(pattern, message, re.IGNORECASE):
                 return MemoryScope.USER_PRIVATE
 
-        # 层级 2: 敏感度等级
         sensitivity = context.get("sensitivity_level")
         if sensitivity is not None:
             sens_val = sensitivity.value if isinstance(sensitivity, SensitivityLevel) else int(sensitivity)
             if sens_val >= SensitivityLevel.PRIVATE.value:
                 return MemoryScope.USER_PRIVATE
 
-        # 层级 3: 个人模式优先（更保守隐私策略）
         for pattern in self.PERSONAL_PATTERNS:
             if re.search(pattern, message, re.IGNORECASE):
                 return MemoryScope.GROUP_PRIVATE
 
-        # 层级 4: 群公告规则
         for pattern in self.GROUP_SHARED_PATTERNS:
             if re.search(pattern, message, re.IGNORECASE):
                 return MemoryScope.GROUP_SHARED
 
-        # 层级 5: LLM 分类（仅群聊且 LLM 可用）
         if self._llm and is_group:
             try:
                 llm_result = await self._llm_classify(message, context)
@@ -101,8 +99,7 @@ class ScopeClassifier:
             except Exception:
                 pass
 
-        # 层级 6: 默认
-        return MemoryScope.GROUP_PRIVATE
+        return MemoryScope.GROUP_SHARED
 
     async def _llm_classify(
         self, message: str, context: Dict[str, Any]

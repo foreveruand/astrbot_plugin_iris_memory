@@ -207,10 +207,17 @@ class IrisMemoryPlugin(Star):
             content(string): 要保存的记忆内容，应该是一个完整的陈述句
         """
         from iris_memory.models.memory import Memory
-        from iris_memory.core.memory_scope import MemoryScope
+        from iris_memory.capture.scope_classifier import ScopeClassifier
         from iris_memory.utils.event_utils import get_group_id
 
-        scope = MemoryScope.PRIVATE if not get_group_id(event) else MemoryScope.GROUP
+        group_id = get_group_id(event)
+        classifier = ScopeClassifier()
+        scope_context = {
+            "is_group": bool(group_id),
+            "group_id": group_id,
+        }
+        scope = await classifier.classify(content, scope_context)
+        
         memory = Memory(
             content=content,
             scope=scope,

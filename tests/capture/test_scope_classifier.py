@@ -102,9 +102,9 @@ class TestPersonalPatterns:
 
 class TestDefault:
     @pytest.mark.asyncio
-    async def test_no_match_defaults_group_private(self, classifier):
+    async def test_no_match_defaults_group_shared(self, classifier):
         result = await classifier.classify(
             "今天天气不错",
             context={"is_group": True, "group_id": "g1"},
         )
-        assert result == MemoryScope.GROUP_PRIVATE
+        assert result == MemoryScope.GROUP_SHARED

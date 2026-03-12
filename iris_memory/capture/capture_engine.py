@@ -21,6 +21,7 @@ from iris_memory.capture.conflict.similarity_calculator import sanitize_for_log
 from iris_memory.capture.conflict.conflict_resolver import ConflictResolver
 from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.capture.capture_logger import capture_log
+from iris_memory.capture.scope_classifier import ScopeClassifier
 from iris_memory.config import get_store
 from iris_memory.utils.logger import get_logger
 
@@ -98,6 +99,9 @@ class MemoryCaptureEngine:
         # 快速通道评估器
         from iris_memory.capture.fast_track import FastTrackEvaluator
         self._fast_track_evaluator = FastTrackEvaluator()
+
+        # 记忆可见性分类器
+        self._scope_classifier = ScopeClassifier()
 
         # 配置（优先使用注入值，否则回退到 DEFAULTS）
         self.auto_capture = True
@@ -195,7 +199,13 @@ class MemoryCaptureEngine:
             memory_type = self._determine_memory_type(triggers, emotion_result)
             
             from iris_memory.core.memory_scope import MemoryScope
-            memory_scope = self._determine_memory_scope(message, group_id, triggers)
+            scope_context = {
+                "is_group": bool(group_id),
+                "group_id": group_id,
+                "sensitivity_level": sensitivity_level,
+                "sender": sender_name,
+            }
+            memory_scope = await self._scope_classifier.classify(message, scope_context)
             requires_encryption = self.sensitivity_detector.get_encryption_required(sensitivity_level)
             
             memory = Memory(
@@ -283,81 +293,12 @@ class MemoryCaptureEngine:
             return memory
             
         except (ValueError, TypeError) as e:
-            # 数据格式/类型错误：可恢复，仅记录
             capture_log.capture_error(user_id, e)
             return None
         except Exception as e:
-            # 未预期异常：记录完整堆栈以便排查
             logger.error(f"Unexpected capture error for user={user_id}", exc_info=True)
             capture_log.capture_error(user_id, e)
             return None
-    
-    def _determine_memory_scope(
-        self,
-        message: str,
-        group_id: Optional[str],
-        triggers: List[TriggerMatch]
-    ) -> 'MemoryScope':
-        """确定记忆的可见性范围
-        
-        在群聊场景中区分群组共享知识和个人知识：
-        - 群组共享：涉及群活动、群规则、群通知、大家共同参与的话题
-        - 个人知识：涉及个人偏好、个人经历、自我描述
-        
-        Args:
-            message: 消息内容
-            group_id: 群组ID（私聊为None）
-            triggers: 触发器列表
-            
-        Returns:
-            MemoryScope: 记忆可见性范围
-        """
-        from iris_memory.core.memory_scope import MemoryScope
-        
-        if not group_id:
-            return MemoryScope.USER_PRIVATE
-        
-        # 群组共享知识的关键词模式
-        group_shared_patterns = [
-            # 群活动和通知
-            r'大家|各位|群里|群内|群友|所有人|通知|公告',
-            r'我们(一起|都|聊|约|组织|参加|去)',
-            r'群规|群主|管理员',
-            # 共同话题 / 事件
-            r'(咱们?|我们)(群|这边|这里)',
-            r'群名|群头像|群文件',
-            # 集体活动
-            r'(一起|约|集合|组队)(玩|吃|去|做|打|聊)',
-        ]
-        
-        # 个人知识的关键词模式
-        personal_patterns = [
-            r'^我(是|在|有|喜欢|讨厌|觉得|认为|想|要|不)',
-            r'我(自己|个人|一个人)',
-            r'我的(名字|工作|家|手机|电脑|生日|爱好|习惯)',
-        ]
-        
-        msg_lower = message.lower()
-        
-        # 检查是否匹配群共享模式
-        is_group_shared = any(
-            re.search(pattern, msg_lower) for pattern in group_shared_patterns
-        )
-        
-        # 检查是否匹配个人模式
-        is_personal = any(
-            re.search(pattern, msg_lower) for pattern in personal_patterns
-        )
-        
-        # 如果同时匹配，个人模式优先（更保守的隐私策略）
-        if is_personal:
-            return MemoryScope.GROUP_PRIVATE
-        
-        if is_group_shared:
-            return MemoryScope.GROUP_SHARED
-        
-        # 默认：群内个人知识（保护隐私）
-        return MemoryScope.GROUP_PRIVATE
 
     def _determine_memory_type(
         self,
