@@ -1,7 +1,7 @@
 """
 宽限期管理器
 
-在记忆被最终删除前给予用户知情权和干预机会。
+在记忆被最终删除前进行智能评估，自动决定保留或清除。
 """
 
 from datetime import datetime, timedelta
@@ -17,12 +17,16 @@ logger = get_logger("grace_period")
 class GracePeriodManager:
     """宽限期管理器
 
-    评估即将清除的记忆，决定是直接清除、进入宽限期还是跳过（受保护）。
+    评估即将清除的记忆，根据记忆特征自动决定保留、进入宽限期或直接清除。
     """
 
     DEFAULT_GRACE_DAYS = 7
     SILENT_DELETE_CONFIDENCE_THRESHOLD = 0.3
     SILENT_DELETE_ACCESS_THRESHOLD = 0
+    
+    AUTO_KEEP_EMOTIONAL_WEIGHT_THRESHOLD = 0.5
+    AUTO_KEEP_IMPORTANCE_THRESHOLD = 0.6
+    AUTO_KEEP_ACCESS_THRESHOLD = 2
 
     def __init__(
         self,
@@ -34,19 +38,17 @@ class GracePeriodManager:
         self._proactive = proactive_manager
         self._grace_days = grace_days
 
-    # ── 核心评估 ──
-
     async def evaluate_and_apply(self, memory: Memory) -> str:
-        """评估记忆是否应进入宽限期或直接清除。
+        """评估记忆是否应保留、进入宽限期或直接清除。
 
         Returns:
             "protected"       - 受保护，跳过
+            "auto_keep"       - 自动保留（高价值记忆）
             "grace_period"    - 进入宽限期
             "silent_delete"   - 直接清除（极低价值）
             "already_pending" - 已在宽限期中
             "expired"         - 宽限期已到
         """
-        # 保护检查
         if hasattr(memory, "is_protected") and memory.is_protected:
             return "protected"
         if memory.is_user_requested:
@@ -54,13 +56,11 @@ class GracePeriodManager:
         if memory.quality_level == QualityLevel.CONFIRMED:
             return "protected"
 
-        # 已在宽限期
         if memory.grace_period_expires_at is not None:
             if datetime.now() >= memory.grace_period_expires_at:
                 return "expired"
             return "already_pending"
 
-        # 极低价值：静默清除
         if (
             memory.confidence < self.SILENT_DELETE_CONFIDENCE_THRESHOLD
             and memory.access_count <= self.SILENT_DELETE_ACCESS_THRESHOLD
@@ -68,54 +68,39 @@ class GracePeriodManager:
         ):
             return "silent_delete"
 
-        # 有一定价值：进入宽限期
+        if self._should_auto_keep(memory):
+            logger.debug(f"Memory {memory.id[:8]} auto-kept (emotional={memory.emotional_weight:.2f}, importance={memory.importance_score:.2f})")
+            return "auto_keep"
+
         await self._initiate_grace_period(memory)
         return "grace_period"
 
+    def _should_auto_keep(self, memory: Memory) -> bool:
+        """判断记忆是否应自动保留（无需宽限期等待）
+        
+        高价值记忆特征：
+        - 情感权重 >= 0.5（有情感价值）
+        - 或 重要性 >= 0.6 且 访问 >= 2 次（有持续关注）
+        - 或 置信度 >= 0.6 且 访问 >= 1 次（质量较高）
+        """
+        if memory.emotional_weight >= self.AUTO_KEEP_EMOTIONAL_WEIGHT_THRESHOLD:
+            return True
+        if memory.importance_score >= self.AUTO_KEEP_IMPORTANCE_THRESHOLD and memory.access_count >= self.AUTO_KEEP_ACCESS_THRESHOLD:
+            return True
+        if memory.confidence >= 0.6 and memory.access_count >= 1:
+            return True
+        return False
+
     async def _initiate_grace_period(self, memory: Memory) -> None:
-        """设置宽限期并通知用户"""
+        """设置宽限期"""
         memory.grace_period_expires_at = datetime.now() + timedelta(days=self._grace_days)
         memory.review_status = "pending_review"
 
-        # 持久化
         if self._chroma:
             try:
                 await self._chroma.update_memory(memory)
             except Exception as e:
                 logger.warning(f"Failed to persist grace period for {memory.id}: {e}")
-
-        # 通知用户
-        if self._proactive and not memory.grace_period_notified:
-            await self._notify_user(memory)
-            memory.grace_period_notified = True
-            if self._chroma:
-                try:
-                    await self._chroma.update_memory(memory)
-                except Exception:
-                    pass
-
-    async def _notify_user(self, memory: Memory) -> None:
-        """通过主动回复模块通知用户"""
-        content_preview = (
-            memory.content[:40] + "..."
-            if len(memory.content) > 40
-            else memory.content
-        )
-        prompt = (
-            f"说起来，你之前提到过「{content_preview}」，"
-            f"这件事还需要我帮你记着吗？\n"
-            f"（回复'保留'我就继续记住，不回复的话 {self._grace_days} 天后我会慢慢忘掉~）"
-        )
-        try:
-            if hasattr(self._proactive, "send_review_prompt"):
-                await self._proactive.send_review_prompt(
-                    user_id=memory.user_id,
-                    group_id=memory.group_id,
-                    prompt=prompt,
-                    metadata={"memory_id": memory.id, "type": "grace_period_review"},
-                )
-        except Exception as e:
-            logger.warning(f"Failed to notify user about grace period: {e}")
 
     # ── 用户响应处理 ──
 

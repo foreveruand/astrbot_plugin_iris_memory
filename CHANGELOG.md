@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 优化端口复用 socket 管理
   - 改进服务器停止时的优雅关闭逻辑
 
+- **宽限期智能自动处理** (`iris_memory/storage/grace_period.py`)
+  - 新增 `auto_keep` 自动保留机制，高价值记忆无需等待宽限期
+  - 自动保留条件：情感权重 ≥ 0.5 或 重要性 ≥ 0.6 且访问 ≥ 2 次
+  - 移除未使用的用户通知代码（`_notify_user` 方法）
+  - 简化宽限期逻辑，完全自动化处理
+
 ## [v1.10.6] - 2026-03-13
 
 ### Changed

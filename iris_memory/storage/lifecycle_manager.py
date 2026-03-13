@@ -614,16 +614,14 @@ class SessionLifecycleManager:
                         f"(confidence={confidence:.2f}, reason={reason})"
                     )
                 elif self._grace_period_manager:
-                    # 不满足升级条件 → 走宽限期评估
                     gp_result = await self._grace_period_manager.evaluate_and_apply(memory)
-                    if gp_result == "protected":
+                    if gp_result in ("protected", "auto_keep"):
                         memory.storage_layer = StorageLayer.EPISODIC
                         upgraded_memories.append(memory)
                     elif gp_result == "grace_period":
                         memory.storage_layer = StorageLayer.EPISODIC
                         grace_period_memories.append(memory)
                     else:
-                        # silent_delete 或其他
                         discarded_memories.append(memory)
                 else:
                     # 不满足升级条件的工作记忆将被清除
