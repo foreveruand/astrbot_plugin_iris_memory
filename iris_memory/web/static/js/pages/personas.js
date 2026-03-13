@@ -169,7 +169,7 @@ function renderMiniPersonality(p) {
   if (!p) return '';
   const bars = [
     ['开放', p.openness, '开放性'], ['尽责', p.conscientiousness, '尽责性'], ['外向', p.extraversion, '外向性'],
-    ['宜人', p.agreeableness, '宜人性'], ['神经', p.neuroticism, '神经质'],
+    ['亲和', p.agreeableness, '亲和性'], ['神经', p.neuroticism, '神经质'],
   ].filter(([, v]) => v != null);
   if (!bars.length) return '';
   return `<div style="display:flex;gap:4px;margin:6px 0">${bars.map(([l, v, title]) =>
@@ -186,7 +186,7 @@ function renderPersonalitySection(p) {
     ['开放性', p.openness, '好奇心、创造力、尝试新事物'],
     ['尽责性', p.conscientiousness, '自律、组织性、可靠性'],
     ['外向性', p.extraversion, '社交活跃度、精力来源'],
-    ['宜人性', p.agreeableness, '合作性、同理心、信任'],
+    ['亲和性', p.agreeableness, '合作性、同理心、信任'],
     ['神经质', p.neuroticism, '情绪稳定性、焦虑倾向'],
   ];
   const validItems = items.filter(([, val]) => val != null);

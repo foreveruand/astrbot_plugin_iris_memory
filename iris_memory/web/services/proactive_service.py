@@ -25,17 +25,29 @@ class ProactiveWebService:
                 "enabled": False,
                 "whitelist_mode": False,
                 "whitelist": [],
-                "stats": {},
+                "stats": {"sent": 0, "skipped": 0, "failed": 0, "pending": 0},
                 "config": {},
                 "error": "主动回复模块未初始化",
             }
+
+        manager_stats = await manager.get_stats()
 
         return {
             "enabled": manager.enabled,
             "whitelist_mode": manager.group_whitelist_mode,
             "whitelist": manager.get_whitelist(),
-            "stats": {},
-            "config": {},
+            "stats": {
+                "sent": manager_stats.get("daily_reply_count", 0),
+                "skipped": 0,
+                "failed": 0,
+                "pending": manager_stats.get("total_signals", 0),
+            },
+            "config": {
+                "mode": manager_stats.get("mode", "rule"),
+                "followup_enabled": manager_stats.get("followup_enabled", True),
+                "active_groups": manager_stats.get("active_groups", 0),
+                "active_expectations": manager_stats.get("active_expectations", 0),
+            },
         }
 
     async def list_whitelist(self) -> List[str]:
