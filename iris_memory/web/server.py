@@ -195,6 +195,8 @@ class StandaloneWebServer:
             
             config = Config(
                 app=self._app,
+                host=self._host,
+                port=self._port,
                 access_log=False,
                 log_level="warning",
             )
@@ -203,29 +205,13 @@ class StandaloneWebServer:
             
             async def _serve():
                 try:
-                    loop = asyncio.get_event_loop()
-                    
-                    server_sock = await loop.create_server(
-                        protocol_factory=lambda: config.http_protocol_class(
-                            config=config,
-                            app=self._app,
-                            logger=self._server.logger,
-                        ),
-                        sock=sock,
-                    )
-                    self._server.servers = [server_sock]
-                    
-                    logger.info(f"Web UI 启动于 http://{self._host}:{self._port}")
-                    
-                    while not self._server.should_exit and not self._should_exit:
-                        await asyncio.sleep(0.1)
-                    
-                    for srv in self._server.servers:
-                        srv.close()
-                        await srv.wait_closed()
-                        
+                    await self._server.serve(sockets=[sock])
                 except Exception as e:
                     logger.error(f"Web 服务器运行错误: {e}", exc_info=True)
+                finally:
+                    sock.close()
+            
+            logger.info(f"Web UI 启动于 http://{self._host}:{self._port}")
             
             self._task = asyncio.create_task(_serve())
             self._started = True
@@ -261,6 +247,9 @@ class StandaloneWebServer:
 
         self._started = False
         self._should_exit = True
+
+        if self._server:
+            self._server.should_exit = True
 
         if self._task:
             try:
