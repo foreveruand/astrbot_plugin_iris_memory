@@ -195,39 +195,50 @@ class StandaloneWebServer:
             
             config = Config(
                 app=self._app,
-                host=self._host,
-                port=self._port,
                 access_log=False,
                 log_level="warning",
             )
             
+            self._server = uvicorn.Server(config=config)
+            
             async def _serve():
-                server = uvicorn.Server(config=config)
-                server.setup()
-                
-                loop = asyncio.get_event_loop()
-                
-                server_sock = await loop.create_server(
-                    protocol_factory=lambda: config.http_protocol_class(
-                        config=config,
-                        app=self._app,
-                        logger=server.logger,
-                    ),
-                    sock=sock,
-                )
-                server.servers = [server_sock]
-                
-                logger.info(f"Web UI 启动于 http://{self._host}:{self._port}")
-                
-                while not server.should_exit and not self._should_exit:
-                    await asyncio.sleep(0.1)
-                
-                for srv in server.servers:
-                    srv.close()
-                    await srv.wait_closed()
+                try:
+                    loop = asyncio.get_event_loop()
+                    
+                    server_sock = await loop.create_server(
+                        protocol_factory=lambda: config.http_protocol_class(
+                            config=config,
+                            app=self._app,
+                            logger=self._server.logger,
+                        ),
+                        sock=sock,
+                    )
+                    self._server.servers = [server_sock]
+                    
+                    logger.info(f"Web UI 启动于 http://{self._host}:{self._port}")
+                    
+                    while not self._server.should_exit and not self._should_exit:
+                        await asyncio.sleep(0.1)
+                    
+                    for srv in self._server.servers:
+                        srv.close()
+                        await srv.wait_closed()
+                        
+                except Exception as e:
+                    logger.error(f"Web 服务器运行错误: {e}", exc_info=True)
             
             self._task = asyncio.create_task(_serve())
             self._started = True
+            
+            await asyncio.sleep(0.1)
+            
+            if self._task.done():
+                exc = self._task.exception()
+                if exc:
+                    logger.error(f"Web 服务器启动失败: {exc}")
+                self._started = False
+                self._task = None
+                return
 
         except ImportError:
             logger.error("Uvicorn 未安装，无法启动 Web 服务器。请执行: pip install uvicorn")
@@ -238,7 +249,7 @@ class StandaloneWebServer:
             else:
                 logger.error(f"Web 服务器启动失败: {e}")
         except Exception as e:
-            logger.error(f"Web 服务器启动失败: {e}")
+            logger.error(f"Web 服务器启动失败: {e}", exc_info=True)
 
     async def stop(self) -> None:
         """停止 Web 服务器
