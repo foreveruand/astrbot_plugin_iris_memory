@@ -3,6 +3,21 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.10.6] - 2026-03-13
+
+### Changed
+- **记忆强化引擎简化** (`iris_memory/analysis/reinforcement.py`)
+  - 移除回顾消息发送功能，不再主动发送回顾对话
+  - 移除 `ReviewPromptGenerator` 类（回顾对话生成器）
+  - 移除 `notify_callback` 参数和通知发送逻辑
+  - 移除 `max_daily_reviews` 每日回顾上限配置
+  - 移除 `get_review_candidates()` 方法
+  - 移除 `process_review_response()` 方法
+  - 保留 SM-2 变体核心逻辑：定期分析重要记忆并更新 RIF 评分
+
+### Removed
+- 移除 `memory.reinforcement.max_daily` 配置项（每日回顾上限）
+
 ## [v1.10.5] - 2026-03-12
 
 ### Fixed

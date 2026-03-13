@@ -194,14 +194,14 @@
         }
       },
       "reinforcement": {
-        "description": "记忆回顾强化",
+        "description": "记忆强化",
         "type": "object",
         "items": {
           "enable": {
-            "description": "启用记忆回顾",
+            "description": "启用记忆强化",
             "type": "bool",
             "default": true,
-            "hint": "定期主动提及重要记忆，通过间隔重复强化记忆持久度"
+            "hint": "定期分析重要记忆并更新 RIF 评分，防止高价值记忆衰减"
           }
         }
       }

@@ -230,13 +230,11 @@ _FIELDS: List[ConfigField] = [
     _f("memory.scope_classifier.llm_enable", bool, False,
        "启用 LLM 可见性分类", access=RO),
 
-    # ── 记忆回顾强化 ────────────────────────────────────
+    # ── 记忆强化 ────────────────────────────────────────
     _f("memory.reinforcement.enable", bool, True,
-       "启用记忆回顾强化", access=RO),
-    _f("memory.reinforcement.max_daily", int, 3,
-       "每用户每日回顾上限", access=INT, min_val=1, max_val=10),
+       "启用记忆强化", access=RO),
     _f("memory.reinforcement.interval_hours", int, 6,
-       "回顾调度间隔（小时）", access=INT, min_val=1, max_val=24),
+       "强化调度间隔（小时）", access=INT, min_val=1, max_val=24),
     # ── 用户画像 ──────────────────────────────────────
     _f("persona.enabled", bool, True,
        "启用用户画像功能", access=RO),
