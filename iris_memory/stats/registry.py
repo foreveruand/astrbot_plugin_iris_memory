@@ -199,6 +199,8 @@ class LLMStatsRegistry:
         error: Optional[str] = None,
         is_multimodal: bool = False,
         image_count: int = 0,
+        source_module: Optional[str] = None,
+        source_class: Optional[str] = None,
     ) -> str:
         """记录一次 LLM 调用
         
@@ -215,11 +217,14 @@ class LLMStatsRegistry:
             error: 错误信息
             is_multimodal: 是否多模态调用
             image_count: 图片数量
+            source_module: 来源模块（可选，由 llm_helper 预先捕获）
+            source_class: 来源类名（可选，由 llm_helper 预先捕获）
             
         Returns:
             record_id: 记录唯一 ID
         """
-        source_module, source_class = self._infer_source()
+        if source_module is None or source_class is None:
+            source_module, source_class = self._infer_source()
         
         if user_id is None:
             user_id = self._call_context.get("user_id")

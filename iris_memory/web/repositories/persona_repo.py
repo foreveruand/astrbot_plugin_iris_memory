@@ -67,6 +67,7 @@ class PersonaRepository:
             "social_style": getattr(persona, "social_style", None),
             "preferred_reply_style": getattr(persona, "preferred_reply_style", None),
             "proactive_reply_preference": getattr(persona, "proactive_reply_preference", 0.5),
+            "hourly_distribution": list(getattr(persona, "hourly_distribution", [0.0] * 24)),
             "personality": {
                 "openness": getattr(persona, "personality_openness", 0.5),
                 "conscientiousness": getattr(persona, "personality_conscientiousness", 0.5),

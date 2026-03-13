@@ -15,6 +15,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 移除 `process_review_response()` 方法
   - 保留 SM-2 变体核心逻辑：定期分析重要记忆并更新 RIF 评分
 
+### Fixed
+- **Web 仪表盘记忆总数显示修复** (`iris_memory/web/static/js/pages/dashboard.js`)
+  - 修复前端读取 `mem.total` 与后端返回 `total_count` 字段名不一致的问题
+  - 兼容处理：`mem.total_count ?? mem.total ?? 0`
+
+- **Web 用户画像活跃时段显示修复** (`iris_memory/web/repositories/persona_repo.py`)
+  - 修复 `_build_persona_data` 方法缺少 `hourly_distribution` 字段
+  - 活跃时段图表现在可以正确显示用户交互时间分布
+
+- **Web 记忆管理分页功能修复** (`iris_memory/web/static/js/pages/memories.js`)
+  - 修复分页回调函数写法与其他页面不一致的问题
+  - 统一使用箭头函数形式：`onChange: p => { state.page = p; searchMemories(); }`
+
+- **LLM 统计来源推断修复** (`iris_memory/utils/llm_helper.py`, `iris_memory/stats/registry.py`)
+  - 修复异步任务中调用栈丢失导致来源显示为 `_UnixSelectorEventLoop` 的问题
+  - 在 `call_llm()` 执行时立即捕获调用来源，传递给统计记录
+  - 新增 `_infer_caller_source()` 函数预先推断来源
+  - `record_call()` 新增可选参数 `source_module` 和 `source_class`
+
+- **Web 知识图谱节点大小优化** (`iris_memory/web/static/js/pages/kg.js`)
+  - 缩小节点半径范围：6px ~ 16px（原 8px ~ 25px）
+  - 优化视觉呈现，避免节点过大遮挡
+
 ### Removed
 - 移除 `memory.reinforcement.max_daily` 配置项（每日回顾上限）
 

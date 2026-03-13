@@ -201,7 +201,7 @@ function dItem(label, value) {
 function renderPag() {
   renderPagination({
     page: state.page, pageSize: state.pageSize, total: state.total,
-    onChange: memPage,
+    onChange: p => { state.page = p; searchMemories(); },
     container: el('mem-pagination'),
   });
 }

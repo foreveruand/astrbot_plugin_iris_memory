@@ -20,7 +20,7 @@ export async function loadDashboard() {
   const health = d.health || {};
 
   grid.innerHTML = `
-    <div class="stat-card"><div class="stat-value">${esc(mem.total ?? 0)}</div><div class="stat-label">记忆总数</div></div>
+    <div class="stat-card"><div class="stat-value">${esc(mem.total_count ?? mem.total ?? 0)}</div><div class="stat-label">记忆总数</div></div>
     <div class="stat-card"><div class="stat-value">${esc(mem.by_layer?.working ?? 0)}</div><div class="stat-label">工作记忆</div></div>
     <div class="stat-card"><div class="stat-value">${esc(mem.by_layer?.episodic ?? 0)}</div><div class="stat-label">情景记忆</div></div>
     <div class="stat-card"><div class="stat-value">${esc(mem.by_layer?.semantic ?? 0)}</div><div class="stat-label">语义记忆</div></div>

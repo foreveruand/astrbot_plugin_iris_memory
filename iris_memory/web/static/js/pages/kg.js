@@ -74,7 +74,7 @@ export async function loadKgGraph() {
 
   graphNodes = (res.data?.nodes || []).map(n => ({
     ...n, x: Math.random() * 600 + 100, y: Math.random() * 400 + 50,
-    vx: 0, vy: 0, r: Math.max(8, Math.min(25, (n.size || 5) * 3)),
+    vx: 0, vy: 0, r: Math.max(6, Math.min(16, (n.size || 3) * 2)),
   }));
   graphEdges = res.data?.edges || [];
 

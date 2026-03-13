@@ -196,6 +196,8 @@ async def call_llm(
     is_multimodal = bool(image_urls)
     result = LLMCallResult(success=False, error="No suitable LLM method found")
     
+    source_module, source_class = _infer_caller_source()
+    
     try:
         if not is_multimodal and context and hasattr(context, "llm_generate") and provider_id:
             try:
@@ -268,9 +270,64 @@ async def call_llm(
             prompt=prompt,
             is_multimodal=is_multimodal,
             image_count=len(image_urls) if image_urls else 0,
+            source_module=source_module,
+            source_class=source_class,
         )
     
     return result
+
+
+def _infer_caller_source() -> tuple[str, str]:
+    """从调用栈推断来源（在调用时立即捕获，而非异步任务中）
+    
+    Returns:
+        (source_alias, source_class)
+    """
+    import inspect
+    
+    SOURCE_ALIASES: Dict[str, str] = {
+        "iris_memory.knowledge_graph.kg_extractor.KGExtractor": "kg_extraction",
+        "iris_memory.multimodal.image_analyzer.ImageAnalyzer": "image_analysis",
+        "iris_memory.persona.llm_extractor.LLMExtractor": "persona_extraction",
+        "iris_memory.processing.llm_processor.LLMMessageProcessor": "message_processing",
+        "iris_memory.proactive.manager.ProactiveManager": "proactive",
+        "iris_memory.capture.semantic.semantic_extractor.SemanticExtractor": "semantic_extraction",
+        "iris_memory.core.detection.llm_enhanced_base.LLMEnhancedBase": "detection",
+        "iris_memory.proactive.reply_sender.ProactiveReplySender": "proactive_reply",
+        "iris_memory.core.upgrade_evaluator.UpgradeEvaluator": "upgrade_eval",
+        "iris_memory.capture.batch_processor.BatchCaptureProcessor": "batch_capture",
+    }
+    
+    stack = inspect.stack()
+    
+    for frame_info in stack[2:]:
+        frame_locals = frame_info.frame.f_locals
+        
+        if 'self' in frame_locals:
+            cls = frame_locals['self'].__class__
+            full_name = f"{cls.__module__}.{cls.__name__}"
+            alias = SOURCE_ALIASES.get(full_name, full_name.split('.')[-1])
+            return alias, cls.__name__
+        
+        if 'cls' in frame_locals and isinstance(frame_locals['cls'], type):
+            cls = frame_locals['cls']
+            full_name = f"{cls.__module__}.{cls.__name__}"
+            alias = SOURCE_ALIASES.get(full_name, full_name.split('.')[-1])
+            return alias, cls.__name__
+        
+        frame = frame_info.frame
+        func_name = frame.f_code.co_name
+        module_name = frame.f_globals.get('__name__', '')
+        
+        if module_name.startswith('iris_memory.') and not module_name.startswith('iris_memory.stats'):
+            if module_name == 'iris_memory.utils.llm_helper':
+                continue
+            
+            module_short = module_name.split('.')[-1]
+            alias = SOURCE_ALIASES.get(f"{module_name}.{func_name}", module_short)
+            return alias, func_name
+    
+    return "unknown", "unknown"
 
 
 def _record_stats(
@@ -280,6 +337,8 @@ def _record_stats(
     prompt: str,
     is_multimodal: bool,
     image_count: int,
+    source_module: str,
+    source_class: str,
 ) -> None:
     """记录 LLM 调用统计（内部方法）"""
     try:
@@ -299,6 +358,8 @@ def _record_stats(
                 error=result.error if not result.success else None,
                 is_multimodal=is_multimodal,
                 image_count=image_count,
+                source_module=source_module,
+                source_class=source_class,
             )
         )
     except Exception as e:
