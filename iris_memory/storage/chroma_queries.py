@@ -540,45 +540,6 @@ class ChromaQueries:
             logger.error(f"Failed to get memories by storage layer: {e}")
             return []
 
-    async def get_pending_review_memories(self, limit: int = 50) -> List:
-        """获取所有待审核的语义记忆
-
-        Args:
-            limit: 最大返回数量
-
-        Returns:
-            待审核的 Memory 列表
-        """
-        try:
-            self._manager._ensure_ready()
-            where = {
-                "$and": [
-                    {"review_status": "pending_review"},
-                    {"storage_layer": StorageLayer.SEMANTIC.value},
-                ]
-            }
-
-            results = await asyncio.to_thread(
-                self._manager.collection.get,
-                where=where,
-                include=["embeddings", "documents", "metadatas"],
-            )
-
-            memories = []
-            ids = results.get('ids')
-            if ids is not None and len(ids) > 0:
-                for i in range(min(len(ids), limit)):
-                    memory_data = self._manager._extract_memory_data(results, i)
-                    memory = self._manager._result_to_memory(memory_data)
-                    memories.append(memory)
-
-            logger.debug(f"Retrieved {len(memories)} pending review memories")
-            return memories
-
-        except Exception as e:
-            logger.error(f"Failed to get pending review memories: {e}")
-            return []
-
     async def get_active_user_ids(self) -> List[str]:
         """获取所有有记忆记录的用户ID列表
 

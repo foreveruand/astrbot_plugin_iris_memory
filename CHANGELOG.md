@@ -5,10 +5,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v1.11.1] - 2026-03-14
 
-### Fixed
-- **记忆审核命令修复** (`iris_memory/commands/handlers.py`)
-  - 修复 `/memory review` 返回"记忆存储未初始化"的问题
-  - 修正 `_get_chroma_manager` 属性名：`_chroma_manager` → `chroma_manager`
+### Removed
+- **移除记忆审核命令** (`iris_memory/commands/handlers.py`)
+  - 移除 `/memory review`、`/memory approve`、`/memory reject` 命令
+  - 这些命令查询 SEMANTIC 层的待审核记忆，但实际待审核记忆在 EPISODIC 层
+  - 宽限期记忆现已完全自动化处理，无需人工干预
+  - 同步移除 `chroma_manager.get_pending_review_memories` 和 `grace_period.resolve_grace_period` 等相关代码
 
 ## [v1.11.0] - 2026-03-13
 

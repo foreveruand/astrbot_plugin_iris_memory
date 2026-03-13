@@ -315,14 +315,6 @@ class ChromaManager:
         except (RuntimeError, StorageNotReadyError):
             return []
 
-    async def get_pending_review_memories(self, limit: int = 50) -> List:
-        """获取所有待审核的语义记忆（委托到 ChromaQueries）"""
-        try:
-            self._ensure_ready()
-            return await self._queries.get_pending_review_memories(limit)
-        except (RuntimeError, StorageNotReadyError):
-            return []
-
     async def add_memory(self, memory) -> Optional[str]:
         """添加记忆到Chroma（委托到 ChromaOperations）"""
         try:

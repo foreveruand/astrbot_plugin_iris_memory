@@ -5,7 +5,7 @@
 """
 
 from datetime import datetime, timedelta
-from typing import List, Literal, Optional
+from typing import List, Optional
 
 from iris_memory.core.types import QualityLevel, StorageLayer
 from iris_memory.models.memory import Memory
@@ -101,49 +101,6 @@ class GracePeriodManager:
                 await self._chroma.update_memory(memory)
             except Exception as e:
                 logger.warning(f"Failed to persist grace period for {memory.id}: {e}")
-
-    # ── 用户响应处理 ──
-
-    async def resolve_grace_period(
-        self,
-        memory: Memory,
-        action: Literal["keep", "archive", "upgrade"],
-    ) -> Memory:
-        """处理用户对宽限期记忆的决定。
-
-        Args:
-            memory: 宽限期中的记忆
-            action:
-                "keep"    - 保留并刷新
-                "archive" - 立即归档
-                "upgrade" - 升级到上层
-        """
-        if action == "keep":
-            memory.grace_period_expires_at = None
-            memory.grace_period_notified = False
-            memory.review_status = None
-            memory.last_access_time = datetime.now()
-            memory.access_count += 1
-        elif action == "archive":
-            memory.review_status = "rejected"
-        elif action == "upgrade":
-            memory.grace_period_expires_at = None
-            memory.grace_period_notified = False
-            memory.review_status = "approved"
-            if memory.storage_layer == StorageLayer.WORKING:
-                memory.storage_layer = StorageLayer.EPISODIC
-            elif memory.storage_layer == StorageLayer.EPISODIC:
-                memory.storage_layer = StorageLayer.SEMANTIC
-
-        if self._chroma:
-            try:
-                await self._chroma.update_memory(memory)
-            except Exception as e:
-                logger.warning(f"Failed to persist grace resolution for {memory.id}: {e}")
-
-        return memory
-
-    # ── 查询 ──
 
     async def get_pending_review_memories(
         self,

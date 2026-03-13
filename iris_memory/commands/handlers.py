@@ -59,10 +59,7 @@ class CommandHandlers:
                 "  search <查询>   - 搜索记忆\n"
                 "  clear           - 清除当前会话记忆\n"
                 "  stats           - 记忆统计\n"
-                "  delete [scope]  - 删除记忆\n"
-                "  review          - 查看待审核记忆\n"
-                "  approve <id>    - 批准记忆\n"
-                "  reject <id>     - 拒绝记忆"
+                "  delete [scope]  - 删除记忆"
             )
 
         handlers = {
@@ -70,9 +67,6 @@ class CommandHandlers:
             "search": self._handle_memory_search,
             "clear": self._handle_memory_clear,
             "stats": self._handle_memory_stats,
-            "review": self._handle_memory_review,
-            "approve": self._handle_memory_approve,
-            "reject": self._handle_memory_reject,
         }
 
         if sub_cmd == "delete":
@@ -210,61 +204,6 @@ class CommandHandlers:
             return SuccessMessages.ALL_DELETED.format(count=count) if success else ErrorMessages.DELETE_FAILED
 
         return ErrorMessages.DELETE_FAILED
-
-    async def _handle_memory_review(self, event: AstrMessageEvent, parsed: Any) -> str:
-        """查看待审核记忆"""
-        chroma = self._get_chroma_manager()
-        if not chroma:
-            return "记忆存储未初始化"
-
-        pending = await chroma.get_pending_review_memories(limit=20)
-        if not pending:
-            return "暂无待审核的语义记忆"
-
-        lines = ["📝 待审核的语义记忆：\n"]
-        for i, mem in enumerate(pending, 1):
-            lines.append(f"{i}. [{mem.id[:8]}] {mem.content[:50]}...")
-        lines.append("\n使用 /memory approve <id前缀> 或 /memory reject <id前缀> 处理")
-        return "\n".join(lines)
-
-    async def _handle_memory_approve(self, event: AstrMessageEvent, parsed: Any) -> str:
-        """批准待审核记忆"""
-        id_prefix = parsed.args[1] if len(parsed.args) > 1 else ""
-        if not id_prefix:
-            return "请提供记忆 ID 前缀：/memory approve <id前缀>"
-        return await self._update_review_status(id_prefix, "approved")
-
-    async def _handle_memory_reject(self, event: AstrMessageEvent, parsed: Any) -> str:
-        """拒绝待审核记忆"""
-        id_prefix = parsed.args[1] if len(parsed.args) > 1 else ""
-        if not id_prefix:
-            return "请提供记忆 ID 前缀：/memory reject <id前缀>"
-        return await self._update_review_status(id_prefix, "rejected")
-
-    async def _update_review_status(self, id_prefix: str, new_status: str) -> str:
-        """更新审核状态"""
-        chroma = self._get_chroma_manager()
-        if not chroma:
-            return "记忆存储未初始化"
-
-        pending = await chroma.get_pending_review_memories(limit=100)
-        target = next((m for m in pending if m.id.startswith(id_prefix)), None)
-
-        if not target:
-            return f"未找到以 '{id_prefix}' 开头的待审核记忆"
-
-        target.review_status = new_status
-
-        if new_status == "rejected":
-            deleted = await chroma.delete_memory(target.id)
-            return f"已拒绝并删除语义记忆 [{target.id[:8]}]" if deleted else f"拒绝失败：无法删除记忆 [{target.id[:8]}]"
-        else:
-            updated = await chroma.update_memory(target)
-            return f"已批准语义记忆 [{target.id[:8]}]: {target.content[:40]}" if updated else f"批准失败：无法更新记忆 [{target.id[:8]}]"
-
-    def _get_chroma_manager(self) -> Any:
-        """获取 Chroma 管理器"""
-        return getattr(self._service, "chroma_manager", None)
 
     # ─────────────────────────────────────────────────────────────────────────────
     # Iris 命令

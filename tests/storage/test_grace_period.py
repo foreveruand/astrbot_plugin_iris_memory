@@ -123,30 +123,4 @@ class TestEvaluateAndApply:
 
 
 class TestResolveGracePeriod:
-    @pytest.mark.asyncio
-    async def test_keep_clears_grace(self, manager, valuable_memory):
-        valuable_memory.grace_period_expires_at = datetime.now() + timedelta(days=3)
-        valuable_memory.review_status = "pending_review"
-        result = await manager.resolve_grace_period(valuable_memory, "keep")
-        assert result.grace_period_expires_at is None
-        assert result.review_status is None
-
-    @pytest.mark.asyncio
-    async def test_keep_refreshes_access(self, manager, valuable_memory):
-        old_time = datetime.now() - timedelta(days=10)
-        valuable_memory.last_access_time = old_time
-        valuable_memory.grace_period_expires_at = datetime.now() + timedelta(days=3)
-        result = await manager.resolve_grace_period(valuable_memory, "keep")
-        assert result.last_access_time > old_time
-
-    @pytest.mark.asyncio
-    async def test_archive_sets_rejected(self, manager, valuable_memory):
-        result = await manager.resolve_grace_period(valuable_memory, "archive")
-        assert result.review_status == "rejected"
-
-    @pytest.mark.asyncio
-    async def test_upgrade_changes_layer(self, manager, valuable_memory):
-        valuable_memory.storage_layer = StorageLayer.EPISODIC
-        result = await manager.resolve_grace_period(valuable_memory, "upgrade")
-        assert result.storage_layer == StorageLayer.SEMANTIC
-        assert result.review_status == "approved"
+    pass
