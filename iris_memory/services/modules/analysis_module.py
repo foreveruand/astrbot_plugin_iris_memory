@@ -160,9 +160,8 @@ class AnalysisModule:
     async def init_reinforcement_engine(
         self,
         chroma_manager: Any = None,
-        notify_callback: Any = None,
     ) -> None:
-        """初始化并启动记忆回顾强化引擎
+        """初始化并启动记忆强化引擎
 
         依赖 ConfigStore 读取 memory.reinforcement.* 配置。
         若 memory.reinforcement.enable == False 则跳过。
@@ -178,7 +177,6 @@ class AnalysisModule:
 
         self._reinforcement_engine = MemoryReinforcementEngine(
             chroma_manager=chroma_manager,
-            notify_callback=notify_callback,
         )
         await self._reinforcement_engine.start()
         logger.debug("Reinforcement engine initialized and started")
