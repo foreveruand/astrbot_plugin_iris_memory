@@ -191,6 +191,8 @@ class StandaloneWebServer:
             import uvicorn
             from uvicorn import Config
             
+            sock = self._create_reuse_socket()
+            
             config = Config(
                 app=self._app,
                 host=self._host,
@@ -199,43 +201,18 @@ class StandaloneWebServer:
                 log_level="warning",
             )
             
-            sock = self._create_reuse_socket()
-            
             async def _serve():
                 server = uvicorn.Server(config=config)
+                server.setup()
                 
                 loop = asyncio.get_event_loop()
                 
-                async def _handle_connection(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-                    try:
-                        proto = config.http_protocol_class(
-                            config=config,
-                            app=self._app,
-                            logger=server.logger,
-                        )
-                        proto.connection_made(writer)
-                        
-                        while not self._should_exit and not server.should_exit:
-                            try:
-                                data = await asyncio.wait_for(reader.read(65536), timeout=0.5)
-                                if not data:
-                                    break
-                                proto.data_received(data)
-                            except asyncio.TimeoutError:
-                                continue
-                            except Exception:
-                                break
-                    except Exception as e:
-                        logger.debug(f"连接处理错误: {e}")
-                    finally:
-                        try:
-                            writer.close()
-                            await writer.wait_closed()
-                        except Exception:
-                            pass
-                
-                server_sock = await asyncio.start_server(
-                    _handle_connection,
+                server_sock = await loop.create_server(
+                    protocol_factory=lambda: config.http_protocol_class(
+                        config=config,
+                        app=self._app,
+                        logger=server.logger,
+                    ),
                     sock=sock,
                 )
                 server.servers = [server_sock]
