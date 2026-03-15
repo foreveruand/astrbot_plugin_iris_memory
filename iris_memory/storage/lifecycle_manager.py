@@ -49,7 +49,7 @@ class SessionLifecycleManager:
         inactive_timeout: int = 1800,  # 非活跃超时（秒），默认30分钟
         promotion_interval: int = 3600,  # 记忆升级检查间隔（秒），默认1小时
         upgrade_mode: str = "rule",  # 升级判断模式: rule, llm, hybrid
-        llm_upgrade_batch_size: int = 5,
+        llm_upgrade_batch_size: int = 10,
         llm_upgrade_threshold: float = 0.7
     ):
         """初始化生命周期管理器

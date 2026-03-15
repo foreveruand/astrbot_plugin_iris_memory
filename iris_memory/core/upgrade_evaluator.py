@@ -5,7 +5,7 @@ LLM升级评估器
 
 import json
 import asyncio
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
 from enum import Enum
 
 from datetime import datetime
@@ -63,16 +63,33 @@ class UpgradeMode(str, Enum):
     """升级判断模式"""
     RULE = "rule"      # 仅使用规则判断
     LLM = "llm"        # 仅使用LLM判断
-    HYBRID = "hybrid"  # 混合模式：规则预筛 + LLM确认
+    HYBRID = "hybrid"  # 混合模式：三层评估策略
+
+
+class EvaluationTier(str, Enum):
+    """评估层级"""
+    HIGH_CONFIDENCE_PASS = "high_confidence_pass"  # 高置信度通过，无需LLM
+    BOUNDARY = "boundary"                          # 边界情况，需要LLM确认
+    CLEAR_REJECT = "clear_reject"                  # 明确拒绝，无需LLM
 
 
 class UpgradeEvaluator:
     """LLM升级评估器
     
     使用LLM来评估记忆是否应该升级到更高的存储层
+    
+    优化特性：
+    - 全局并发信号量限制LLM请求数
+    - 三层评估策略减少不必要的LLM调用
+    - 请求间隔防止密集调用
+    - 评估去重机制避免重复评估
     """
     
-    # WORKING → EPISODIC 评估提示词
+    _llm_semaphore: Optional[asyncio.Semaphore] = None
+    _max_concurrent_llm: int = 3
+    _evaluating_memories: Set[str] = set()
+    _request_interval: float = 0.5
+    
     WORKING_TO_EPISODIC_PROMPT = """你是一个记忆管理系统的评估助手。请判断以下工作记忆是否值得长期保存。
 
 ## 评估标准
@@ -140,21 +157,31 @@ class UpgradeEvaluator:
         self,
         llm_provider=None,
         mode: UpgradeMode = UpgradeMode.HYBRID,
-        batch_size: int = 5,
-        confidence_threshold: float = 0.7
+        batch_size: int = 10,
+        confidence_threshold: float = 0.7,
+        max_concurrent_llm: int = 3,
+        request_interval: float = 0.5
     ):
         """初始化升级评估器
         
         Args:
             llm_provider: LLM提供者（需要支持llm_request方法）
             mode: 升级判断模式
-            batch_size: 批量评估大小
+            batch_size: 批量评估大小（默认10，从5增加）
             confidence_threshold: 置信度阈值
+            max_concurrent_llm: 最大并发LLM请求数
+            request_interval: LLM请求间隔（秒）
         """
         self.llm_provider = llm_provider
         self.mode = mode
         self.batch_size = batch_size
         self.confidence_threshold = confidence_threshold
+        
+        UpgradeEvaluator._max_concurrent_llm = max_concurrent_llm
+        UpgradeEvaluator._request_interval = request_interval
+        
+        if UpgradeEvaluator._llm_semaphore is None:
+            UpgradeEvaluator._llm_semaphore = asyncio.Semaphore(max_concurrent_llm)
     
     def set_llm_provider(self, llm_provider):
         """设置LLM提供者
@@ -209,6 +236,63 @@ class UpgradeEvaluator:
         
         else:  # HYBRID
             return await self._hybrid_evaluation(memories, "episodic_to_semantic")
+    
+    def _classify_evaluation_tier(self, memory: Memory, upgrade_type: str) -> EvaluationTier:
+        """将记忆分类到评估层级
+        
+        三层策略：
+        - 高置信度通过：指标明显超出阈值，直接升级
+        - 边界情况：指标接近阈值，需要LLM确认
+        - 明确拒绝：指标明显不足，直接拒绝
+        
+        Args:
+            memory: 记忆对象
+            upgrade_type: 升级类型
+            
+        Returns:
+            EvaluationTier: 评估层级
+        """
+        if upgrade_type == "working_to_episodic":
+            if (
+                memory.is_user_requested or
+                (memory.access_count >= 5 and memory.importance_score > 0.6) or
+                memory.emotional_weight > 0.8 or
+                memory.confidence >= 0.85 or
+                (memory.rif_score > 0.7 and memory.access_count >= 3) or
+                _get_quality_level_value(memory.quality_level) >= QualityLevel.CONFIRMED.value
+            ):
+                return EvaluationTier.HIGH_CONFIDENCE_PASS
+            
+            if (
+                memory.access_count < 2 and
+                memory.importance_score <= 0.3 and
+                memory.emotional_weight <= 0.4 and
+                memory.confidence < 0.5 and
+                memory.rif_score <= 0.3 and
+                not memory.is_user_requested and
+                _get_quality_level_value(memory.quality_level) < QualityLevel.HIGH_CONFIDENCE.value
+            ):
+                return EvaluationTier.CLEAR_REJECT
+            
+            return EvaluationTier.BOUNDARY
+        
+        else:  # episodic_to_semantic
+            if (
+                _get_quality_level_value(memory.quality_level) == QualityLevel.CONFIRMED.value or
+                (memory.access_count >= 10 and memory.confidence > 0.7) or
+                (memory.importance_score >= 0.9 and memory.access_count >= 5) or
+                (memory.access_count >= 8 and memory.confidence > 0.8)
+            ):
+                return EvaluationTier.HIGH_CONFIDENCE_PASS
+            
+            if (
+                memory.access_count < 2 and
+                memory.confidence <= 0.4 and
+                memory.importance_score < 0.5
+            ):
+                return EvaluationTier.CLEAR_REJECT
+            
+            return EvaluationTier.BOUNDARY
     
     def _rule_based_evaluation(
         self,
@@ -356,7 +440,7 @@ class UpgradeEvaluator:
         memories: List[Memory],
         upgrade_type: str
     ) -> Dict[str, Tuple[bool, float, str]]:
-        """基于LLM的评估
+        """基于LLM的评估（带并发控制和去重）
         
         Args:
             memories: 待评估的记忆列表
@@ -369,13 +453,30 @@ class UpgradeEvaluator:
             logger.warning("No LLM provider available, falling back to rule-based")
             return self._rule_based_evaluation(memories, upgrade_type)
         
+        to_evaluate = []
+        for memory in memories:
+            if memory.id not in self._evaluating_memories:
+                self._evaluating_memories.add(memory.id)
+                to_evaluate.append(memory)
+            else:
+                logger.debug(f"Memory {memory.id} is already being evaluated, skipping")
+        
+        if not to_evaluate:
+            return {}
+        
         results = {}
         
-        # 分批处理
-        for i in range(0, len(memories), self.batch_size):
-            batch = memories[i:i + self.batch_size]
-            batch_results = await self._evaluate_batch_with_llm(batch, upgrade_type)
-            results.update(batch_results)
+        try:
+            for i in range(0, len(to_evaluate), self.batch_size):
+                batch = to_evaluate[i:i + self.batch_size]
+                batch_results = await self._evaluate_batch_with_llm(batch, upgrade_type)
+                results.update(batch_results)
+                
+                if i + self.batch_size < len(to_evaluate):
+                    await asyncio.sleep(self._request_interval)
+        finally:
+            for memory in to_evaluate:
+                self._evaluating_memories.discard(memory.id)
         
         return results
     
@@ -384,7 +485,7 @@ class UpgradeEvaluator:
         memories: List[Memory],
         upgrade_type: str
     ) -> Dict[str, Tuple[bool, float, str]]:
-        """使用LLM评估一批记忆
+        """使用LLM评估一批记忆（带信号量控制）
         
         Args:
             memories: 记忆批次
@@ -416,11 +517,9 @@ class UpgradeEvaluator:
             prompt = self.EPISODIC_TO_SEMANTIC_PROMPT.format(memories_json=memories_json)
         
         try:
-            # 调用LLM
-            response = await self._call_llm(prompt)
-            
-            # 解析响应
-            return self._parse_llm_response(response, memories)
+            async with self._llm_semaphore:
+                response = await self._call_llm(prompt)
+                return self._parse_llm_response(response, memories)
             
         except Exception as e:
             logger.error(f"LLM evaluation failed: {e}")
@@ -527,9 +626,12 @@ class UpgradeEvaluator:
         memories: List[Memory],
         upgrade_type: str
     ) -> Dict[str, Tuple[bool, float, str]]:
-        """混合模式评估
+        """优化后的混合模式评估
         
-        先用规则筛选潜在候选，再用LLM确认
+        三层策略：
+        1. 高置信度通过 → 直接升级（不调用LLM）
+        2. 边界情况 → LLM确认
+        3. 明确拒绝 → 直接拒绝（不调用LLM）
         
         Args:
             memories: 待评估的记忆列表
@@ -539,41 +641,46 @@ class UpgradeEvaluator:
             评估结果字典
         """
         results = {}
-        candidates = []
+        high_confidence_pass = []
+        boundary_cases = []
+        clear_reject = []
         
-        # 第一阶段：规则预筛选（条件比实际判断更宽松，确保不遗漏候选者）
         for memory in memories:
-            if upgrade_type == "working_to_episodic":
-                is_candidate = (
-                    memory.access_count >= 2 or
-                    memory.importance_score > 0.4 or
-                    memory.emotional_weight > 0.5 or
-                    memory.confidence >= 0.6 or
-                    memory.is_user_requested or
-                    memory.rif_score > 0.4 or
-                    _get_quality_level_value(memory.quality_level) >= QualityLevel.HIGH_CONFIDENCE.value
-                )
-            else:
-                is_candidate = (
-                    memory.access_count >= 3 or
-                    memory.confidence > 0.5 or
-                    memory.importance_score >= 0.7 or
-                    _get_quality_level_value(memory.quality_level) == QualityLevel.CONFIRMED.value
-                )
+            tier = self._classify_evaluation_tier(memory, upgrade_type)
             
-            if is_candidate:
-                candidates.append(memory)
-            else:
-                # 明确不满足条件的直接拒绝
-                results[memory.id] = (False, 0.1, "未通过预筛选")
+            if tier == EvaluationTier.HIGH_CONFIDENCE_PASS:
+                confidence = self._calculate_rule_confidence(memory, upgrade_type)
+                reason = self._get_working_upgrade_reason(memory, True) if upgrade_type == "working_to_episodic" else self._get_episodic_upgrade_reason(memory, True)
+                results[memory.id] = (True, confidence, reason)
+                high_confidence_pass.append(memory.id)
+                
+            elif tier == EvaluationTier.CLEAR_REJECT:
+                results[memory.id] = (False, 0.1, "未达到升级条件")
+                clear_reject.append(memory.id)
+                
+            else:  # BOUNDARY
+                boundary_cases.append(memory)
         
-        # 第二阶段：LLM确认
-        if candidates and self.llm_provider:
-            llm_results = await self._llm_evaluation(candidates, upgrade_type)
+        if boundary_cases and self.llm_provider:
+            llm_results = await self._llm_evaluation(boundary_cases, upgrade_type)
             results.update(llm_results)
-        elif candidates:
-            # 无LLM，使用规则判断
-            rule_results = self._rule_based_evaluation(candidates, upgrade_type)
+        elif boundary_cases:
+            rule_results = self._rule_based_evaluation(boundary_cases, upgrade_type)
             results.update(rule_results)
+        
+        if len(memories) > 0:
+            total = len(memories)
+            pass_count = len(high_confidence_pass)
+            boundary_count = len(boundary_cases)
+            reject_count = len(clear_reject)
+            llm_saved = pass_count + reject_count
+            
+            logger.debug(
+                f"Hybrid evaluation ({upgrade_type}): "
+                f"{pass_count} high-confidence pass ({pass_count*100//total}%), "
+                f"{boundary_count} boundary (LLM) ({boundary_count*100//total}%), "
+                f"{reject_count} clear reject ({reject_count*100//total}%), "
+                f"LLM calls saved: {llm_saved}/{total} ({llm_saved*100//total}%)"
+            )
         
         return results
