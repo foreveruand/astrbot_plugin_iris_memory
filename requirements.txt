@@ -5,7 +5,7 @@
 chromadb>=0.4.0
 
 # 嵌入模型（用于本地的文本向量）
-sentence-transformers>=2.2.0
+#sentence-transformers>=2.2.0
 
 # 情感分析（可选，用于更准确的情感识别）
 #transformers>=4.30.0
