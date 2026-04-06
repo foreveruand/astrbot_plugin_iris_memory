@@ -24,6 +24,7 @@ if str(plugin_root) not in sys.path:
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api import AstrBotConfig, llm_tool, logger
+from astrbot.core.message.message_event_result import ResultContentType
 
 from iris_memory.services.memory_service import MemoryService
 from iris_memory.utils.logger import init_logging_from_config
@@ -110,7 +111,9 @@ class IrisMemoryPlugin(Star):
             return
 
         if self._error_processor:
-            self._error_processor.process_result(result)
+            # 仅对 LLM 生成的结果进行错误友好化处理，不拦截插件命令响应
+            if result.result_content_type == ResultContentType.LLM_RESULT:
+                self._error_processor.process_result(result)
 
         if self._markdown_stripper:
             self._markdown_stripper.process_result(result)

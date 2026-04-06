@@ -576,6 +576,9 @@ class ErrorFriendlyProcessor:
         if not result:
             return
 
+        if not self._is_error_friendly_enabled():
+            return
+
         text = self._get_result_plain_text(result)
         if not text:
             return
