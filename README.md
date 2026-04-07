@@ -149,12 +149,17 @@
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `llm_providers.default_provider_id` | 默认 LLM 提供者 | `""` |
+| `llm_providers.default_provider_id` | 默认 LLM 提供者列表（支持轮换） | `[]` |
 | `llm_providers.memory_provider_id` | 记忆相关任务提供者 | `""` |
 | `llm_providers.persona_provider_id` | 用户画像任务提供者 | `""` |
 | `llm_providers.knowledge_graph_provider_id` | 图谱任务提供者 | `""` |
 | `llm_providers.image_analysis_provider_id` | 图片分析提供者 | `""` |
 | `llm_providers.enhanced_provider_id` | 智能增强任务提供者 | `""` |
+
+> **Provider 轮换说明**：
+> - `default_provider_id` 支持配置多个 Provider（列表格式），当主 Provider 调用失败时会自动切换到下一个
+> - 子功能指定的 Provider（如 `memory_provider_id`）保持单选，不会参与轮换
+> - 示例：`["openai_primary", "gemini_backup", "deepseek_backup"]`
 
 ### 记忆核心
 

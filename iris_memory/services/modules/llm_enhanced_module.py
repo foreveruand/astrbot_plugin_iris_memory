@@ -4,6 +4,7 @@ LLM增强模块 — 聚合所有 LLM 检测器和 LLM 处理器
 包含 6 个 LLM 增强检测器 + LLMMessageProcessor，
 使用注册表模式统一管理。
 """
+
 from __future__ import annotations
 
 from typing import Optional, Dict, Any, TYPE_CHECKING
@@ -88,15 +89,21 @@ class LLMEnhancedModule:
             return
 
         from iris_memory.core.detection.llm_enhanced_base import DetectionMode
-        from iris_memory.capture.detector.llm_sensitivity_detector import LLMSensitivityDetector
+        from iris_memory.capture.detector.llm_sensitivity_detector import (
+            LLMSensitivityDetector,
+        )
         from iris_memory.capture.detector.llm_trigger_detector import LLMTriggerDetector
         from iris_memory.analysis.emotion.llm_emotion_analyzer import LLMEmotionAnalyzer
-        from iris_memory.capture.conflict.llm_conflict_resolver import LLMConflictResolver
+        from iris_memory.capture.conflict.llm_conflict_resolver import (
+            LLMConflictResolver,
+        )
         from iris_memory.retrieval.llm_retrieval_router import LLMRetrievalRouter
 
         provider_id = cfg.get("llm_providers.enhanced_provider_id", None)
         logger.debug(f"[DEBUG] enhanced_provider_id from config: {repr(provider_id)}")
-        logger.debug(f"[DEBUG] raw config value: {repr(cfg.get('llm_providers.enhanced_provider_id'))}")
+        logger.debug(
+            f"[DEBUG] raw config value: {repr(cfg.get('llm_providers.enhanced_provider_id'))}"
+        )
         modes: list[str] = []
 
         _MAPPING = [
@@ -146,6 +153,7 @@ class LLMEnhancedModule:
             ),
             provider_id=cfg.get("llm_providers.memory_provider_id", None),
             daily_limit=cfg.get("llm.daily_call_limit", 500),
+            cfg=cfg,
         )
         llm_ready = await self._llm_processor.initialize()
         if llm_ready and lifecycle_manager:

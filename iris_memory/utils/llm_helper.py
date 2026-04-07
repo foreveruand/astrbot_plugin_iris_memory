@@ -11,39 +11,43 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
 
-from iris_memory.utils.logger import get_logger
-from iris_memory.core.provider_utils import (
-    normalize_provider_id,
-    extract_provider_id,
-    get_provider_by_id,
-    get_default_provider,
-)
 from iris_memory.core.constants import SOURCE_ALIASES
+from iris_memory.core.provider_utils import (
+    extract_provider_id,
+    get_default_provider,
+    get_provider_by_id,
+    normalize_provider_id,
+)
+from iris_memory.utils.logger import get_logger
 
 logger = get_logger("llm_helper")
 
 
 # ── Provider / Context 协议 ────────────────────────────────
 
+
 @runtime_checkable
 class LLMProvider(Protocol):
     """LLM 提供者协议"""
+
     async def text_chat(
         self,
         *,
         prompt: str,
         context: list[Any],
-        image_urls: Optional[List[str]] = None,
+        image_urls: list[str] | None = None,
     ) -> Any: ...
 
 
 @runtime_checkable
 class AstrBotContext(Protocol):
     """AstrBot 上下文协议（仅 LLM 相关部分）"""
+
     async def llm_generate(self, *, chat_provider_id: str, prompt: str) -> Any: ...
+
 
 # 延迟加载 token 估算（避免循环导入）
 _token_estimator = None
@@ -55,12 +59,13 @@ def _estimate_tokens(text: str) -> int:
     if _token_estimator is None:
         try:
             from iris_memory.utils.token_manager import TokenBudget
+
             _token_estimator = TokenBudget()
         except Exception:
             _token_estimator = "fallback"
     if _token_estimator == "fallback":
         # 简单加权估算：中文 ~1.5 char/token, 英文 ~4 char/token
-        chinese = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        chinese = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
         other = len(text) - chinese
         return int(chinese / 1.5 + other / 4) or 1
     return _token_estimator.estimate_tokens(text)
@@ -68,19 +73,22 @@ def _estimate_tokens(text: str) -> int:
 
 # ── 数据类型 ────────────────────────────────────────────
 
+
 @dataclass
 class LLMCallResult:
     """LLM 调用结果"""
+
     success: bool = False
     content: str = ""
-    parsed_json: Optional[Dict[str, Any]] = None
+    parsed_json: dict[str, Any] | None = None
     tokens_used: int = 0
     error: str = ""
 
 
 # ── JSON 解析 ────────────────────────────────────────────
 
-def parse_llm_json(response: Optional[str]) -> Optional[Dict[str, Any]]:
+
+def parse_llm_json(response: str | None) -> dict[str, Any] | None:
     """从 LLM 响应文本中提取 JSON 字典。
 
     三级尝试：
@@ -127,12 +135,13 @@ def parse_llm_json(response: Optional[str]) -> Optional[Dict[str, Any]]:
 
 # ── Provider 解析 ────────────────────────────────────────
 
+
 def resolve_llm_provider(
-    context: Optional[AstrBotContext],
+    context: AstrBotContext | None,
     provider_id: str = "",
     *,
     label: str = "LLM",
-) -> tuple[Optional[LLMProvider], Optional[str]]:
+) -> tuple[LLMProvider | None, str | None]:
     """解析 LLM 提供者。
 
     Args:
@@ -147,7 +156,9 @@ def resolve_llm_provider(
         return None, None
 
     pid = normalize_provider_id(provider_id)
-    logger.debug(f"[{label}] resolve_llm_provider: input={repr(provider_id)}, normalized={repr(pid)}")
+    logger.debug(
+        f"[{label}] resolve_llm_provider: input={repr(provider_id)}, normalized={repr(pid)}"
+    )
 
     if pid and pid not in ("", "default"):
         try:
@@ -155,11 +166,15 @@ def resolve_llm_provider(
             if provider:
                 logger.debug(f"[{label}] Provider resolved by ID: {resolved_id or pid}")
                 return provider, resolved_id or pid
-            logger.warning(f"[{label}] Provider '{pid}' not found, falling back to default")
+            logger.warning(
+                f"[{label}] Provider '{pid}' not found, falling back to default"
+            )
         except Exception as e:
             logger.warning(f"[{label}] Error resolving provider '{pid}': {e}")
     else:
-        logger.debug(f"[{label}] pid is empty or 'default', using AstrBot default provider")
+        logger.debug(
+            f"[{label}] pid is empty or 'default', using AstrBot default provider"
+        )
 
     provider, resolved_id = get_default_provider(context)
     if provider:
@@ -171,38 +186,32 @@ def resolve_llm_provider(
 # ── 单次 LLM 调用 ────────────────────────────────────────
 
 
-async def call_llm(
-    context: Optional[AstrBotContext],
-    provider: Optional[LLMProvider],
-    provider_id: Optional[str],
+async def _call_llm_single(
+    context: AstrBotContext | None,
+    provider: LLMProvider | None,
+    provider_id: str | None,
     prompt: str,
     *,
     parse_json: bool = False,
-    image_urls: Optional[List[str]] = None,
+    image_urls: list[str] | None = None,
+    source_module: str = "unknown",
+    source_class: str = "unknown",
 ) -> LLMCallResult:
-    """统一的单次 LLM 调用（``llm_generate`` → ``text_chat`` fallback）。
-
-    Args:
-        context: AstrBot 上下文（可能为 None）
-        provider: 已解析的 provider 实例（可能为 None）
-        provider_id: provider ID（用于 ``llm_generate``）
-        prompt: 提示词
-        parse_json: 是否尝试从响应中解析 JSON
-        image_urls: 图片 URL 列表（多模态/Vision 模型支持）
-
-    Returns:
-        LLMCallResult
-    """
     start_time = time.time()
     is_multimodal = bool(image_urls)
     result = LLMCallResult(success=False, error="No suitable LLM method found")
-    
-    source_module, source_class = _infer_caller_source()
-    
+
     try:
-        if not is_multimodal and context and hasattr(context, "llm_generate") and provider_id:
+        if (
+            not is_multimodal
+            and context
+            and hasattr(context, "llm_generate")
+            and provider_id
+        ):
             try:
-                logger.debug(f"Calling context.llm_generate with provider_id={repr(provider_id)}, prompt_length={len(prompt)}")
+                logger.debug(
+                    f"Calling context.llm_generate with provider_id={repr(provider_id)}, prompt_length={len(prompt)}"
+                )
                 resp = await context.llm_generate(
                     chat_provider_id=provider_id,
                     prompt=prompt,
@@ -210,7 +219,9 @@ async def call_llm(
                 if resp and hasattr(resp, "completion_text"):
                     text = (resp.completion_text or "").strip()
                     tokens = _estimate_tokens(prompt + text)
-                    logger.debug(f"llm_generate success, response_length={len(text)}, tokens={tokens}")
+                    logger.debug(
+                        f"llm_generate success, response_length={len(text)}, tokens={tokens}"
+                    )
                     result = LLMCallResult(
                         success=True,
                         content=text,
@@ -233,7 +244,7 @@ async def call_llm(
         if not result.success and provider and hasattr(provider, "text_chat"):
             resolved_pid = provider_id or extract_provider_id(provider) or "unknown"
             try:
-                kwargs: Dict[str, Any] = {"prompt": prompt, "context": []}
+                kwargs: dict[str, Any] = {"prompt": prompt, "context": []}
                 if is_multimodal:
                     kwargs["image_urls"] = image_urls
                     logger.debug(
@@ -265,7 +276,8 @@ async def call_llm(
     finally:
         duration_ms = (time.time() - start_time) * 1000
         _record_stats(
-            provider_id=provider_id or (extract_provider_id(provider) if provider else None),
+            provider_id=provider_id
+            or (extract_provider_id(provider) if provider else None),
             result=result,
             duration_ms=duration_ms,
             prompt=prompt,
@@ -274,52 +286,154 @@ async def call_llm(
             source_module=source_module,
             source_class=source_class,
         )
-    
+
     return result
+
+
+async def call_llm(
+    context: AstrBotContext | None,
+    provider: LLMProvider | None,
+    provider_id: str | None | list[str] | None,
+    prompt: str,
+    *,
+    parse_json: bool = False,
+    image_urls: list[str] | None = None,
+) -> LLMCallResult:
+    """统一的 LLM 调用（支持 Provider 轮换）。
+
+    - provider_id 为字符串：子功能指定，直接使用不轮换
+    - provider_id 为列表：默认 Provider 列表，依次尝试直到成功
+
+    Args:
+        context: AstrBot 上下文
+        provider: 已解析的 provider 实例
+        provider_id: provider ID（字符串或列表）
+        prompt: 提示词
+        parse_json: 是否尝试从响应中解析 JSON
+        image_urls: 图片 URL 列表
+
+    Returns:
+        LLMCallResult
+    """
+    source_module, source_class = _infer_caller_source()
+
+    if isinstance(provider_id, list):
+        provider_ids = provider_id
+        if not provider_ids:
+            default_provider, default_id = (
+                get_default_provider(context) if context else (None, None)
+            )
+            if default_provider and default_id:
+                return await _call_llm_single(
+                    context=context,
+                    provider=default_provider,
+                    provider_id=default_id,
+                    prompt=prompt,
+                    parse_json=parse_json,
+                    image_urls=image_urls,
+                    source_module=source_module,
+                    source_class=source_class,
+                )
+            return LLMCallResult(success=False, error="No provider configured")
+
+        seen_ids: set = set()
+        total = len(provider_ids)
+        last_result = LLMCallResult(success=False, error="No providers in list")
+
+        for idx, pid in enumerate(provider_ids):
+            if not pid or pid in seen_ids:
+                continue
+            seen_ids.add(pid)
+
+            p, resolved_id = (
+                get_provider_by_id(context, pid) if context else (None, None)
+            )
+            if not p:
+                logger.debug(f"Provider '{pid}' not found, skipping")
+                continue
+
+            if idx > 0:
+                logger.warning(
+                    f"Switching to provider: {resolved_id or pid} ({idx + 1}/{total})"
+                )
+
+            last_result = await _call_llm_single(
+                context=context,
+                provider=p,
+                provider_id=resolved_id or pid,
+                prompt=prompt,
+                parse_json=parse_json,
+                image_urls=image_urls,
+                source_module=source_module,
+                source_class=source_class,
+            )
+
+            if last_result.success:
+                if idx > 0:
+                    logger.info(
+                        f"LLM call succeeded with provider: {resolved_id or pid}"
+                    )
+                return last_result
+
+        logger.error(f"All {total} provider(s) failed for LLM call")
+        return last_result
+
+    return await _call_llm_single(
+        context=context,
+        provider=provider,
+        provider_id=provider_id,
+        prompt=prompt,
+        parse_json=parse_json,
+        image_urls=image_urls,
+        source_module=source_module,
+        source_class=source_class,
+    )
 
 
 def _infer_caller_source() -> tuple[str, str]:
     """从调用栈推断来源（在调用时立即捕获，而非异步任务中）
-    
+
     Returns:
         (source_alias, source_class)
     """
     import inspect
-    
+
     stack = inspect.stack()
-    
+
     for frame_info in stack[2:]:
         frame_locals = frame_info.frame.f_locals
-        
-        if 'self' in frame_locals:
-            cls = frame_locals['self'].__class__
+
+        if "self" in frame_locals:
+            cls = frame_locals["self"].__class__
             full_name = f"{cls.__module__}.{cls.__name__}"
-            alias = SOURCE_ALIASES.get(full_name, full_name.split('.')[-1])
+            alias = SOURCE_ALIASES.get(full_name, full_name.split(".")[-1])
             return alias, cls.__name__
-        
-        if 'cls' in frame_locals and isinstance(frame_locals['cls'], type):
-            cls = frame_locals['cls']
+
+        if "cls" in frame_locals and isinstance(frame_locals["cls"], type):
+            cls = frame_locals["cls"]
             full_name = f"{cls.__module__}.{cls.__name__}"
-            alias = SOURCE_ALIASES.get(full_name, full_name.split('.')[-1])
+            alias = SOURCE_ALIASES.get(full_name, full_name.split(".")[-1])
             return alias, cls.__name__
-        
+
         frame = frame_info.frame
         func_name = frame.f_code.co_name
-        module_name = frame.f_globals.get('__name__', '')
-        
-        if module_name.startswith('iris_memory.') and not module_name.startswith('iris_memory.stats'):
-            if module_name == 'iris_memory.utils.llm_helper':
+        module_name = frame.f_globals.get("__name__", "")
+
+        if module_name.startswith("iris_memory.") and not module_name.startswith(
+            "iris_memory.stats"
+        ):
+            if module_name == "iris_memory.utils.llm_helper":
                 continue
-            
-            module_short = module_name.split('.')[-1]
+
+            module_short = module_name.split(".")[-1]
             alias = SOURCE_ALIASES.get(f"{module_name}.{func_name}", module_short)
             return alias, func_name
-    
+
     return "unknown", "unknown"
 
 
 def _record_stats(
-    provider_id: Optional[str],
+    provider_id: str | None,
     result: LLMCallResult,
     duration_ms: float,
     prompt: str,
@@ -330,11 +444,12 @@ def _record_stats(
 ) -> None:
     """记录 LLM 调用统计（内部方法）"""
     try:
-        from iris_memory.stats import get_stats_registry
         import asyncio
-        
+
+        from iris_memory.stats import get_stats_registry
+
         registry = get_stats_registry()
-        
+
         asyncio.create_task(
             registry.record_call(
                 provider_id=provider_id,

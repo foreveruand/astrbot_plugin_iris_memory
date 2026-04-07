@@ -13,6 +13,7 @@ Iris Memory Plugin - 主入口
 - 本文件只负责 AstrBot 事件绑定和响应发送
 - 所有业务逻辑委托给各模块处理
 """
+
 import sys
 from pathlib import Path
 from typing import Optional, AsyncGenerator, Any
@@ -30,13 +31,21 @@ from iris_memory.services.memory_service import MemoryService
 from iris_memory.utils.logger import init_logging_from_config
 from iris_memory.commands import CommandHandlers
 from iris_memory.web.web_ui import WebUIManager
-from iris_memory.processing.message_processor import MessageProcessor, ErrorFriendlyProcessor
+from iris_memory.processing.message_processor import (
+    MessageProcessor,
+    ErrorFriendlyProcessor,
+)
 from iris_memory.processing.markdown_stripper import MarkdownStripper
 from iris_memory.core.constants import PROACTIVE_EXTRA_KEY
 from iris_memory.stats import get_stats_registry
 
 
-@register("astrbot_plugin_iris_memory", "Iris Memory", "基于 companion-memory 框架的三层记忆插件", "1.10.6")
+@register(
+    "astrbot_plugin_iris_memory",
+    "Iris Memory",
+    "基于 companion-memory 框架的三层记忆插件",
+    "1.11.2",
+)
 class IrisMemoryPlugin(Star):
     """
     Iris 记忆插件 - 主入口
@@ -73,7 +82,7 @@ class IrisMemoryPlugin(Star):
         """异步初始化插件"""
         data_path = Path(StarTools.get_data_dir())
         self._service = MemoryService(self.context, self.config, data_path)
-        
+
         init_logging_from_config(self.config, self._service.plugin_data_path)
 
         await self._service.initialize()
@@ -119,7 +128,9 @@ class IrisMemoryPlugin(Star):
             self._markdown_stripper.process_result(result)
 
     @filter.command("memory")
-    async def memory_command(self, event: AstrMessageEvent) -> AsyncGenerator[Any, None]:
+    async def memory_command(
+        self, event: AstrMessageEvent
+    ) -> AsyncGenerator[Any, None]:
         """记忆管理统一入口：/memory <子命令> [参数]"""
         result = await self._command_handlers.handle_memory_command(
             event, self.delete_kv_data, self.put_kv_data
@@ -169,8 +180,7 @@ class IrisMemoryPlugin(Star):
         self,
         event: AstrMessageEvent,
     ) -> str:
-        """查询当前群聊的冷却状态。在决定是否主动回复前可先调用此工具检查。
-        """
+        """查询当前群聊的冷却状态。在决定是否主动回复前可先调用此工具检查。"""
         from iris_memory.utils.event_utils import get_group_id
 
         group_id = get_group_id(event)
@@ -185,8 +195,7 @@ class IrisMemoryPlugin(Star):
         self,
         event: AstrMessageEvent,
     ) -> str:
-        """取消当前群聊的冷却模式，立即恢复 AI 的主动回复能力。
-        """
+        """取消当前群聊的冷却模式，立即恢复 AI 的主动回复能力。"""
         from iris_memory.utils.event_utils import get_group_id
 
         group_id = get_group_id(event)
@@ -220,7 +229,7 @@ class IrisMemoryPlugin(Star):
             "group_id": group_id,
         }
         scope = await classifier.classify(content, scope_context)
-        
+
         memory = Memory(
             content=content,
             scope=scope,

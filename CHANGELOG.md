@@ -3,6 +3,20 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.2] - 2026-04-07
+
+### Added
+- **LLM Provider 轮换支持** (`iris_memory/utils/llm_helper.py`)
+  - `default_provider_id` 配置项改为列表类型，支持多个 Provider 轮换
+  - 当主 Provider 失败时自动切换到列表中的下一个 Provider
+  - 子功能指定的 Provider（如 `memory_provider_id`）仍保持单选，不参与轮换
+  - 参考 airss 插件的 LLM 轮换功能实现
+
+### Changed
+- **配置项类型变更** (`_conf_schema.json`, `iris_memory/config/schema.py`)
+  - `llm_providers.default_provider_id` 从 `string` 改为 `list` 类型
+  - 移除 `normalize_provider` 处理，列表由用户直接配置
+
 ## [v1.11.1] - 2026-03-14
 
 ### Removed

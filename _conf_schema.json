@@ -73,11 +73,10 @@
     "type": "object",
     "items": {
       "default_provider_id": {
-        "description": "默认LLM提供者",
-        "type": "string",
-        "_special": "select_provider",
-        "default": "",
-        "hint": "留空使用AstrBot默认提供者"
+        "description": "默认LLM提供者列表（轮换）",
+        "type": "list",
+        "default": [],
+        "hint": "多个Provider时依次轮换尝试，为空则使用AstrBot默认提供者"
       },
       "memory_provider_id": {
         "description": "记忆功能LLM提供者",
