@@ -3,6 +3,15 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.3] - 2026-04-08
+
+### Fixed
+- **Memory initialization error fix** (`main.py`)
+  - Fixed `TypeError: Memory.__init__() got an unexpected keyword argument 'source'` in `save_memory_tool`
+  - Removed invalid `source` parameter from Memory initialization
+  - The `source_type` field in Memory is intended for semantic extraction tracking, not LLM tool usage
+  - LLM tool origin is already marked by `from_llm=True` parameter in `capture_memory()`
+
 ## [v1.11.2] - 2026-04-07
 
 ### Added

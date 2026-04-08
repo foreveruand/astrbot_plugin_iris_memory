@@ -234,7 +234,6 @@ class IrisMemoryPlugin(Star):
             content=content,
             scope=scope,
             confidence=0.9,
-            source="llm_tool",
         )
         await self._service.capture.capture_memory(
             event,
