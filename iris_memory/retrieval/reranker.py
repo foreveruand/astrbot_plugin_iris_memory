@@ -3,7 +3,6 @@
 对检索结果进行重排序
 """
 
-
 from iris_memory.core.constants import NEGATIVE_EMOTIONS_CORE
 from iris_memory.core.types import (
     MemoryType,
@@ -199,9 +198,7 @@ class Reranker:
 
         return 0.3
 
-    def _calculate_activity_score(
-        self, memory: Memory, context: dict | None
-    ) -> float:
+    def _calculate_activity_score(self, memory: Memory, context: dict | None) -> float:
         """计算记忆来源成员的活跃度得分
 
         活跃成员的记忆更可能被正确引用，不活跃成员的

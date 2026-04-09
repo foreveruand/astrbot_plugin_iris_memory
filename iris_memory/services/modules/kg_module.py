@@ -3,30 +3,33 @@
 
 作为第 7 个 Feature Module 集成到 MemoryService 中。
 """
+
 from __future__ import annotations
 
 import asyncio
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from iris_memory.config import get_store
 from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from iris_memory.knowledge_graph.kg_storage import KGStorage
-    from iris_memory.knowledge_graph.kg_extractor import KGExtractor
-    from iris_memory.knowledge_graph.kg_reasoning import KGReasoning
+    from iris_memory.knowledge_graph.kg_consistency import (
+        ConsistencyReport,
+        KGConsistencyDetector,
+    )
     from iris_memory.knowledge_graph.kg_context import KGContextFormatter
-    from iris_memory.knowledge_graph.kg_maintenance import KGMaintenanceManager
-    from iris_memory.knowledge_graph.kg_consistency import KGConsistencyDetector
-    from iris_memory.knowledge_graph.kg_quality import KGQualityReporter
-    from iris_memory.knowledge_graph.kg_models import KGTriple, KGEdge, KGNode
-    from iris_memory.knowledge_graph.kg_reasoning import ReasoningResult
-    from iris_memory.knowledge_graph.kg_maintenance import MaintenanceReport
-    from iris_memory.knowledge_graph.kg_consistency import ConsistencyReport
-    from iris_memory.knowledge_graph.kg_quality import QualityReport
+    from iris_memory.knowledge_graph.kg_extractor import KGExtractor
+    from iris_memory.knowledge_graph.kg_maintenance import (
+        KGMaintenanceManager,
+        MaintenanceReport,
+    )
+    from iris_memory.knowledge_graph.kg_models import KGTriple
+    from iris_memory.knowledge_graph.kg_quality import KGQualityReporter, QualityReport
+    from iris_memory.knowledge_graph.kg_reasoning import KGReasoning, ReasoningResult
+    from iris_memory.knowledge_graph.kg_storage import KGStorage
 
 logger = get_logger("module.kg")
 
@@ -34,14 +37,15 @@ logger = get_logger("module.kg")
 @dataclass
 class _PendingKGItem:
     """待批量 LLM 提取的消息项"""
+
     text: str
     user_id: str
-    group_id: Optional[str]
-    memory_id: Optional[str]
-    sender_name: Optional[str]
-    existing_entities: Optional[List[str]]
+    group_id: str | None
+    memory_id: str | None
+    sender_name: str | None
+    existing_entities: list[str] | None
     persona_id: str
-    rule_triples: List[Any] = field(default_factory=list)
+    rule_triples: list[Any] = field(default_factory=list)
     memory_ref: Any = None  # 原始 Memory 对象引用
     enqueue_time: float = 0.0
 
@@ -56,52 +60,50 @@ class KnowledgeGraphModule:
     """
 
     def __init__(self) -> None:
-        self._storage: Optional[KGStorage] = None
-        self._extractor: Optional[KGExtractor] = None
-        self._reasoning: Optional[KGReasoning] = None
-        self._formatter: Optional[KGContextFormatter] = None
-        self._maintenance: Optional[KGMaintenanceManager] = None
-        self._consistency: Optional[KGConsistencyDetector] = None
-        self._quality: Optional[KGQualityReporter] = None
-        self._scheduler: Optional[KGScheduler] = None
+        self._storage: KGStorage | None = None
+        self._extractor: KGExtractor | None = None
+        self._reasoning: KGReasoning | None = None
+        self._formatter: KGContextFormatter | None = None
+        self._maintenance: KGMaintenanceManager | None = None
+        self._consistency: KGConsistencyDetector | None = None
+        self._quality: KGQualityReporter | None = None
+        self._scheduler: KGScheduler | None = None
         self._enabled: bool = True
 
         self._cfg = get_store()
 
-        self._pending_items: List[_PendingKGItem] = []
+        self._pending_items: list[_PendingKGItem] = []
         self._batch_size: int = self._cfg.get("knowledge_graph.batch_size", 5)
-        self._batch_flush_interval: float = self._cfg.get("knowledge_graph.batch_flush_interval", 10.0)
-        self._flush_task: Optional[asyncio.Task] = None
         self._flush_lock: asyncio.Lock = asyncio.Lock()
 
     # ── 属性 ──
 
     @property
-    def storage(self) -> Optional["KGStorage"]:
+    def storage(self) -> KGStorage | None:
         return self._storage
 
     @property
-    def extractor(self) -> Optional["KGExtractor"]:
+    def extractor(self) -> KGExtractor | None:
         return self._extractor
 
     @property
-    def reasoning(self) -> Optional["KGReasoning"]:
+    def reasoning(self) -> KGReasoning | None:
         return self._reasoning
 
     @property
-    def formatter(self) -> Optional["KGContextFormatter"]:
+    def formatter(self) -> KGContextFormatter | None:
         return self._formatter
 
     @property
-    def maintenance(self) -> Optional["KGMaintenanceManager"]:
+    def maintenance(self) -> KGMaintenanceManager | None:
         return self._maintenance
 
     @property
-    def consistency(self) -> Optional["KGConsistencyDetector"]:
+    def consistency(self) -> KGConsistencyDetector | None:
         return self._consistency
 
     @property
-    def quality(self) -> Optional["KGQualityReporter"]:
+    def quality(self) -> KGQualityReporter | None:
         return self._quality
 
     @property
@@ -118,7 +120,7 @@ class KnowledgeGraphModule:
         self,
         plugin_data_path: Path,
         astrbot_context: Any = None,
-        provider_id: Optional[str] = None,
+        provider_id: str | None = None,
         kg_mode: str = "rule",
         max_depth: int = 3,
         max_nodes_per_hop: int = 10,
@@ -154,13 +156,13 @@ class KnowledgeGraphModule:
             logger.debug("KnowledgeGraphModule disabled by config")
             return
 
-        from iris_memory.knowledge_graph.kg_storage import KGStorage
-        from iris_memory.knowledge_graph.kg_extractor import KGExtractor
-        from iris_memory.knowledge_graph.kg_reasoning import KGReasoning
-        from iris_memory.knowledge_graph.kg_context import KGContextFormatter
-        from iris_memory.knowledge_graph.kg_maintenance import KGMaintenanceManager
         from iris_memory.knowledge_graph.kg_consistency import KGConsistencyDetector
+        from iris_memory.knowledge_graph.kg_context import KGContextFormatter
+        from iris_memory.knowledge_graph.kg_extractor import KGExtractor
+        from iris_memory.knowledge_graph.kg_maintenance import KGMaintenanceManager
         from iris_memory.knowledge_graph.kg_quality import KGQualityReporter
+        from iris_memory.knowledge_graph.kg_reasoning import KGReasoning
+        from iris_memory.knowledge_graph.kg_storage import KGStorage
 
         # 初始化存储
         db_path = plugin_data_path / "knowledge_graph.db"
@@ -212,15 +214,8 @@ class KnowledgeGraphModule:
 
     async def close(self) -> None:
         """关闭资源"""
-        # 先 flush 剩余的待处理项
+        # Flush remaining pending items
         await self.flush_pending_llm()
-        if self._flush_task and not self._flush_task.done():
-            self._flush_task.cancel()
-            try:
-                await self._flush_task
-            except (asyncio.CancelledError, Exception):
-                pass
-            self._flush_task = None
         if self._scheduler:
             await self._scheduler.stop()
             self._scheduler = None
@@ -233,8 +228,8 @@ class KnowledgeGraphModule:
     async def process_memory(
         self,
         memory: Any,
-        persona_id: Optional[str] = None,
-    ) -> List["KGTriple"]:
+        persona_id: str | None = None,
+    ) -> list[KGTriple]:
         """从记忆中提取三元组并存入图谱
 
         优化策略：
@@ -259,7 +254,7 @@ class KnowledgeGraphModule:
             ext = self._extractor
 
             # 1. 始终执行规则提取
-            rule_triples: List[KGTriple] = []
+            rule_triples: list[KGTriple] = []
             if ext.mode in ("rule", "hybrid"):
                 rule_triples = ext._extract_by_rules(memory.content, memory.sender_name)
                 if rule_triples:
@@ -303,8 +298,7 @@ class KnowledgeGraphModule:
                 # 缓冲区满 → 立即 flush
                 if len(self._pending_items) >= self._batch_size:
                     await self.flush_pending_llm()
-                else:
-                    self._ensure_flush_timer()
+                # Note: Timer-based flush is now handled by scheduled tasks (cron)
 
             # 5. 更新 Memory 的 graph 字段（仅规则结果）
             if rule_triples and hasattr(memory, "graph_nodes"):
@@ -313,7 +307,9 @@ class KnowledgeGraphModule:
                 for triple in rule_triples:
                     nodes_set.add(triple.subject)
                     nodes_set.add(triple.object)
-                    edges_set.add(f"{triple.subject}->{triple.predicate}->{triple.object}")
+                    edges_set.add(
+                        f"{triple.subject}->{triple.predicate}->{triple.object}"
+                    )
                 memory.graph_nodes = list(nodes_set)
                 memory.graph_edges = list(edges_set)
 
@@ -326,22 +322,7 @@ class KnowledgeGraphModule:
             logger.warning(f"Failed to process memory for KG: {e}")
             return []
 
-    # ── 批量 LLM Flush ──
-
-    def _ensure_flush_timer(self) -> None:
-        """确保定时 flush 任务在运行"""
-        if self._flush_task is None or self._flush_task.done():
-            self._flush_task = asyncio.create_task(self._auto_flush_loop())
-
-    async def _auto_flush_loop(self) -> None:
-        """定时器：等待 flush_interval 后自动 flush"""
-        try:
-            await asyncio.sleep(self._batch_flush_interval)
-            await self.flush_pending_llm()
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.warning(f"KG auto-flush error: {e}")
+    # ── 批量 LLM Flush (called by scheduled task) ──
 
     async def flush_pending_llm(self) -> None:
         """将缓冲区中的待处理项合并为 1 次 LLM 调用
@@ -358,14 +339,16 @@ class KnowledgeGraphModule:
         ext = self._extractor
 
         # 构建 batch_extract_by_llm 输入
-        batch_input: List[Dict[str, Any]] = []
+        batch_input: list[dict[str, Any]] = []
         for i, item in enumerate(items):
-            batch_input.append({
-                "text": item.text,
-                "user_id": item.user_id,
-                "sender_name": item.sender_name,
-                "index": i,
-            })
+            batch_input.append(
+                {
+                    "text": item.text,
+                    "user_id": item.user_id,
+                    "sender_name": item.sender_name,
+                    "index": i,
+                }
+            )
 
         # 批量调用 LLM
         llm_results = await ext.batch_extract_by_llm(batch_input)
@@ -382,24 +365,33 @@ class KnowledgeGraphModule:
                 # 与规则结果合并（去重）
                 merged = ext._merge_triples(item.rule_triples, llm_triples)
                 # 只存储 LLM 新增的三元组（规则部分已在 process_memory 中存储）
-                new_triples = merged[len(item.rule_triples):]
+                new_triples = merged[len(item.rule_triples) :]
             else:
                 new_triples = []
 
             for triple in new_triples:
                 await ext._store_triple(
-                    triple, item.user_id, item.group_id,
-                    item.memory_id, item.persona_id,
+                    triple,
+                    item.user_id,
+                    item.group_id,
+                    item.memory_id,
+                    item.persona_id,
                 )
 
             # 更新 memory 的 graph 字段
-            if new_triples and item.memory_ref and hasattr(item.memory_ref, "graph_nodes"):
+            if (
+                new_triples
+                and item.memory_ref
+                and hasattr(item.memory_ref, "graph_nodes")
+            ):
                 nodes_set = set(item.memory_ref.graph_nodes or [])
                 edges_set = set(item.memory_ref.graph_edges or [])
                 for triple in new_triples:
                     nodes_set.add(triple.subject)
                     nodes_set.add(triple.object)
-                    edges_set.add(f"{triple.subject}->{triple.predicate}->{triple.object}")
+                    edges_set.add(
+                        f"{triple.subject}->{triple.predicate}->{triple.object}"
+                    )
                 item.memory_ref.graph_nodes = list(nodes_set)
                 item.memory_ref.graph_edges = list(edges_set)
 
@@ -417,11 +409,11 @@ class KnowledgeGraphModule:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
-        max_depth: Optional[int] = None,
+        group_id: str | None = None,
+        max_depth: int | None = None,
         max_results: int = 10,
-        persona_id: Optional[str] = None,
-    ) -> "ReasoningResult":
+        persona_id: str | None = None,
+    ) -> ReasoningResult:
         """执行图遍历检索 + 多跳推理
 
         Args:
@@ -437,6 +429,7 @@ class KnowledgeGraphModule:
         """
         if not self.enabled or not self._reasoning:
             from iris_memory.knowledge_graph.kg_reasoning import ReasoningResult
+
             return ReasoningResult()
 
         return await self._reasoning.reason(
@@ -452,8 +445,8 @@ class KnowledgeGraphModule:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
-        persona_id: Optional[str] = None,
+        group_id: str | None = None,
+        persona_id: str | None = None,
     ) -> str:
         """执行图检索并格式化为 LLM 上下文
 
@@ -489,9 +482,9 @@ class KnowledgeGraphModule:
 
     async def get_stats(
         self,
-        user_id: Optional[str] = None,
-        group_id: Optional[str] = None,
-    ) -> Dict[str, int]:
+        user_id: str | None = None,
+        group_id: str | None = None,
+    ) -> dict[str, int]:
         """获取统计"""
         if not self._storage:
             return {"nodes": 0, "edges": 0}
@@ -500,7 +493,7 @@ class KnowledgeGraphModule:
     async def delete_user_data(
         self,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
     ) -> int:
         """删除用户图谱数据"""
         if not self._storage:
@@ -519,7 +512,7 @@ class KnowledgeGraphModule:
         self,
         confidence_threshold: float = 0.2,
         staleness_days: int = 30,
-    ) -> "MaintenanceReport":
+    ) -> MaintenanceReport:
         """执行完整图谱维护清理
 
         Args:
@@ -531,6 +524,7 @@ class KnowledgeGraphModule:
         """
         if not self._maintenance:
             from iris_memory.knowledge_graph.kg_maintenance import MaintenanceReport
+
             return MaintenanceReport()
 
         return await self._maintenance.run_full_cleanup(
@@ -541,7 +535,7 @@ class KnowledgeGraphModule:
     async def check_consistency(
         self,
         max_cycle_length: int = 3,
-    ) -> "ConsistencyReport":
+    ) -> ConsistencyReport:
         """执行完整一致性检查
 
         Args:
@@ -552,6 +546,7 @@ class KnowledgeGraphModule:
         """
         if not self._consistency:
             from iris_memory.knowledge_graph.kg_consistency import ConsistencyReport
+
             return ConsistencyReport()
 
         return await self._consistency.run_all_checks(max_cycle_length)
@@ -559,7 +554,7 @@ class KnowledgeGraphModule:
     async def generate_quality_report(
         self,
         low_confidence_threshold: float = 0.3,
-    ) -> "QualityReport":
+    ) -> QualityReport:
         """生成图谱质量报告
 
         Args:
@@ -570,6 +565,7 @@ class KnowledgeGraphModule:
         """
         if not self._quality:
             from iris_memory.knowledge_graph.kg_quality import QualityReport
+
             return QualityReport()
 
         return await self._quality.generate_report(low_confidence_threshold)
@@ -601,7 +597,7 @@ class KGScheduler:
         self._auto_cleanup_low_confidence = auto_cleanup_low_confidence
         self._low_confidence_threshold = low_confidence_threshold
         self._staleness_days = staleness_days
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._is_running = False
 
     async def start(self) -> None:

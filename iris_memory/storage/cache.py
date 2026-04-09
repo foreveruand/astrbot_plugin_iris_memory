@@ -526,9 +526,7 @@ class WorkingMemoryCache:
         self._session_order: list[str] = []  # 维护会话访问顺序
         self._lock = asyncio.Lock()
 
-    def _generate_session_key(
-        self, user_id: str, group_id: str | None = None
-    ) -> str:
+    def _generate_session_key(self, user_id: str, group_id: str | None = None) -> str:
         """生成会话键
 
         Args:
@@ -821,9 +819,7 @@ class CacheContentCompressor:
         """
         self.max_length = max_length
 
-    def compress_memory(
-        self, content: str, entities: list[Any] | None = None
-    ) -> str:
+    def compress_memory(self, content: str, entities: list[Any] | None = None) -> str:
         """压缩记忆内容
 
         策略：

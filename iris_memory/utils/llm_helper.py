@@ -21,6 +21,7 @@ from iris_memory.core.provider_utils import (
     get_provider_by_id,
     normalize_provider_id,
 )
+from iris_memory.utils.llm_rate_controller import get_rate_controller
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("llm_helper")
@@ -201,6 +202,8 @@ async def _call_llm_single(
     is_multimodal = bool(image_urls)
     result = LLMCallResult(success=False, error="No suitable LLM method found")
 
+    rate_controller = get_rate_controller()
+
     try:
         if (
             not is_multimodal
@@ -209,25 +212,29 @@ async def _call_llm_single(
             and provider_id
         ):
             try:
-                logger.debug(
-                    f"Calling context.llm_generate with provider_id={repr(provider_id)}, prompt_length={len(prompt)}"
-                )
-                resp = await context.llm_generate(
-                    chat_provider_id=provider_id,
-                    prompt=prompt,
-                )
-                if resp and hasattr(resp, "completion_text"):
-                    text = (resp.completion_text or "").strip()
-                    tokens = _estimate_tokens(prompt + text)
+                await rate_controller.acquire(provider_id)
+                try:
                     logger.debug(
-                        f"llm_generate success, response_length={len(text)}, tokens={tokens}"
+                        f"Calling context.llm_generate with provider_id={repr(provider_id)}, prompt_length={len(prompt)}"
                     )
-                    result = LLMCallResult(
-                        success=True,
-                        content=text,
-                        parsed_json=parse_llm_json(text) if parse_json else None,
-                        tokens_used=tokens,
+                    resp = await context.llm_generate(
+                        chat_provider_id=provider_id,
+                        prompt=prompt,
                     )
+                    if resp and hasattr(resp, "completion_text"):
+                        text = (resp.completion_text or "").strip()
+                        tokens = _estimate_tokens(prompt + text)
+                        logger.debug(
+                            f"llm_generate success, response_length={len(text)}, tokens={tokens}"
+                        )
+                        result = LLMCallResult(
+                            success=True,
+                            content=text,
+                            parsed_json=parse_llm_json(text) if parse_json else None,
+                            tokens_used=tokens,
+                        )
+                finally:
+                    rate_controller.release(provider_id)
             except Exception as e:
                 error_type = type(e).__name__
                 error_msg = str(e)
@@ -244,23 +251,27 @@ async def _call_llm_single(
         if not result.success and provider and hasattr(provider, "text_chat"):
             resolved_pid = provider_id or extract_provider_id(provider) or "unknown"
             try:
-                kwargs: dict[str, Any] = {"prompt": prompt, "context": []}
-                if is_multimodal:
-                    kwargs["image_urls"] = image_urls
-                    logger.debug(
-                        f"Calling provider.text_chat with multimodal, "
-                        f"provider_id={repr(resolved_pid)}, prompt_length={len(prompt)}, "
-                        f"image_count={len(image_urls)}"
+                await rate_controller.acquire(resolved_pid)
+                try:
+                    kwargs: dict[str, Any] = {"prompt": prompt, "context": []}
+                    if is_multimodal:
+                        kwargs["image_urls"] = image_urls
+                        logger.debug(
+                            f"Calling provider.text_chat with multimodal, "
+                            f"provider_id={repr(resolved_pid)}, prompt_length={len(prompt)}, "
+                            f"image_count={len(image_urls)}"
+                        )
+                    resp = await provider.text_chat(**kwargs)
+                    text = _extract_text(resp)
+                    tokens = _estimate_tokens(prompt + text)
+                    result = LLMCallResult(
+                        success=True,
+                        content=text,
+                        parsed_json=parse_llm_json(text) if parse_json else None,
+                        tokens_used=tokens,
                     )
-                resp = await provider.text_chat(**kwargs)
-                text = _extract_text(resp)
-                tokens = _estimate_tokens(prompt + text)
-                result = LLMCallResult(
-                    success=True,
-                    content=text,
-                    parsed_json=parse_llm_json(text) if parse_json else None,
-                    tokens_used=tokens,
-                )
+                finally:
+                    rate_controller.release(resolved_pid)
             except Exception as e:
                 error_type = type(e).__name__
                 error_msg = str(e)

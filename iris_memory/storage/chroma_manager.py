@@ -388,9 +388,7 @@ class ChromaManager:
         except (RuntimeError, StorageNotReadyError):
             return False
 
-    async def delete_session(
-        self, user_id: str, group_id: str | None = None
-    ) -> bool:
+    async def delete_session(self, user_id: str, group_id: str | None = None) -> bool:
         """删除会话的所有记忆（委托到 ChromaOperations）"""
         try:
             self._ensure_ready()

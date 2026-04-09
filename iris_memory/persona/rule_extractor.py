@@ -2,7 +2,6 @@
 规则提取器 - 基于关键词规则的画像提取
 """
 
-
 from iris_memory.persona.keyword_maps import ExtractionResult, KeywordMaps
 
 

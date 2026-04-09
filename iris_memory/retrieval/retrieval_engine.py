@@ -896,9 +896,7 @@ class MemoryRetrievalEngine:
 
     # ── Backward-compat thin delegates (formatting moved to MemoryFormatter) ──
 
-    def _format_memory_label(
-        self, memory: Memory, group_id: str | None = None
-    ) -> str:
+    def _format_memory_label(self, memory: Memory, group_id: str | None = None) -> str:
         return self._formatter._format_memory_label(memory, group_id)
 
     def _format_natural_style(

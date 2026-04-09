@@ -75,9 +75,7 @@ class MessageBatchProcessor:
         self.use_llm_summary: bool = use_llm_summary
         self.summary_prompt: str | None = summary_prompt
         self.on_save_callback: Callable[[], Any] | None = on_save_callback
-        self._activity_provider: ActivityAwareConfigProvider | None = (
-            activity_provider
-        )
+        self._activity_provider: ActivityAwareConfigProvider | None = activity_provider
 
         cfg: dict[str, Any] = config or {}
 

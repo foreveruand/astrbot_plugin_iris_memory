@@ -318,9 +318,7 @@ class ChromaOperations:
             logger.error(f"Failed to delete memory: {e}")
             return False
 
-    async def delete_session(
-        self, user_id: str, group_id: str | None = None
-    ) -> bool:
+    async def delete_session(self, user_id: str, group_id: str | None = None) -> bool:
         """删除会话的所有记忆
 
         Args:

@@ -1233,6 +1233,86 @@ _FIELDS: list[ConfigField] = [
         min_val=1,
         max_val=3,
     ),
+    # ── LLM 速率控制 ────────────────────────────────────────
+    _f(
+        "rate_control.max_concurrent_calls",
+        int,
+        3,
+        "最大并发 LLM 请求数",
+        access=RO,
+        min_val=1,
+        max_val=10,
+    ),
+    _f(
+        "rate_control.min_call_interval_ms",
+        int,
+        1000,
+        "最小请求间隔（毫秒）",
+        access=RO,
+        min_val=100,
+        max_val=5000,
+    ),
+    # ── 定时任务 ────────────────────────────────────────────
+    # memory_promotion
+    _f(
+        "scheduled_tasks.memory_promotion.enabled",
+        bool,
+        True,
+        "启用记忆升级定时任务",
+        access=RO,
+    ),
+    _f(
+        "scheduled_tasks.memory_promotion.cron",
+        str,
+        "30 * * * *",
+        "记忆升级 Cron 表达式",
+        access=RO,
+    ),
+    # semantic_extraction
+    _f(
+        "scheduled_tasks.semantic_extraction.enabled",
+        bool,
+        True,
+        "启用语义提取定时任务",
+        access=RO,
+    ),
+    _f(
+        "scheduled_tasks.semantic_extraction.cron",
+        str,
+        "0 */2 * * *",
+        "语义提取 Cron 表达式",
+        access=RO,
+    ),
+    # persona_batch_flush
+    _f(
+        "scheduled_tasks.persona_batch_flush.enabled",
+        bool,
+        True,
+        "启用画像批量处理定时任务",
+        access=RO,
+    ),
+    _f(
+        "scheduled_tasks.persona_batch_flush.cron",
+        str,
+        "*/5 * * * *",
+        "画像批量处理 Cron 表达式",
+        access=RO,
+    ),
+    # kg_auto_flush
+    _f(
+        "scheduled_tasks.kg_auto_flush.enabled",
+        bool,
+        True,
+        "启用 KG 批量提取定时任务",
+        access=RO,
+    ),
+    _f(
+        "scheduled_tasks.kg_auto_flush.cron",
+        str,
+        "*/5 * * * *",
+        "KG 批量提取 Cron 表达式",
+        access=RO,
+    ),
 ]
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

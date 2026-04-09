@@ -243,9 +243,7 @@ class SessionManager:
 
             return memories
 
-    def _clear_working_memory_unlocked(
-        self, user_id: str, group_id: str | None = None
-    ):
+    def _clear_working_memory_unlocked(self, user_id: str, group_id: str | None = None):
         """清除工作记忆（内部无锁版本）
 
         Args:

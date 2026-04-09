@@ -42,9 +42,7 @@ class FastTrackEvaluator:
     def __init__(self, confidence_threshold: float = 0.9):
         self._confidence_threshold = confidence_threshold
 
-    def evaluate(
-        self, memory: Memory, is_user_requested: bool
-    ) -> StorageLayer | None:
+    def evaluate(self, memory: Memory, is_user_requested: bool) -> StorageLayer | None:
         """快速通道评估
 
         Returns:

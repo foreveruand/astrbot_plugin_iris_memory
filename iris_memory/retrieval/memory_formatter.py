@@ -108,9 +108,7 @@ class MemoryFormatter:
 
         return formatted
 
-    def _format_memory_label(
-        self, memory: Memory, group_id: str | None = None
-    ) -> str:
+    def _format_memory_label(self, memory: Memory, group_id: str | None = None) -> str:
         """为记忆生成来源标签"""
         parts = []
 

@@ -839,9 +839,7 @@ class KGStorage:
             self._invalidate_cache()
             return count
 
-    async def delete_user_data(
-        self, user_id: str, group_id: str | None = None
-    ) -> int:
+    async def delete_user_data(self, user_id: str, group_id: str | None = None) -> int:
         """删除用户的所有知识图谱数据"""
         async with self._lock:
             count = 0

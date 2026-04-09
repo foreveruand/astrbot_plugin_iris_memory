@@ -3,6 +3,52 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.4] - 2026-04-10
+
+### Added
+- **LLM 请求速率控制** (`iris_memory/utils/llm_rate_controller.py`)
+  - 新增全局 LLM 速率控制器，避免突发请求触发 API 速率限制
+  - 支持并发控制（默认最大 3 个并发请求）
+  - 支持最小请求间隔（默认 1000ms）
+  - 在 `llm_helper.py` 中集成速率控制
+
+- **定时任务管理器** (`iris_memory/services/scheduled_tasks.py`)
+  - 将 LLM 相关的后台任务迁移到 AstrBot 的 CronJobManager
+  - 支持持久化任务（重启后自动恢复）
+  - 支持通过配置自定义执行周期
+
+- **配置热更新** (`iris_memory/config/events.py`)
+  - 定时任务配置变更时自动重新加载
+  - 支持 `scheduled_tasks` 和 `rate_control` 配置变更的实时生效
+  - 无需重启即可调整任务执行周期或启用/禁用任务
+
+- **新增配置项** (`_conf_schema.json`)
+  - `rate_control.max_concurrent_calls`: 最大并发 LLM 请求数
+  - `rate_control.min_call_interval_ms`: 最小请求间隔（毫秒）
+  - `scheduled_tasks.memory_promotion`: 记忆升级检查定时任务
+  - `scheduled_tasks.semantic_extraction`: 语义提取定时任务
+  - `scheduled_tasks.persona_batch_flush`: 画像批量处理定时任务
+  - `scheduled_tasks.kg_auto_flush`: KG 三元组批量提取定时任务
+
+### Changed
+- **后台任务迁移到 CronJobManager**
+  - `SessionLifecycleManager._promotion_loop()` 移除，改为定时任务
+  - `SessionLifecycleManager._extraction_loop()` 移除，改为定时任务
+  - `PersonaBatchProcessor._flush_loop()` 移除，改为定时任务
+  - `KnowledgeGraphModule._auto_flush_loop()` 移除，改为定时任务
+  - 仅保留非 LLM 的 `_cleanup_loop()` 为 asyncio 任务
+
+### Fixed
+- **Gemini API 429 错误优化**
+  - 通过速率控制避免突发并发请求触发临时速率限制
+  - 即使总体 RPM/RPD 未超限，短时间内的突发请求也会被限制
+
+- **定时任务配置生效问题**
+  - 在 `schema.py` 中添加缺失的 `scheduled_tasks` 和 `rate_control` 配置项定义
+  - 修复配置开关关闭时仍然注册定时任务的问题
+  - 修复自定义 Cron 表达式未生效的问题
+  - ConfigStore 现在能正确读取用户配置中的 `enabled=False` 和自定义 `cron` 值
+
 ## [v1.11.3] - 2026-04-08
 
 ### Fixed

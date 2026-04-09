@@ -9,20 +9,21 @@
 - 消费者: PersonaBatchProcessor 按阈值或定时批量提取
 - 降级: 处理器不可用时自动回退到即时提取
 """
+
 from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
-from iris_memory.utils.logger import get_logger
-from iris_memory.utils.command_utils import SessionKeyBuilder
 from iris_memory.persona.keyword_maps import ExtractionResult
+from iris_memory.utils.command_utils import SessionKeyBuilder
+from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from iris_memory.persona.persona_extractor import PersonaExtractor
-    from iris_memory.models.user_persona import UserPersona
 
 logger = get_logger("persona_batch_processor")
 
@@ -35,13 +36,13 @@ class PersonaQueuedMessage:
     """待处理的画像提取消息"""
 
     content: str = ""
-    summary: Optional[str] = None
+    summary: str | None = None
     memory_type: str = ""
     confidence: float = 0.5
-    memory_id: Optional[str] = None
+    memory_id: str | None = None
     user_id: str = ""
-    group_id: Optional[str] = None
-    sender_name: Optional[str] = None  # 发送者昵称/姓名
+    group_id: str | None = None
+    sender_name: str | None = None  # 发送者昵称/姓名
     enqueue_time: float = field(default_factory=time.time)
 
     # 内容自动截断
@@ -51,7 +52,7 @@ class PersonaQueuedMessage:
         if self.content and len(self.content) > self.MAX_CONTENT_LENGTH:
             self.content = self.content[: self.MAX_CONTENT_LENGTH]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "content": self.content,
             "summary": self.summary,
@@ -65,7 +66,7 @@ class PersonaQueuedMessage:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PersonaQueuedMessage":
+    def from_dict(cls, data: dict[str, Any]) -> PersonaQueuedMessage:
         return cls(
             content=data.get("content", ""),
             summary=data.get("summary"),
@@ -108,15 +109,11 @@ class PersonaBatchProcessor:
         batch_threshold: int = 5,
         flush_interval: int = 300,
         batch_max_size: int = 10,
-        apply_result_callback: Optional[
-            Callable[
-                [str, str, ExtractionResult, PersonaQueuedMessage],
-                Any,
-            ]
-        ] = None,
-        working_memory_callback: Optional[
-            Callable[[str, Optional[str]], Any]
-        ] = None,
+        apply_result_callback: Callable[
+            [str, str, ExtractionResult, PersonaQueuedMessage], Any
+        ]
+        | None = None,
+        working_memory_callback: Callable[[str, str | None], Any] | None = None,
     ) -> None:
         """
         初始化画像批量处理器
@@ -137,10 +134,10 @@ class PersonaBatchProcessor:
         self._working_memory_callback = working_memory_callback
 
         # 会话队列: session_key -> List[PersonaQueuedMessage]
-        self._queues: Dict[str, List[PersonaQueuedMessage]] = {}
+        self._queues: dict[str, list[PersonaQueuedMessage]] = {}
 
         # 后台任务
-        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_task: asyncio.Task | None = None
         self._is_running: bool = False
         self._lock = asyncio.Lock()
 
@@ -152,36 +149,30 @@ class PersonaBatchProcessor:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """启动后台定时刷新任务"""
+        """Start the processor.
+
+        Note: Periodic flush is now handled by AstrBot's cron_manager.
+        The processor only handles queue capacity and threshold-based flushing.
+        """
         if self._is_running:
             return
         self._is_running = True
-        self._flush_task = asyncio.create_task(self._flush_loop())
         logger.debug(
             f"PersonaBatchProcessor started "
             f"(threshold={self._batch_threshold}, "
-            f"interval={self._flush_interval}s, "
             f"max_size={self._batch_max_size})"
         )
 
     async def stop(self) -> None:
-        """停止处理器，处理剩余队列"""
+        """Stop the processor and flush remaining queues."""
         if not self._is_running:
             return
         logger.debug("[Hot-Reload] Stopping PersonaBatchProcessor...")
         self._is_running = False
 
-        if self._flush_task:
-            self._flush_task.cancel()
-            try:
-                await self._flush_task
-            except asyncio.CancelledError:
-                pass
-            self._flush_task = None
-
-        # 处理剩余队列
+        # Flush remaining queues
         try:
-            await self._flush_all_queues()
+            await self.flush_all_queues()
         except Exception as e:
             logger.warning(f"Error flushing remaining queues during stop: {e}")
 
@@ -203,12 +194,12 @@ class PersonaBatchProcessor:
         content: str,
         user_id: str,
         *,
-        group_id: Optional[str] = None,
-        summary: Optional[str] = None,
+        group_id: str | None = None,
+        summary: str | None = None,
         memory_type: str = "",
         confidence: float = 0.5,
-        memory_id: Optional[str] = None,
-        sender_name: Optional[str] = None,
+        memory_id: str | None = None,
+        sender_name: str | None = None,
     ) -> bool:
         """将消息加入画像提取队列
 
@@ -255,8 +246,7 @@ class PersonaBatchProcessor:
             self._stats.messages_enqueued += 1
 
             logger.debug(
-                f"Persona message queued for {session_key}, "
-                f"queue size: {len(queue)}"
+                f"Persona message queued for {session_key}, queue size: {len(queue)}"
             )
 
             # 数量触发器
@@ -282,7 +272,7 @@ class PersonaBatchProcessor:
         # 限制单次处理数量
         if len(queue) > self._batch_max_size:
             # 超出部分放回队列
-            self._queues[session_key] = queue[self._batch_max_size:]
+            self._queues[session_key] = queue[self._batch_max_size :]
             queue = queue[: self._batch_max_size]
 
         try:
@@ -296,7 +286,7 @@ class PersonaBatchProcessor:
     async def _batch_extract_and_apply(
         self,
         session_key: str,
-        messages: List[PersonaQueuedMessage],
+        messages: list[PersonaQueuedMessage],
     ) -> None:
         """合并消息、调用提取器、应用结果"""
         self._stats.batches_processed += 1
@@ -307,8 +297,7 @@ class PersonaBatchProcessor:
         merged_summary = self._merge_summaries(messages)
 
         logger.debug(
-            f"Processing persona batch for {session_key}: "
-            f"{msg_count} message(s)"
+            f"Processing persona batch for {session_key}: {msg_count} message(s)"
         )
 
         # 调用现有 PersonaExtractor（复用，不改变接口）
@@ -325,9 +314,7 @@ class PersonaBatchProcessor:
 
         # 检查提取结果是否有效
         if result.confidence <= 0 and not result.interests:
-            logger.debug(
-                f"Persona extraction returned empty result for {session_key}"
-            )
+            logger.debug(f"Persona extraction returned empty result for {session_key}")
             return
 
         # 应用结果到每条消息对应的画像
@@ -343,8 +330,7 @@ class PersonaBatchProcessor:
                         await callback_result
                 except Exception as e:
                     logger.warning(
-                        f"Failed to apply persona result for "
-                        f"user={msg.user_id}: {e}"
+                        f"Failed to apply persona result for user={msg.user_id}: {e}"
                     )
 
     # ------------------------------------------------------------------
@@ -352,7 +338,7 @@ class PersonaBatchProcessor:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _merge_messages(messages: List[PersonaQueuedMessage]) -> str:
+    def _merge_messages(messages: list[PersonaQueuedMessage]) -> str:
         """合并多条消息为格式化文本
 
         每条消息标注序号，保留消息边界信息。
@@ -360,7 +346,7 @@ class PersonaBatchProcessor:
         if len(messages) == 1:
             return messages[0].content
 
-        parts: List[str] = []
+        parts: list[str] = []
         for i, msg in enumerate(messages, 1):
             content = msg.content.strip()
             if content:
@@ -368,7 +354,7 @@ class PersonaBatchProcessor:
         return "\n".join(parts)
 
     @staticmethod
-    def _merge_summaries(messages: List[PersonaQueuedMessage]) -> Optional[str]:
+    def _merge_summaries(messages: list[PersonaQueuedMessage]) -> str | None:
         """合并消息摘要"""
         summaries = [m.summary for m in messages if m.summary]
         if not summaries:
@@ -378,7 +364,21 @@ class PersonaBatchProcessor:
         return " | ".join(summaries)
 
     # ------------------------------------------------------------------
-    # 定时刷新
+    # Scheduled flush (called by cron)
+    # ------------------------------------------------------------------
+
+    async def flush_all_queues(self) -> None:
+        """Process all non-empty queues.
+
+        This method is called by the scheduled task manager.
+        """
+        async with self._lock:
+            non_empty_keys = [k for k, v in self._queues.items() if v]
+            for key in non_empty_keys:
+                await self._process_queue(key)
+
+    # ------------------------------------------------------------------
+    # 序列化 / 反序列化（供 KV Store 持久化）
     # ------------------------------------------------------------------
 
     async def _flush_loop(self) -> None:
@@ -395,9 +395,7 @@ class PersonaBatchProcessor:
     async def _flush_all_queues(self) -> None:
         """处理所有非空队列"""
         async with self._lock:
-            non_empty_keys = [
-                k for k, v in self._queues.items() if v
-            ]
+            non_empty_keys = [k for k, v in self._queues.items() if v]
             for key in non_empty_keys:
                 await self._process_queue(key)
 
@@ -405,7 +403,7 @@ class PersonaBatchProcessor:
     # 序列化 / 反序列化（供 KV Store 持久化）
     # ------------------------------------------------------------------
 
-    async def serialize_queues(self) -> Dict[str, Any]:
+    async def serialize_queues(self) -> dict[str, Any]:
         """序列化队列状态"""
         async with self._lock:
             return {
@@ -417,7 +415,7 @@ class PersonaBatchProcessor:
                 "stats": self._stats.to_dict(),
             }
 
-    async def deserialize_and_clear(self, data: Dict[str, Any]) -> None:
+    async def deserialize_and_clear(self, data: dict[str, Any]) -> None:
         """反序列化队列后立即清空
 
         重启时加载队列数据但不处理（清空策略），
@@ -449,8 +447,8 @@ class PersonaBatchProcessor:
     async def get_working_memory_for_session(
         self,
         user_id: str,
-        group_id: Optional[str] = None,
-    ) -> List[Any]:
+        group_id: str | None = None,
+    ) -> list[Any]:
         """查询指定会话的工作记忆
 
         通过回调函数从 SessionManager 获取工作记忆，
@@ -478,7 +476,7 @@ class PersonaBatchProcessor:
     async def get_working_memory_context(
         self,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         max_memories: int = 5,
     ) -> str:
         """获取工作记忆上下文文本
@@ -522,15 +520,11 @@ class PersonaBatchProcessor:
     # 统计与健康检查
     # ------------------------------------------------------------------
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         stats = self._stats.to_dict()
-        stats["pending_queues"] = len(
-            [k for k, v in self._queues.items() if v]
-        )
-        stats["total_pending"] = sum(
-            len(v) for v in self._queues.values()
-        )
+        stats["pending_queues"] = len([k for k, v in self._queues.items() if v])
+        stats["total_pending"] = sum(len(v) for v in self._queues.values())
         stats["is_running"] = self._is_running
         return stats
 
@@ -554,7 +548,7 @@ class PersonaBatchStats:
     llm_calls: int = 0
     extraction_errors: int = 0
 
-    def to_dict(self) -> Dict[str, int]:
+    def to_dict(self) -> dict[str, int]:
         return {
             "messages_enqueued": self.messages_enqueued,
             "messages_processed": self.messages_processed,
@@ -565,7 +559,7 @@ class PersonaBatchStats:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PersonaBatchStats":
+    def from_dict(cls, data: dict[str, Any]) -> PersonaBatchStats:
         return cls(
             messages_enqueued=data.get("messages_enqueued", 0),
             messages_processed=data.get("messages_processed", 0),

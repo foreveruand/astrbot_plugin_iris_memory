@@ -296,7 +296,6 @@ class IoService:
             nodes = parsed.get("nodes", [])
             edges = parsed.get("edges", [])
 
-
             storage = kg.storage
             async with storage._lock:
                 assert storage._conn

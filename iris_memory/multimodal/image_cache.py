@@ -88,9 +88,7 @@ class ImageCacheManager:
             return hashlib.md5(identifier.encode()).hexdigest()[:16]
         return None
 
-    def get_from_cache(
-        self, image_hash: str | None
-    ) -> ImageAnalysisResult | None:
+    def get_from_cache(self, image_hash: str | None) -> ImageAnalysisResult | None:
         """从缓存获取分析结果
 
         Args:

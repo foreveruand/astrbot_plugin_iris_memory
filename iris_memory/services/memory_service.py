@@ -26,34 +26,35 @@ refs:
 - AstrBot API: astrbot.api.star.Context
 - AstrBot API: astrbot.api.AstrBotConfig
 """
+
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from astrbot.api import AstrBotConfig
 from astrbot.api.star import Context
-
-from iris_memory.config import init_store, ConfigStore
+from iris_memory.config import ConfigStore, init_store
 from iris_memory.core.constants import LogTemplates
+from iris_memory.services.business_service import BusinessService, BusinessServiceDeps
 from iris_memory.services.initializer import InitializerDeps, ServiceInitializer
 from iris_memory.services.modules.analysis_module import AnalysisModule
 from iris_memory.services.modules.capture_module import CaptureModule
+from iris_memory.services.modules.cooldown_module import CooldownModule
 from iris_memory.services.modules.kg_module import KnowledgeGraphModule
 from iris_memory.services.modules.llm_enhanced_module import LLMEnhancedModule
 from iris_memory.services.modules.proactive_module import ProactiveModule
 from iris_memory.services.modules.retrieval_module import RetrievalModule
 from iris_memory.services.modules.storage_module import StorageModule
-from iris_memory.services.modules.cooldown_module import CooldownModule
-from iris_memory.services.shared_state import SharedState
-from iris_memory.services.business_service import BusinessService, BusinessServiceDeps
 from iris_memory.services.persistence_service import PersistenceService
+from iris_memory.services.scheduled_tasks import ScheduledTaskManager
+from iris_memory.services.shared_state import SharedState
 from iris_memory.utils.logger import get_logger
 
 # 简单属性代理：attribute_name → (module_name, sub_attr)
 # MemoryService.__getattr__ 使用此表把访问委托到 self._deps.<module>.<attr>
-_PROXY_ATTRS: Dict[str, Tuple[str, str]] = {
+_PROXY_ATTRS: dict[str, tuple[str, str]] = {
     # storage module
     "chroma_manager": ("storage", "chroma_manager"),
     "session_manager": ("storage", "session_manager"),
@@ -79,7 +80,7 @@ _PROXY_ATTRS: Dict[str, Tuple[str, str]] = {
 }
 
 # SharedState 属性代理
-_STATE_ATTRS: Dict[str, str] = {
+_STATE_ATTRS: dict[str, str] = {
     "_user_emotional_states": "user_emotional_states",
     "_user_personas": "user_personas",
     "_recently_injected": "recently_injected",
@@ -100,12 +101,14 @@ class MemoryService:
         self.context = context
         self.config = config
         self.plugin_data_path = plugin_data_path
-        self.cfg: ConfigStore = init_store(user_config=config, plugin_data_path=plugin_data_path)
+        self.cfg: ConfigStore = init_store(
+            user_config=config, plugin_data_path=plugin_data_path
+        )
         self.logger = get_logger("memory_service")
 
         self._is_initialized: bool = False
         self._init_lock: asyncio.Lock = asyncio.Lock()
-        self._module_init_status: Dict[str, bool] = {}
+        self._module_init_status: dict[str, bool] = {}
 
         self._deps = InitializerDeps(
             context=context,
@@ -116,13 +119,14 @@ class MemoryService:
 
         self._initializer = ServiceInitializer(self._deps)
 
-        self._member_identity: Optional[Any] = None
-        self._image_analyzer: Optional[Any] = None
-        self._activity_tracker: Optional[Any] = None
-        self._activity_provider: Optional[Any] = None
+        self._member_identity: Any | None = None
+        self._image_analyzer: Any | None = None
+        self._activity_tracker: Any | None = None
+        self._activity_provider: Any | None = None
+        self._scheduled_task_manager: ScheduledTaskManager | None = None
 
-        self._business: Optional[BusinessService] = None
-        self._persistence: Optional[PersistenceService] = None
+        self._business: BusinessService | None = None
+        self._persistence: PersistenceService | None = None
 
     @property
     def storage(self) -> StorageModule:
@@ -176,9 +180,7 @@ class MemoryService:
             return getattr(module, attr)
         if name in _STATE_ATTRS:
             return getattr(self._deps.shared_state, _STATE_ATTRS[name])
-        raise AttributeError(
-            f"'{type(self).__name__}' has no attribute '{name}'"
-        )
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 
     @property
     def image_analyzer(self):
@@ -186,7 +188,7 @@ class MemoryService:
 
     @property
     def chat_history_buffer(self):
-        if '_chat_history_buffer' in self.__dict__:
+        if "_chat_history_buffer" in self.__dict__:
             return self._chat_history_buffer
         return self.storage.chat_history_buffer
 
@@ -202,11 +204,15 @@ class MemoryService:
     def activity_provider(self):
         return self._activity_provider
 
+    @property
+    def scheduled_task_manager(self) -> ScheduledTaskManager | None:
+        return self._scheduled_task_manager
+
     def is_embedding_ready(self) -> bool:
         """检查 embedding 系统是否就绪"""
         return self.storage.is_embedding_ready()
 
-    def health_check(self) -> Dict[str, Any]:
+    def health_check(self) -> dict[str, Any]:
         """统一健康检查
 
         返回各模块和关键组件的运行状态，便于运维排查。
@@ -218,7 +224,7 @@ class MemoryService:
               - modules: Dict[str, bool]  各模块初始化状态
               - components: Dict[str, str]  关键组件可用性
         """
-        components: Dict[str, str] = {}
+        components: dict[str, str] = {}
 
         components["chroma_manager"] = (
             "available" if self.chroma_manager else "unavailable"
@@ -226,9 +232,7 @@ class MemoryService:
         components["session_manager"] = (
             "available" if self.session_manager else "unavailable"
         )
-        components["embedding"] = (
-            "ready" if self.is_embedding_ready() else "not_ready"
-        )
+        components["embedding"] = "ready" if self.is_embedding_ready() else "not_ready"
 
         components["capture_engine"] = (
             "available" if self.capture_engine else "unavailable"
@@ -240,8 +244,11 @@ class MemoryService:
             "running" if self.batch_processor else "unavailable"
         )
         components["persona_batch_processor"] = (
-            "running" if (self._persona_batch_processor
-                         and self._persona_batch_processor.is_running)
+            "running"
+            if (
+                self._persona_batch_processor
+                and self._persona_batch_processor.is_running
+            )
             else "unavailable"
         )
 
@@ -251,13 +258,9 @@ class MemoryService:
         components["proactive_manager"] = (
             "enabled" if self.proactive_manager else "disabled"
         )
-        components["image_analyzer"] = (
-            "enabled" if self.image_analyzer else "disabled"
-        )
+        components["image_analyzer"] = "enabled" if self.image_analyzer else "disabled"
 
-        failed_modules = [
-            k for k, v in self._module_init_status.items() if not v
-        ]
+        failed_modules = [k for k, v in self._module_init_status.items() if not v]
         if not self._is_initialized:
             status = "unhealthy"
         elif failed_modules:
@@ -280,6 +283,7 @@ class MemoryService:
         - 核心组件（storage/capture/retrieval）失败则整体失败
         - 增强组件（KG/proactive/image）失败则降级运行
         - 初始化完成后创建 BusinessService 和 PersistenceService
+        - 最后初始化定时任务管理器
         """
         async with self._init_lock:
             try:
@@ -299,6 +303,14 @@ class MemoryService:
 
                 # 在所有组件和服务就绪后，注入主动回复发送器
                 self._setup_proactive_reply_sender()
+
+                # Initialize scheduled tasks (after all modules are ready)
+                self._scheduled_task_manager = ScheduledTaskManager(
+                    context=self.context,
+                    service=self,
+                )
+                await self._scheduled_task_manager.initialize(self.cfg)
+                self._module_init_status["scheduled_tasks"] = True
 
                 self._is_initialized = True
 
@@ -348,7 +360,9 @@ class MemoryService:
         )
 
         if self.capture.batch_processor:
-            self.capture.batch_processor.on_save_callback = self._deferred_save_batch_queues
+            self.capture.batch_processor.on_save_callback = (
+                self._deferred_save_batch_queues
+            )
 
     def _setup_proactive_reply_sender(self) -> None:
         """创建并注入主动回复发送器
@@ -405,7 +419,9 @@ class MemoryService:
             sender_name = getattr(msg, "sender_name", None)
             if sender_name and sender_name != persona.display_name:
                 persona.display_name = sender_name
-                self.logger.debug(f"Batch update: display_name for user={user_id}: {sender_name}")
+                self.logger.debug(
+                    f"Batch update: display_name for user={user_id}: {sender_name}"
+                )
 
             changes = persona.apply_extraction_result(
                 result,
@@ -417,10 +433,7 @@ class MemoryService:
                 changes = self._fallback_rule_update(persona, msg)
 
             if changes:
-                persona_log.update_applied(
-                    user_id,
-                    [c.to_dict() for c in changes]
-                )
+                persona_log.update_applied(user_id, [c.to_dict() for c in changes])
                 self.logger.debug(
                     f"Persona batch result applied for user={user_id}: "
                     f"{len(changes)} change(s)"
@@ -451,12 +464,12 @@ class MemoryService:
         self,
         message: str,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         is_user_requested: bool = False,
-        context: Optional[Dict[str, Any]] = None,
-        sender_name: Optional[str] = None,
-        persona_id: Optional[str] = None,
-    ) -> Optional[Any]:
+        context: dict[str, Any] | None = None,
+        sender_name: str | None = None,
+        persona_id: str | None = None,
+    ) -> Any | None:
         """捕获并存储记忆"""
         if not self._is_initialized or not self._business:
             return None
@@ -474,35 +487,36 @@ class MemoryService:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         top_k: int = 5,
-        persona_id: Optional[str] = None,
-    ) -> List[Any]:
+        persona_id: str | None = None,
+    ) -> list[Any]:
         """搜索记忆"""
         if not self._is_initialized or not self._business:
             return []
         return await self._business.search_memories(
-            query=query, user_id=user_id, group_id=group_id, top_k=top_k, persona_id=persona_id
+            query=query,
+            user_id=user_id,
+            group_id=group_id,
+            top_k=top_k,
+            persona_id=persona_id,
         )
 
-    async def clear_memories(self, user_id: str, group_id: Optional[str]) -> bool:
+    async def clear_memories(self, user_id: str, group_id: str | None) -> bool:
         """清除用户记忆"""
         if not self._is_initialized or not self._business:
             return False
         return await self._business.clear_memories(user_id, group_id)
 
-    async def delete_private_memories(self, user_id: str) -> Tuple[bool, int]:
+    async def delete_private_memories(self, user_id: str) -> tuple[bool, int]:
         """删除用户私聊记忆"""
         if not self._is_initialized or not self._business:
             return False, 0
         return await self._business.delete_private_memories(user_id)
 
     async def delete_group_memories(
-        self,
-        group_id: str,
-        scope_filter: Optional[str],
-        user_id: Optional[str] = None
-    ) -> Tuple[bool, int]:
+        self, group_id: str, scope_filter: str | None, user_id: str | None = None
+    ) -> tuple[bool, int]:
         """删除群聊记忆"""
         if not self._is_initialized or not self._business:
             return False, 0
@@ -510,17 +524,15 @@ class MemoryService:
             group_id, scope_filter, user_id
         )
 
-    async def delete_all_memories(self) -> Tuple[bool, int]:
+    async def delete_all_memories(self) -> tuple[bool, int]:
         """删除所有记忆"""
         if not self._is_initialized or not self._business:
             return False, 0
         return await self._business.delete_all_memories()
 
     async def get_memory_stats(
-        self,
-        user_id: str,
-        group_id: Optional[str]
-    ) -> Dict[str, Any]:
+        self, user_id: str, group_id: str | None
+    ) -> dict[str, Any]:
         """获取记忆统计"""
         if not self._is_initialized or not self._business:
             return {}
@@ -530,11 +542,11 @@ class MemoryService:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         image_context: str = "",
-        sender_name: Optional[str] = None,
-        reply_context: Optional[str] = None,
-        persona_id: Optional[str] = None,
+        sender_name: str | None = None,
+        reply_context: str | None = None,
+        persona_id: str | None = None,
     ) -> str:
         """准备 LLM 上下文"""
         if not self._is_initialized or not self._business:
@@ -551,13 +563,13 @@ class MemoryService:
 
     async def analyze_images(
         self,
-        message_chain: List[Any],
+        message_chain: list[Any],
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         context_text: str,
         umo: str,
-        session_id: str
-    ) -> Tuple[str, str]:
+        session_id: str,
+    ) -> tuple[str, str]:
         """分析图片"""
         if not self._is_initialized or not self._business:
             return "", ""
@@ -574,11 +586,11 @@ class MemoryService:
         self,
         message: str,
         user_id: str,
-        group_id: Optional[str],
-        context: Dict[str, Any],
+        group_id: str | None,
+        context: dict[str, Any],
         umo: str,
         image_description: str = "",
-        persona_id: Optional[str] = None,
+        persona_id: str | None = None,
     ) -> None:
         """处理消息批次"""
         if not self._is_initialized or not self._business:
@@ -596,14 +608,14 @@ class MemoryService:
     async def record_chat_message(
         self,
         sender_id: str,
-        sender_name: Optional[str],
+        sender_name: str | None,
         content: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         is_bot: bool = False,
-        session_user_id: Optional[str] = None,
-        reply_sender_name: Optional[str] = None,
-        reply_sender_id: Optional[str] = None,
-        reply_content: Optional[str] = None,
+        session_user_id: str | None = None,
+        reply_sender_name: str | None = None,
+        reply_sender_id: str | None = None,
+        reply_content: str | None = None,
     ) -> None:
         """记录一条聊天消息到缓冲区"""
         if not self._is_initialized or not self._business:
@@ -620,13 +632,13 @@ class MemoryService:
             reply_content=reply_content,
         )
 
-    def update_session_activity(self, user_id: str, group_id: Optional[str]) -> None:
+    def update_session_activity(self, user_id: str, group_id: str | None) -> None:
         """更新会话活动"""
         if not self._is_initialized or not self._business:
             return
         self._business.update_session_activity(user_id, group_id)
 
-    async def activate_session(self, user_id: str, group_id: Optional[str]) -> None:
+    async def activate_session(self, user_id: str, group_id: str | None) -> None:
         """激活会话"""
         if not self._is_initialized or not self._business:
             return
@@ -657,8 +669,14 @@ class MemoryService:
 
         热更新友好：
         1. 立即标记为未初始化，阻止新操作进入
-        2. 委托给 PersistenceService 执行停止/清理逻辑
+        2. 关闭定时任务管理器
+        3. 委托给 PersistenceService 执行停止/清理逻辑
         """
         self._is_initialized = False
+
+        if self._scheduled_task_manager:
+            await self._scheduled_task_manager.shutdown()
+            self._scheduled_task_manager = None
+
         if self._persistence:
             await self._persistence.terminate()

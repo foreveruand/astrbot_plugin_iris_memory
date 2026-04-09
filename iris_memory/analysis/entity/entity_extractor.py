@@ -561,9 +561,7 @@ class EntityExtractor:
 
 
 # 便捷函数
-def extract_entities(
-    text: str, reference_date: datetime | None = None
-) -> list[Entity]:
+def extract_entities(text: str, reference_date: datetime | None = None) -> list[Entity]:
     """便捷函数：从文本中提取所有实体
 
     Args:

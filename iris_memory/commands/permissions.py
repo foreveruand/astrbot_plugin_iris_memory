@@ -4,7 +4,6 @@
 提供命令权限验证功能，隔离权限逻辑与业务逻辑。
 """
 
-
 from astrbot.api.event import AstrMessageEvent
 from iris_memory.utils.event_utils import get_group_id
 

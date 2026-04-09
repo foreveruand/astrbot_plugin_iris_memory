@@ -119,9 +119,7 @@ class ChromaInitializer:
                 raise
         return existing_collection
 
-    async def _detect_and_init_embedding(
-        self, existing_collection: Any
-    ) -> int | None:
+    async def _detect_and_init_embedding(self, existing_collection: Any) -> int | None:
         """检测并初始化嵌入"""
         mgr = self._mgr
         detected_dimension: int | None = None

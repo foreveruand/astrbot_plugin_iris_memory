@@ -230,7 +230,6 @@ class MemoryCaptureEngine:
 
             memory_type = self._determine_memory_type(triggers, emotion_result)
 
-
             scope_context = {
                 "is_group": bool(group_id),
                 "group_id": group_id,
