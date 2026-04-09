@@ -10,10 +10,11 @@
 
 from __future__ import annotations
 
-from typing import Callable, List, Optional, Set, TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from iris_memory.retrieval.strategies.base import StrategyParams
 from iris_memory.retrieval.retrieval_logger import retrieval_log
+from iris_memory.retrieval.strategies.base import StrategyParams
 from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -43,8 +44,8 @@ class GraphAugmentedHybridStrategy:
         merge_memories_fn: Callable,
         enable_emotion_aware: bool = True,
         enable_working_memory_merge: bool = True,
-        session_manager: Optional[object] = None,
-        kg_storage: Optional[object] = None,
+        session_manager: object | None = None,
+        kg_storage: object | None = None,
     ) -> None:
         self._chroma = chroma_manager
         self._update_access = update_access_fn
@@ -57,7 +58,7 @@ class GraphAugmentedHybridStrategy:
         self._session_manager = session_manager
         self._kg = kg_storage
 
-    async def execute(self, params: StrategyParams) -> List["Memory"]:
+    async def execute(self, params: StrategyParams) -> list[Memory]:
         # 阶段 1: 向量检索
         candidate_memories = await self._chroma.query_memories(
             query_text=params.query,
@@ -83,7 +84,7 @@ class GraphAugmentedHybridStrategy:
                 params.group_id,
             )
             if graph_expanded:
-                seen_ids: Set[str] = {m.id for m in candidate_memories}
+                seen_ids: set[str] = {m.id for m in candidate_memories}
                 for mem in graph_expanded:
                     if mem.id not in seen_ids:
                         candidate_memories.append(mem)
@@ -155,12 +156,12 @@ class GraphAugmentedHybridStrategy:
 
     async def _graph_expand(
         self,
-        seed_memories: List["Memory"],
+        seed_memories: list[Memory],
         user_id: str,
-        group_id: Optional[str],
-    ) -> List["Memory"]:
+        group_id: str | None,
+    ) -> list[Memory]:
         """对种子记忆进行 1 跳图遍历"""
-        expanded_memory_ids: Set[str] = set()
+        expanded_memory_ids: set[str] = set()
 
         for memory in seed_memories:
             if not getattr(memory, "graph_nodes", None):
@@ -181,7 +182,7 @@ class GraphAugmentedHybridStrategy:
                 except Exception:
                     continue
 
-        expanded: List["Memory"] = []
+        expanded: list[Memory] = []
         for mid in expanded_memory_ids:
             try:
                 mem = await self._chroma.get_memory(mid)

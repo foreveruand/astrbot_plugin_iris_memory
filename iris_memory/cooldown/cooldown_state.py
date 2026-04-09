@@ -3,12 +3,12 @@
 
 不可变数据类，记录某个群聊的冷却状态信息。
 """
+
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -22,11 +22,12 @@ class CooldownState:
         initiated_by: 触发者类型，"user" 或 "llm"
         reason: 冷却原因说明
     """
+
     group_id: str
     started_at: datetime
     expires_at: datetime
     initiated_by: str
-    reason: Optional[str] = None
+    reason: str | None = None
 
     @property
     def is_active(self) -> bool:

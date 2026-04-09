@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -25,7 +25,7 @@ class LlmWebService:
                 pass
         return self._registry
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         reg = self._get_registry()
         if not reg:
             return {"available": False}
@@ -46,7 +46,7 @@ class LlmWebService:
             logger.error(f"LLM get_summary error: {e}")
             return {"available": True, "error": str(e)}
 
-    def get_aggregated(self) -> Dict[str, Any]:
+    def get_aggregated(self) -> dict[str, Any]:
         reg = self._get_registry()
         if not reg:
             return {"available": False}
@@ -68,7 +68,7 @@ class LlmWebService:
             logger.error(f"LLM get_aggregated error: {e}")
             return {"available": True, "error": str(e)}
 
-    def get_recent(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_recent(self, limit: int = 50) -> list[dict[str, Any]]:
         reg = self._get_registry()
         if not reg:
             return []
@@ -94,7 +94,7 @@ class LlmWebService:
             logger.error(f"LLM get_recent error: {e}")
             return []
 
-    def get_by_provider(self, provider_id: str) -> Dict[str, Any]:
+    def get_by_provider(self, provider_id: str) -> dict[str, Any]:
         reg = self._get_registry()
         if not reg:
             return {"available": False}
@@ -103,7 +103,7 @@ class LlmWebService:
         except Exception as e:
             return {"error": str(e)}
 
-    def get_by_source(self, source: str) -> Dict[str, Any]:
+    def get_by_source(self, source: str) -> dict[str, Any]:
         reg = self._get_registry()
         if not reg:
             return {"available": False}

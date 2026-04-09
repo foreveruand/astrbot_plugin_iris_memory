@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from iris_memory.retrieval.strategies.base import StrategyParams
 
@@ -20,7 +20,7 @@ class VectorOnlyStrategy:
         self._chroma = chroma_manager
         self._update_access = update_access_fn
 
-    async def execute(self, params: StrategyParams) -> List["Memory"]:
+    async def execute(self, params: StrategyParams) -> list[Memory]:
         memories = await self._chroma.query_memories(
             query_text=params.query,
             user_id=params.user_id,

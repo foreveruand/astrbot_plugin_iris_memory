@@ -5,13 +5,12 @@
 """
 
 import re
-from datetime import datetime, timedelta
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from iris_memory.utils.logger import get_logger
-from iris_memory.models.memory import Memory
-from iris_memory.core.types import QualityLevel
 from iris_memory.capture.conflict.similarity_calculator import SimilarityCalculator
+from iris_memory.core.types import QualityLevel
+from iris_memory.models.memory import Memory
+from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from iris_memory.knowledge_graph.kg_storage import KGStorage
@@ -21,159 +20,181 @@ logger = get_logger("conflict_resolver")
 
 class ConflictResolver:
     """记忆冲突解决器
-    
+
     负责：
     - 记忆去重检测
     - 语义冲突检测
     - 冲突解决策略执行
     """
-    
+
     # 反义词对列表
     ANTONYM_PAIRS = [
-        ("喜欢", "讨厌"), ("喜欢", "恨"), ("爱", "恨"),
-        ("开心", "难过"), ("高兴", "伤心"), ("快乐", "痛苦"),
-        ("好", "坏"), ("优秀", "差劲"), ("成功", "失败"),
-        ("支持", "反对"), ("同意", "拒绝"),
-        ("有", "没有"), ("能", "不能"), ("会", "不会"),
-        ("大", "小"), ("多", "少"), ("高", "低"),
-        ("喜欢", "dislike"), ("讨厌", "like"), ("love", "hate"),
-        ("happy", "sad"), ("good", "bad"), ("success", "failure")
+        ("喜欢", "讨厌"),
+        ("喜欢", "恨"),
+        ("爱", "恨"),
+        ("开心", "难过"),
+        ("高兴", "伤心"),
+        ("快乐", "痛苦"),
+        ("好", "坏"),
+        ("优秀", "差劲"),
+        ("成功", "失败"),
+        ("支持", "反对"),
+        ("同意", "拒绝"),
+        ("有", "没有"),
+        ("能", "不能"),
+        ("会", "不会"),
+        ("大", "小"),
+        ("多", "少"),
+        ("高", "低"),
+        ("喜欢", "dislike"),
+        ("讨厌", "like"),
+        ("love", "hate"),
+        ("happy", "sad"),
+        ("good", "bad"),
+        ("success", "failure"),
     ]
-    
+
     # 否定词列表
     NEGATION_WORDS = [
-        "不", "没", "无", "非", "别", "不是", "don't", "not", "no", "never",
-        "不喜欢", "讨厌", "喜欢"
+        "不",
+        "没",
+        "无",
+        "非",
+        "别",
+        "不是",
+        "don't",
+        "not",
+        "no",
+        "never",
+        "不喜欢",
+        "讨厌",
+        "喜欢",
     ]
-    
-    def __init__(self, similarity_calculator: Optional[SimilarityCalculator] = None):
+
+    def __init__(self, similarity_calculator: SimilarityCalculator | None = None):
         """初始化冲突解决器
-        
+
         Args:
             similarity_calculator: 相似度计算器实例（可选，默认创建新实例）
         """
         self.similarity_calculator = similarity_calculator or SimilarityCalculator()
-    
+
     async def check_duplicate_by_vector(
         self,
         memory: Memory,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         chroma_manager,
-        similarity_threshold: float = 0.95
-    ) -> Optional[Memory]:
+        similarity_threshold: float = 0.95,
+    ) -> Memory | None:
         """使用向量相似度检查重复记忆
-        
+
         性能优化版本：使用ChromaDB的向量查询直接找到最相似的记忆，
         避免加载全部记忆。
-        
+
         Args:
             memory: 新记忆
             user_id: 用户ID
             group_id: 群组ID
             chroma_manager: Chroma管理器
             similarity_threshold: 向量相似度阈值（默认0.95，越高越严格）
-            
+
         Returns:
             Optional[Memory]: 如果找到重复记忆则返回，否则返回None
         """
         if not chroma_manager:
             return None
-        
+
         try:
             # 使用向量查询找到最相似的记忆（只查询5条）
             similar_memories = await chroma_manager.query_memories(
-                query_text=memory.content,
-                user_id=user_id,
-                group_id=group_id,
-                top_k=5
+                query_text=memory.content, user_id=user_id, group_id=group_id, top_k=5
             )
-            
+
             if not similar_memories:
                 return None
-            
+
             # 检查是否有高相似度的记忆
             for existing in similar_memories:
                 # 跳过自己（如果已经存在）
                 if existing.id == memory.id:
                     continue
-                
+
                 # 使用文本相似度进行精确验证
                 text_sim = self.similarity_calculator.calculate_similarity(
                     memory.content, existing.content
                 )
                 if text_sim >= similarity_threshold:
-                    logger.debug(f"Found duplicate via vector search: {existing.id} (text_sim={text_sim:.3f})")
+                    logger.debug(
+                        f"Found duplicate via vector search: {existing.id} (text_sim={text_sim:.3f})"
+                    )
                     return existing
-            
+
             return None
-            
+
         except Exception as e:
-            logger.debug(f"Vector-based duplicate check failed: {e}, falling back to text-based")
+            logger.debug(
+                f"Vector-based duplicate check failed: {e}, falling back to text-based"
+            )
             return None
 
     async def check_conflicts_by_vector(
-        self,
-        memory: Memory,
-        user_id: str,
-        group_id: Optional[str],
-        chroma_manager
-    ) -> List[Memory]:
+        self, memory: Memory, user_id: str, group_id: str | None, chroma_manager
+    ) -> list[Memory]:
         """使用向量相似度检查记忆冲突
-        
+
         性能优化版本：使用ChromaDB的向量查询找到语义相似的记忆，
         然后检查是否存在语义冲突。
-        
+
         Args:
             memory: 新记忆
             user_id: 用户ID
             group_id: 群组ID
             chroma_manager: Chroma管理器
-            
+
         Returns:
             List[Memory]: 冲突的记忆列表
         """
         conflicts = []
-        
+
         if not chroma_manager:
             return conflicts
-        
+
         try:
             # 使用向量查询找到语义相关的记忆
             similar_memories = await chroma_manager.query_memories(
-                query_text=memory.content,
-                user_id=user_id,
-                group_id=group_id,
-                top_k=10
+                query_text=memory.content, user_id=user_id, group_id=group_id, top_k=10
             )
-            
+
             if not similar_memories:
                 return conflicts
-            
+
             # 检查语义冲突
             for existing in similar_memories:
                 if existing.id == memory.id:
                     continue
-                
+
                 # 只检查相同类型的记忆
                 if existing.type != memory.type:
                     continue
-                
+
                 # 检查内容相似度
                 content_sim = self.similarity_calculator.calculate_content_similarity(
                     memory.content, existing.content
                 )
                 if content_sim < 0.3:
                     continue
-                
+
                 # 检查是否为相反内容
                 if self.is_opposite(memory.content, existing.content):
                     conflicts.append(existing)
                     memory.add_conflict(existing.id)
-                    logger.debug(f"Conflict detected via vector search: {memory.id} vs {existing.id}")
-            
+                    logger.debug(
+                        f"Conflict detected via vector search: {memory.id} vs {existing.id}"
+                    )
+
             return conflicts
-            
+
         except Exception as e:
             logger.warning(f"Vector-based conflict check failed: {e}")
             return conflicts
@@ -181,89 +202,91 @@ class ConflictResolver:
     def find_duplicate_from_results(
         self,
         memory: Memory,
-        similar_memories: List[Memory],
-        similarity_threshold: float = 0.95
-    ) -> Optional[Memory]:
+        similar_memories: list[Memory],
+        similarity_threshold: float = 0.95,
+    ) -> Memory | None:
         """从查询结果中查找重复记忆
-        
+
         用于共享查询结果的优化版本，避免重复查询。
-        
+
         Args:
             memory: 新记忆
             similar_memories: 相似记忆列表（来自 query_memories 结果）
             similarity_threshold: 文本相似度阈值
-            
+
         Returns:
             Optional[Memory]: 如果找到重复记忆则返回，否则返回None
         """
         if not similar_memories:
             return None
-        
+
         # 只检查前5条（与原始逻辑一致）
         for existing in similar_memories[:5]:
             # 跳过自己
             if existing.id == memory.id:
                 continue
-            
+
             # 使用文本相似度进行精确验证
             text_sim = self.similarity_calculator.calculate_similarity(
                 memory.content, existing.content
             )
             if text_sim >= similarity_threshold:
-                logger.debug(f"Found duplicate via vector search: {existing.id} (text_sim={text_sim:.3f})")
+                logger.debug(
+                    f"Found duplicate via vector search: {existing.id} (text_sim={text_sim:.3f})"
+                )
                 return existing
-        
+
         return None
 
     def find_conflicts_from_results(
-        self,
-        memory: Memory,
-        similar_memories: List[Memory]
-    ) -> List[Memory]:
+        self, memory: Memory, similar_memories: list[Memory]
+    ) -> list[Memory]:
         """从查询结果中查找冲突记忆
-        
+
         用于共享查询结果的优化版本，避免重复查询。
-        
+
         Args:
             memory: 新记忆
             similar_memories: 相似记忆列表（来自 query_memories 结果）
-            
+
         Returns:
             List[Memory]: 冲突的记忆列表
         """
         conflicts = []
-        
+
         if not similar_memories:
             return conflicts
-        
+
         # 检查语义冲突
         for existing in similar_memories:
             if existing.id == memory.id:
                 continue
-            
+
             # 只检查相同类型的记忆
             if existing.type != memory.type:
                 continue
-            
+
             # 检查内容相似度
             content_sim = self.similarity_calculator.calculate_content_similarity(
                 memory.content, existing.content
             )
             if content_sim < 0.3:
                 continue
-            
+
             # 检查是否为相反内容
             if self.is_opposite(memory.content, existing.content):
                 conflicts.append(existing)
                 memory.add_conflict(existing.id)
-                logger.debug(f"Conflict detected via vector search: {memory.id} vs {existing.id}")
-        
+                logger.debug(
+                    f"Conflict detected via vector search: {memory.id} vs {existing.id}"
+                )
+
         return conflicts
 
     async def resolve_conflicts(
         self,
         new_memory: Memory,
-        conflicting_memories: List[Memory],
+        conflicting_memories: list[Memory],
         chroma_manager,
         kg_storage: Optional["KGStorage"] = None,
     ) -> bool:
@@ -300,7 +323,9 @@ class ConflictResolver:
                         # 同步删除知识图谱关联边
                         if kg_storage:
                             try:
-                                edge_count = await kg_storage.delete_by_memory_id(old_memory.id)
+                                edge_count = await kg_storage.delete_by_memory_id(
+                                    old_memory.id
+                                )
                                 if edge_count > 0:
                                     logger.debug(
                                         f"Deleted {edge_count} KG edges for replaced memory {old_memory.id}"
@@ -309,18 +334,22 @@ class ConflictResolver:
                                 logger.warning(
                                     f"Failed to delete KG edges for memory {old_memory.id}: {kg_err}"
                                 )
-                        logger.debug(f"Conflict resolved: replaced {old_memory.id} with {new_memory.id}")
+                        logger.debug(
+                            f"Conflict resolved: replaced {old_memory.id} with {new_memory.id}"
+                        )
                         resolved_count += 1
                 except Exception as e:
                     logger.error(f"Failed to replace conflicting memory: {e}")
-                    
+
             elif resolution == "keep_old":
                 # 保留旧记忆，标记新记忆为低质量
                 new_memory.quality_level = QualityLevel.LOW_CONFIDENCE
                 new_memory.metadata["conflict_resolution"] = "kept_old"
-                logger.debug(f"Conflict resolved: keeping {old_memory.id}, lowered {new_memory.id} quality")
+                logger.debug(
+                    f"Conflict resolved: keeping {old_memory.id}, lowered {new_memory.id} quality"
+                )
                 resolved_count += 1
-                
+
             elif resolution == "merge":
                 # 合并两条记忆（增加旧记忆的置信度）
                 try:
@@ -334,47 +363,45 @@ class ConflictResolver:
                         return False
                 except Exception as e:
                     logger.error(f"Failed to merge memories: {e}")
-                    
+
             else:  # "pending"
                 # 标记为待确认
                 new_memory.metadata["conflict_status"] = "pending_user_confirmation"
                 new_memory.metadata["conflicting_memory_id"] = old_memory.id
                 logger.debug(f"Conflict pending: {new_memory.id} vs {old_memory.id}")
-        
+
         # 所有冲突均已解决且无 merge，新记忆仍需存储
         return True
 
     def _determine_conflict_resolution(
-        self,
-        new_memory: Memory,
-        old_memory: Memory
+        self, new_memory: Memory, old_memory: Memory
     ) -> str:
         """确定冲突解决策略
-        
+
         Args:
             new_memory: 新记忆
             old_memory: 旧记忆
-            
+
         Returns:
             str: 解决策略 ("replace", "keep_old", "merge", "pending")
         """
         # 策略1：用户显式请求的新记忆优先
         if new_memory.is_user_requested:
             return "replace"
-        
+
         # 策略2：高质量等级的记忆优先
         if new_memory.quality_level.value > old_memory.quality_level.value + 1:
             return "replace"
         if old_memory.quality_level.value > new_memory.quality_level.value + 1:
             return "keep_old"
-        
+
         # 策略3：置信度差异较大时
         confidence_diff = new_memory.confidence - old_memory.confidence
         if confidence_diff > 0.3:
             return "replace"
         if confidence_diff < -0.3:
             return "keep_old"
-        
+
         # 策略4：如果内容非常相似但不完全相反，可能是更新
         if new_memory.created_time > old_memory.created_time:
             # 更新的信息，检查是否是细微修正
@@ -383,7 +410,7 @@ class ConflictResolver:
             )
             if content_sim > 0.7:
                 return "replace"  # 可能是用户纠正旧信息
-        
+
         # 默认：需要用户确认
         return "pending"
 
@@ -439,20 +466,23 @@ class ConflictResolver:
 
         # 策略2: 反义词检测
         for word1, word2 in self.ANTONYM_PAIRS:
-            if (word1 in text1_lower and word2 in text2_lower) or \
-               (word1 in text2_lower and word2 in text1_lower):
+            if (word1 in text1_lower and word2 in text2_lower) or (
+                word1 in text2_lower and word2 in text1_lower
+            ):
                 # 检查是否有相同的主题/对象
-                if self.similarity_calculator.have_common_subject(text1_lower, text2_lower):
+                if self.similarity_calculator.have_common_subject(
+                    text1_lower, text2_lower
+                ):
                     return True
 
         # 策略3: 数值冲突检测
         # 提取数值并检查是否冲突
-        numbers1 = re.findall(r'\d+', text1)
-        numbers2 = re.findall(r'\d+', text2)
+        numbers1 = re.findall(r"\d+", text1)
+        numbers2 = re.findall(r"\d+", text2)
         if numbers1 and numbers2 and numbers1 != numbers2:
             # 如果有相同的非数字部分，但数值不同，可能是冲突
-            non_num1 = re.sub(r'\d+', '{NUM}', text1)
-            non_num2 = re.sub(r'\d+', '{NUM}', text2)
+            non_num1 = re.sub(r"\d+", "{NUM}", text1)
+            non_num2 = re.sub(r"\d+", "{NUM}", text2)
             if non_num1 == non_num2 and set(numbers1) != set(numbers2):
                 return True
 

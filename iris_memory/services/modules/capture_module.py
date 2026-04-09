@@ -3,16 +3,17 @@
 
 包含：CaptureEngine, BatchProcessor, MessageClassifier
 """
+
 from __future__ import annotations
 
-from typing import Optional, Any, Dict, Callable, TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from iris_memory.utils.logger import get_logger
-from iris_memory.core.constants import LogTemplates
 
 if TYPE_CHECKING:
-    from iris_memory.capture.capture_engine import MemoryCaptureEngine
     from iris_memory.capture.batch_processor import MessageBatchProcessor
+    from iris_memory.capture.capture_engine import MemoryCaptureEngine
     from iris_memory.capture.message_classifier import MessageClassifier
 
 logger = get_logger("module.capture")
@@ -25,20 +26,20 @@ class CaptureModule:
     """
 
     def __init__(self) -> None:
-        self._capture_engine: Optional[MemoryCaptureEngine] = None
-        self._batch_processor: Optional[MessageBatchProcessor] = None
-        self._message_classifier: Optional[MessageClassifier] = None
+        self._capture_engine: MemoryCaptureEngine | None = None
+        self._batch_processor: MessageBatchProcessor | None = None
+        self._message_classifier: MessageClassifier | None = None
 
     @property
-    def capture_engine(self) -> Optional[MemoryCaptureEngine]:
+    def capture_engine(self) -> MemoryCaptureEngine | None:
         return self._capture_engine
 
     @property
-    def batch_processor(self) -> Optional[MessageBatchProcessor]:
+    def batch_processor(self) -> MessageBatchProcessor | None:
         return self._batch_processor
 
     @property
-    def message_classifier(self) -> Optional[MessageClassifier]:
+    def message_classifier(self) -> MessageClassifier | None:
         return self._message_classifier
 
     # ── 初始化 ──
@@ -91,16 +92,20 @@ class CaptureModule:
 
         self._message_classifier = MessageClassifier(
             trigger_detector=(
-                self._capture_engine.trigger_detector
-                if self._capture_engine
-                else None
+                self._capture_engine.trigger_detector if self._capture_engine else None
             ),
             emotion_analyzer=emotion_analyzer,
             llm_processor=llm_processor,
             config={
-                "llm_processing_mode": get_store().get("message_processing.llm_processing_mode"),
-                "immediate_trigger_confidence": get_store().get("message_processing.immediate_trigger_confidence"),
-                "immediate_emotion_intensity": get_store().get("message_processing.immediate_emotion_intensity"),
+                "llm_processing_mode": get_store().get(
+                    "message_processing.llm_processing_mode"
+                ),
+                "immediate_trigger_confidence": get_store().get(
+                    "message_processing.immediate_trigger_confidence"
+                ),
+                "immediate_emotion_intensity": get_store().get(
+                    "message_processing.immediate_emotion_intensity"
+                ),
             },
         )
         logger.debug("MessageClassifier initialized")
@@ -110,7 +115,7 @@ class CaptureModule:
         cfg: Any,
         llm_processor: Any = None,
         proactive_manager: Any = None,
-        on_save_callback: Optional[Callable] = None,
+        on_save_callback: Callable | None = None,
         activity_provider: Any = None,
     ) -> None:
         """初始化批量消息处理器"""
@@ -118,7 +123,9 @@ class CaptureModule:
         from iris_memory.config import get_store
 
         batch_config = {
-            "short_message_threshold": cfg.get("message_processing.short_message_threshold", 15),
+            "short_message_threshold": cfg.get(
+                "message_processing.short_message_threshold", 15
+            ),
             "merge_time_window": cfg.get("message_processing.merge_time_window", 60),
             "max_merge_count": cfg.get("message_processing.max_merge_count", 5),
             "llm_cooldown_seconds": 60,
@@ -133,7 +140,9 @@ class CaptureModule:
             llm_processor=llm_processor,
             proactive_manager=proactive_manager,
             threshold_count=threshold_count,
-            threshold_interval=get_store().get("message_processing.batch_threshold_interval"),
+            threshold_interval=get_store().get(
+                "message_processing.batch_threshold_interval"
+            ),
             processing_mode=get_store().get("message_processing.batch_processing_mode"),
             use_llm_summary=use_llm and llm_processor is not None,
             on_save_callback=on_save_callback,

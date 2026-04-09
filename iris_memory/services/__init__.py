@@ -7,8 +7,9 @@
 - PersistenceService: 持久化操作（KV 加载/保存、服务销毁）
 - SharedState: 跨服务共享状态（用户画像、情感状态等）
 """
-from iris_memory.services.memory_service import MemoryService
+
 from iris_memory.services.business_service import BusinessService
+from iris_memory.services.memory_service import MemoryService
 from iris_memory.services.persistence_service import PersistenceService
 from iris_memory.services.shared_state import SharedState
 

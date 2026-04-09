@@ -6,7 +6,7 @@ LLM+规则双层架构：强隐私规则优先 → 敏感度检查 → 个人模
 """
 
 import re
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar
 
 from iris_memory.core.memory_scope import MemoryScope
 from iris_memory.core.types import SensitivityLevel
@@ -19,7 +19,7 @@ class ScopeClassifier:
     """记忆可见性智能分类器"""
 
     # 强隐私关键词 → USER_PRIVATE
-    STRONG_PRIVATE_PATTERNS: ClassVar[List[str]] = [
+    STRONG_PRIVATE_PATTERNS: ClassVar[list[str]] = [
         r"别告诉(?:别人|其他人|他们|任何人)",
         r"(?:这是|有个)秘密",
         r"不要(?:跟|和).*说",
@@ -29,21 +29,21 @@ class ScopeClassifier:
     ]
 
     # 群公告关键词 → GROUP_SHARED
-    GROUP_SHARED_PATTERNS: ClassVar[List[str]] = [
+    GROUP_SHARED_PATTERNS: ClassVar[list[str]] = [
         r"(?:群|大家)(?:规|约定|公告|通知)",
         r"(?:所有人|各位|大家)(?:注意|看这里)",
         r"@(?:全体成员|所有人|all|everyone)",
     ]
 
     # 个人信息关键词 → GROUP_PRIVATE
-    PERSONAL_PATTERNS: ClassVar[List[str]] = [
+    PERSONAL_PATTERNS: ClassVar[list[str]] = [
         r"^我(?:是|在|有|喜欢|讨厌|觉得|认为|想|要|不)",
         r"我(?:自己|个人|一个人)",
         r"我的(?:名字|工作|家|手机|电脑|生日|爱好|习惯)",
     ]
 
     LLM_SCOPE_PROMPT: ClassVar[str] = (
-        '分析以下消息在群聊环境中的记忆可见性。\n\n'
+        "分析以下消息在群聊环境中的记忆可见性。\n\n"
         '消息: "{message}"\n发送者: {sender}\n群组: {group_id}\n\n'
         "判断该消息产生的记忆应该属于哪种可见性范围:\n"
         "- USER_PRIVATE: 用户个人隐私，仅用户自己可见\n"
@@ -58,10 +58,10 @@ class ScopeClassifier:
     async def classify(
         self,
         message: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> MemoryScope:
         """智能分类记忆可见性
-        
+
         群聊默认 GROUP_SHARED，根据规则降级为私有。
         """
         if context is None:
@@ -78,7 +78,11 @@ class ScopeClassifier:
 
         sensitivity = context.get("sensitivity_level")
         if sensitivity is not None:
-            sens_val = sensitivity.value if isinstance(sensitivity, SensitivityLevel) else int(sensitivity)
+            sens_val = (
+                sensitivity.value
+                if isinstance(sensitivity, SensitivityLevel)
+                else int(sensitivity)
+            )
             if sens_val >= SensitivityLevel.PRIVATE.value:
                 return MemoryScope.USER_PRIVATE
 
@@ -102,8 +106,8 @@ class ScopeClassifier:
         return MemoryScope.GROUP_SHARED
 
     async def _llm_classify(
-        self, message: str, context: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        self, message: str, context: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """使用 LLM 分类可见性"""
         import json
 

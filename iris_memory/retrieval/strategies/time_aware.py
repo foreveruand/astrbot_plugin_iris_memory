@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from iris_memory.retrieval.strategies.base import StrategyParams
 
@@ -20,7 +20,7 @@ class TimeAwareStrategy:
         self._chroma = chroma_manager
         self._update_access = update_access_fn
 
-    async def execute(self, params: StrategyParams) -> List["Memory"]:
+    async def execute(self, params: StrategyParams) -> list[Memory]:
         memories = await self._chroma.query_memories(
             query_text=params.query,
             user_id=params.user_id,
@@ -30,12 +30,9 @@ class TimeAwareStrategy:
             persona_id=params.persona_id,
         )
 
-        scored = [
-            (m, m.calculate_time_score(use_created_time=True))
-            for m in memories
-        ]
+        scored = [(m, m.calculate_time_score(use_created_time=True)) for m in memories]
         scored.sort(key=lambda x: x[1], reverse=True)
 
-        result = [m for m, _ in scored[:params.top_k]]
+        result = [m for m, _ in scored[: params.top_k]]
         await self._update_access(result)
         return result

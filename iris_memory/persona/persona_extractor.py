@@ -9,13 +9,13 @@
 关键词配置默认位于 iris_memory/persona/keyword_maps.yaml，支持外部覆盖与自定义扩展。
 """
 
-from typing import Dict, Any, Optional
 import re
+from typing import Any
 
-from iris_memory.utils.logger import get_logger
 from iris_memory.persona.keyword_maps import ExtractionResult, KeywordMaps
-from iris_memory.persona.rule_extractor import RuleExtractor
 from iris_memory.persona.llm_extractor import LLMExtractor
+from iris_memory.persona.rule_extractor import RuleExtractor
+from iris_memory.utils.logger import get_logger
 
 logger = get_logger("persona_extractor")
 
@@ -32,9 +32,9 @@ class PersonaExtractor:
     def __init__(
         self,
         extraction_mode: str = "rule",
-        keyword_maps: Optional[KeywordMaps] = None,
+        keyword_maps: KeywordMaps | None = None,
         astrbot_context=None,
-        llm_provider_id: Optional[str] = None,
+        llm_provider_id: str | None = None,
         llm_max_tokens: int = 300,
         llm_daily_limit: int = 50,
         enable_interest: bool = True,
@@ -53,7 +53,7 @@ class PersonaExtractor:
         self._rule_extractor = RuleExtractor(self._kw)
 
         # LLM 提取器
-        self._llm_extractor: Optional[LLMExtractor] = None
+        self._llm_extractor: LLMExtractor | None = None
         if extraction_mode in ("llm", "hybrid") and astrbot_context:
             self._llm_extractor = LLMExtractor(
                 astrbot_context=astrbot_context,
@@ -67,8 +67,8 @@ class PersonaExtractor:
     async def extract(
         self,
         content: str,
-        summary: Optional[str] = None,
-        memory_context: Optional[Dict[str, Any]] = None,
+        summary: str | None = None,
+        memory_context: dict[str, Any] | None = None,
     ) -> ExtractionResult:
         """从内容中提取画像信息"""
         if self._mode == "rule":
@@ -78,12 +78,16 @@ class PersonaExtractor:
         elif self._mode == "hybrid":
             return await self._hybrid_extract(content, summary, memory_context)
         else:
-            logger.warning(f"Unknown extraction mode '{self._mode}', falling back to rule")
+            logger.warning(
+                f"Unknown extraction mode '{self._mode}', falling back to rule"
+            )
             return self._rule_extract(content, summary)
 
     # -- 策略实现 --
 
-    def _rule_extract(self, content: str, summary: Optional[str] = None) -> ExtractionResult:
+    def _rule_extract(
+        self, content: str, summary: str | None = None
+    ) -> ExtractionResult:
         """纯规则提取"""
         result = self._rule_extractor.extract(content, summary)
         return self._apply_feature_gates(result)
@@ -91,7 +95,7 @@ class PersonaExtractor:
     async def _llm_extract(
         self,
         content: str,
-        memory_context: Optional[Dict[str, Any]] = None,
+        memory_context: dict[str, Any] | None = None,
     ) -> ExtractionResult:
         """纯 LLM 提取（失败时可回退到规则）"""
         if self._llm_extractor:
@@ -109,8 +113,8 @@ class PersonaExtractor:
     async def _hybrid_extract(
         self,
         content: str,
-        summary: Optional[str] = None,
-        memory_context: Optional[Dict[str, Any]] = None,
+        summary: str | None = None,
+        memory_context: dict[str, Any] | None = None,
     ) -> ExtractionResult:
         """混合提取：先规则，再 LLM 补充"""
         rule_result = self._rule_extractor.extract(content, summary)
@@ -164,7 +168,7 @@ class PersonaExtractor:
             value_signals += 1
 
         # 2. 包含具体数字、地名等信息
-        if re.search(r'\d+', content):
+        if re.search(r"\d+", content):
             value_signals += 1
 
         # 3. 内容较长（更可能包含价值信息）
@@ -177,15 +181,25 @@ class PersonaExtractor:
             or (rule_result.social_style and not rule_result.reply_style_preference)
             or (rule_result.work_info and not rule_result.life_info)
             or (rule_result.work_style and not rule_result.work_challenge)
-            or (rule_result.directness_adjustment != 0.0 and rule_result.humor_adjustment == 0.0)
+            or (
+                rule_result.directness_adjustment != 0.0
+                and rule_result.humor_adjustment == 0.0
+            )
         )
         if has_partial:
             value_signals += 1
 
         # 5. 包含明确的属性描述词（但规则可能未完全捕捉）
         attribute_signals = [
-            "喜欢", "讨厌", "擅长", "不喜欢", "对…感兴趣",
-            "需要", "希望", "认为", "觉得",
+            "喜欢",
+            "讨厌",
+            "擅长",
+            "不喜欢",
+            "对…感兴趣",
+            "需要",
+            "希望",
+            "认为",
+            "觉得",
         ]
         if any(s in content for s in attribute_signals):
             value_signals += 1
@@ -213,10 +227,13 @@ class PersonaExtractor:
         # 社交风格：LLM 优先
         merged.social_style = llm.social_style or rule.social_style
         # 回复偏好：LLM 优先
-        merged.reply_style_preference = llm.reply_style_preference or rule.reply_style_preference
+        merged.reply_style_preference = (
+            llm.reply_style_preference or rule.reply_style_preference
+        )
         # 正式度：LLM 优先（非零时）
         merged.formality_adjustment = (
-            llm.formality_adjustment if llm.formality_adjustment != 0.0
+            llm.formality_adjustment
+            if llm.formality_adjustment != 0.0
             else rule.formality_adjustment
         )
         # 黑名单：合并去重
@@ -225,8 +242,16 @@ class PersonaExtractor:
         merged.work_info = llm.work_info or rule.work_info
         merged.life_info = llm.life_info or rule.life_info
         # 信任/亲密度
-        merged.trust_delta = max(rule.trust_delta, llm.trust_delta) if llm.trust_delta else rule.trust_delta
-        merged.intimacy_delta = max(rule.intimacy_delta, llm.intimacy_delta) if llm.intimacy_delta else rule.intimacy_delta
+        merged.trust_delta = (
+            max(rule.trust_delta, llm.trust_delta)
+            if llm.trust_delta
+            else rule.trust_delta
+        )
+        merged.intimacy_delta = (
+            max(rule.intimacy_delta, llm.intimacy_delta)
+            if llm.intimacy_delta
+            else rule.intimacy_delta
+        )
 
         # ── v2 新增维度合并 ──
 
@@ -240,15 +265,25 @@ class PersonaExtractor:
         merged.life_preferences = {**rule.life_preferences, **llm.life_preferences}
 
         # 情感维度
-        merged.emotional_triggers = list(set(rule.emotional_triggers + llm.emotional_triggers))
-        merged.emotional_soothers = {**rule.emotional_soothers, **llm.emotional_soothers}
+        merged.emotional_triggers = list(
+            set(rule.emotional_triggers + llm.emotional_triggers)
+        )
+        merged.emotional_soothers = {
+            **rule.emotional_soothers,
+            **llm.emotional_soothers,
+        }
 
         # 社交边界
         merged.social_boundaries = {**rule.social_boundaries, **llm.social_boundaries}
 
         # 人格特质（LLM 优先，非零时）
-        for trait in ("openness", "conscientiousness", "extraversion",
-                      "agreeableness", "neuroticism"):
+        for trait in (
+            "openness",
+            "conscientiousness",
+            "extraversion",
+            "agreeableness",
+            "neuroticism",
+        ):
             attr = f"personality_{trait}_delta"
             llm_val = getattr(llm, attr, 0.0)
             rule_val = getattr(rule, attr, 0.0)
@@ -256,21 +291,25 @@ class PersonaExtractor:
 
         # 沟通维度（LLM 优先，非零时）
         merged.directness_adjustment = (
-            llm.directness_adjustment if llm.directness_adjustment != 0.0
+            llm.directness_adjustment
+            if llm.directness_adjustment != 0.0
             else rule.directness_adjustment
         )
         merged.humor_adjustment = (
-            llm.humor_adjustment if llm.humor_adjustment != 0.0
+            llm.humor_adjustment
+            if llm.humor_adjustment != 0.0
             else rule.humor_adjustment
         )
         merged.empathy_adjustment = (
-            llm.empathy_adjustment if llm.empathy_adjustment != 0.0
+            llm.empathy_adjustment
+            if llm.empathy_adjustment != 0.0
             else rule.empathy_adjustment
         )
 
         # 主动回复偏好
         merged.proactive_reply_delta = (
-            llm.proactive_reply_delta if llm.proactive_reply_delta != 0.0
+            llm.proactive_reply_delta
+            if llm.proactive_reply_delta != 0.0
             else rule.proactive_reply_delta
         )
 

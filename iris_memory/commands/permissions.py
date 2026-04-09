@@ -4,10 +4,8 @@
 提供命令权限验证功能，隔离权限逻辑与业务逻辑。
 """
 
-from typing import Optional
 
 from astrbot.api.event import AstrMessageEvent
-
 from iris_memory.utils.event_utils import get_group_id
 
 
@@ -63,7 +61,7 @@ class PermissionChecker:
         """
         return get_group_id(event) is None
 
-    def check_group_only(self, event: AstrMessageEvent) -> Optional[str]:
+    def check_group_only(self, event: AstrMessageEvent) -> str | None:
         """
         检查是否在群聊场景
 
@@ -75,7 +73,7 @@ class PermissionChecker:
         """
         return get_group_id(event)
 
-    def require_admin(self, event: AstrMessageEvent) -> tuple[bool, Optional[str]]:
+    def require_admin(self, event: AstrMessageEvent) -> tuple[bool, str | None]:
         """
         要求管理员权限，返回检查结果和错误消息
 
@@ -89,7 +87,9 @@ class PermissionChecker:
             return False, "此操作需要管理员权限"
         return True, None
 
-    def require_group(self, event: AstrMessageEvent) -> tuple[bool, Optional[str], Optional[str]]:
+    def require_group(
+        self, event: AstrMessageEvent
+    ) -> tuple[bool, str | None, str | None]:
         """
         要求群聊场景，返回检查结果和群ID
 
@@ -106,7 +106,7 @@ class PermissionChecker:
 
     def require_admin_in_group(
         self, event: AstrMessageEvent
-    ) -> tuple[bool, Optional[str], Optional[str]]:
+    ) -> tuple[bool, str | None, str | None]:
         """
         要求群聊场景 + 管理员权限
 

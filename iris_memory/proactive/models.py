@@ -11,24 +11,25 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 # ========== 枚举定义 ==========
 
 
 class SignalType(str, Enum):
     """信号类型"""
-    EMOTION_HIGH = "emotion_high"   # 高情感信号
-    RULE_MATCH = "rule_match"       # 规则匹配信号
+
+    EMOTION_HIGH = "emotion_high"  # 高情感信号
+    RULE_MATCH = "rule_match"  # 规则匹配信号
 
 
 class FollowUpReplyType(str, Enum):
     """跟进回复类型"""
-    ACKNOWLEDGE = "acknowledge"         # 确认回应
-    CONTINUE_TOPIC = "continue_topic"   # 继续话题
-    EMOTION_SUPPORT = "emotion_support" # 情感支持
-    QUESTION = "question"               # 提问互动
+
+    ACKNOWLEDGE = "acknowledge"  # 确认回应
+    CONTINUE_TOPIC = "continue_topic"  # 继续话题
+    EMOTION_SUPPORT = "emotion_support"  # 情感支持
+    QUESTION = "question"  # 提问互动
 
 
 # ========== Signal 模型 ==========
@@ -51,14 +52,15 @@ class Signal:
         expires_at: 过期时间
         metadata: 附加元数据（如匹配的规则名称、情感强度等）
     """
+
     signal_type: SignalType
     session_key: str
     group_id: str
     user_id: str
     weight: float
     created_at: datetime = field(default_factory=datetime.now)
-    expires_at: Optional[datetime] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    expires_at: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     signal_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
     @property
@@ -92,17 +94,18 @@ class FollowUpExpectation:
         created_at: 创建时间
         recent_context: 近期对话上下文（用于 LLM 判断）
     """
+
     session_key: str
     group_id: str
     trigger_user_id: str
     trigger_message: str
     bot_reply_summary: str
     followup_window_end: datetime
-    short_window_end: Optional[datetime] = None
-    aggregated_messages: List[Dict[str, Any]] = field(default_factory=list)
+    short_window_end: datetime | None = None
+    aggregated_messages: list[dict[str, Any]] = field(default_factory=list)
     followup_count: int = 0
     created_at: datetime = field(default_factory=datetime.now)
-    recent_context: List[Dict[str, Any]] = field(default_factory=list)
+    recent_context: list[dict[str, Any]] = field(default_factory=list)
     expectation_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
 
     @property
@@ -143,14 +146,15 @@ class AggregatedDecision:
         recent_messages: 近期消息上下文
         llm_confirmed: 是否经过 LLM 确认
     """
+
     should_reply: bool
     session_key: str
     group_id: str
     target_user_id: str = ""
     aggregated_weight: float = 0.0
-    signals: List[Signal] = field(default_factory=list)
+    signals: list[Signal] = field(default_factory=list)
     reason: str = ""
-    recent_messages: List[Dict[str, Any]] = field(default_factory=list)
+    recent_messages: list[dict[str, Any]] = field(default_factory=list)
     llm_confirmed: bool = False
 
 
@@ -164,6 +168,7 @@ class FollowUpDecision:
         reply_type: 回复类型
         suggested_direction: 建议的回复方向
     """
+
     should_reply: bool
     reason: str = ""
     reply_type: FollowUpReplyType = FollowUpReplyType.ACKNOWLEDGE
@@ -187,12 +192,13 @@ class ProactiveReplyResult:
         emotion_summary: 用户情绪摘要
         source: 触发来源（signal_queue / followup）
     """
+
     trigger_prompt: str
-    reply_params: Dict[str, Any] = field(default_factory=dict)
+    reply_params: dict[str, Any] = field(default_factory=dict)
     reason: str = ""
     group_id: str = ""
     session_key: str = ""
     target_user: str = ""
-    recent_messages: List[Dict[str, Any]] = field(default_factory=list)
+    recent_messages: list[dict[str, Any]] = field(default_factory=list)
     emotion_summary: str = ""
     source: str = "signal_queue"

@@ -13,26 +13,27 @@
 """
 
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from iris_memory.config.schema import SCHEMA
 from iris_memory.utils.logger import get_logger
 
-
 # ========== 群活跃度枚举 ==========
+
 
 class GroupActivityLevel(str, Enum):
     """群活跃度等级"""
-    QUIET = "quiet"          # < 5条/小时
-    MODERATE = "moderate"    # 5-20条/小时
-    ACTIVE = "active"        # 20-50条/小时
+
+    QUIET = "quiet"  # < 5条/小时
+    MODERATE = "moderate"  # 5-20条/小时
+    ACTIVE = "active"  # 20-50条/小时
     INTENSIVE = "intensive"  # > 50条/小时
 
 
 # ========== 活跃度分级配置预设 ==========
+
 
 @dataclass
 class ActivityBasedPresets:
@@ -41,48 +42,63 @@ class ActivityBasedPresets:
     每个字段为 {GroupActivityLevel.value: int/float} 的映射。
     "温和型"陪伴风格：安静群更克制，活跃群更参与但不过度。
     """
-    cooldown_seconds: Dict[str, int] = field(default_factory=lambda: {
-        "quiet": 120,
-        "moderate": 60,
-        "active": 45,
-        "intensive": 30,
-    })
-    max_daily_replies: Dict[str, int] = field(default_factory=lambda: {
-        "quiet": 8,
-        "moderate": 15,
-        "active": 22,
-        "intensive": 25,
-    })
-    batch_threshold_count: Dict[str, int] = field(default_factory=lambda: {
-        "quiet": 10,
-        "moderate": 15,
-        "active": 30,
-        "intensive": 50,
-    })
-    batch_threshold_interval: Dict[str, int] = field(default_factory=lambda: {
-        "quiet": 600,
-        "moderate": 300,
-        "active": 180,
-        "intensive": 120,
-    })
-    daily_analysis_budget: Dict[str, int] = field(default_factory=lambda: {
-        "quiet": 30,
-        "moderate": 60,
-        "active": 100,
-        "intensive": 150,
-    })
-    chat_context_count: Dict[str, int] = field(default_factory=lambda: {
-        "quiet": 10,
-        "moderate": 15,
-        "active": 20,
-        "intensive": 25,
-    })
-    reply_temperature: Dict[str, float] = field(default_factory=lambda: {
-        "quiet": 0.6,
-        "moderate": 0.7,
-        "active": 0.75,
-        "intensive": 0.8,
-    })
+
+    cooldown_seconds: dict[str, int] = field(
+        default_factory=lambda: {
+            "quiet": 120,
+            "moderate": 60,
+            "active": 45,
+            "intensive": 30,
+        }
+    )
+    max_daily_replies: dict[str, int] = field(
+        default_factory=lambda: {
+            "quiet": 8,
+            "moderate": 15,
+            "active": 22,
+            "intensive": 25,
+        }
+    )
+    batch_threshold_count: dict[str, int] = field(
+        default_factory=lambda: {
+            "quiet": 10,
+            "moderate": 15,
+            "active": 30,
+            "intensive": 50,
+        }
+    )
+    batch_threshold_interval: dict[str, int] = field(
+        default_factory=lambda: {
+            "quiet": 600,
+            "moderate": 300,
+            "active": 180,
+            "intensive": 120,
+        }
+    )
+    daily_analysis_budget: dict[str, int] = field(
+        default_factory=lambda: {
+            "quiet": 30,
+            "moderate": 60,
+            "active": 100,
+            "intensive": 150,
+        }
+    )
+    chat_context_count: dict[str, int] = field(
+        default_factory=lambda: {
+            "quiet": 10,
+            "moderate": 15,
+            "active": 20,
+            "intensive": 25,
+        }
+    )
+    reply_temperature: dict[str, float] = field(
+        default_factory=lambda: {
+            "quiet": 0.6,
+            "moderate": 0.7,
+            "active": 0.75,
+            "intensive": 0.8,
+        }
+    )
 
     def get(self, key: str, level: GroupActivityLevel) -> Any:
         """按 key 和等级获取预设值"""
@@ -96,14 +112,14 @@ class ActivityBasedPresets:
 ACTIVITY_PRESETS = ActivityBasedPresets()
 
 # 活跃度阈值定义（条/小时）
-ACTIVITY_THRESHOLDS: Dict[str, int] = {
+ACTIVITY_THRESHOLDS: dict[str, int] = {
     "quiet_upper": 5,
     "moderate_upper": 20,
     "active_upper": 50,
 }
 
 # 滑动窗口和防抖配置
-ACTIVITY_WINDOW_HOURS: int = 3          # 滑动窗口小时数
+ACTIVITY_WINDOW_HOURS: int = 3  # 滑动窗口小时数
 ACTIVITY_HYSTERESIS_RATIO: float = 0.2  # 升降级需比阈值多/少 20%
 
 logger = get_logger("activity_config")
@@ -115,6 +131,7 @@ logger = get_logger("activity_config")
 @dataclass
 class _HourlyBucket:
     """单小时消息桶"""
+
     hour_ts: int  # 该小时的开始时间戳（整点）
     count: int = 0
 
@@ -122,14 +139,15 @@ class _HourlyBucket:
 @dataclass
 class GroupActivityState:
     """单个群的活跃度状态（可序列化）"""
+
     group_id: str
     level: GroupActivityLevel = GroupActivityLevel.MODERATE
-    hourly_counts: List[Tuple[int, int]] = field(default_factory=list)
+    hourly_counts: list[tuple[int, int]] = field(default_factory=list)
     # (hour_ts, count) 列表，保留最近 ACTIVITY_WINDOW_HOURS 小时
     last_calc_ts: float = 0.0
     messages_per_hour: float = 0.0  # 上一次计算的每小时消息数
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "group_id": self.group_id,
             "level": self.level.value,
@@ -139,7 +157,7 @@ class GroupActivityState:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "GroupActivityState":
+    def from_dict(cls, data: dict[str, Any]) -> "GroupActivityState":
         level_str = data.get("level", "moderate")
         try:
             level = GroupActivityLevel(level_str)
@@ -174,7 +192,7 @@ class GroupActivityTracker:
         self._calc_interval = calc_interval
 
         # group_id -> GroupActivityState
-        self._states: Dict[str, GroupActivityState] = {}
+        self._states: dict[str, GroupActivityState] = {}
 
     # ---------- 消息计数 ----------
 
@@ -223,7 +241,7 @@ class GroupActivityTracker:
         self._recalculate(state)
         return state.level
 
-    def get_all_states(self) -> Dict[str, GroupActivityState]:
+    def get_all_states(self) -> dict[str, GroupActivityState]:
         """获取所有群的活跃度状态"""
         return dict(self._states)
 
@@ -309,7 +327,9 @@ class GroupActivityTracker:
         if raw_idx > cur_idx:
             # 升级：需超阈值 * (1 + h)
             thresholds = [quiet_upper, moderate_upper, active_upper]
-            boundary = thresholds[cur_idx] if cur_idx < len(thresholds) else active_upper
+            boundary = (
+                thresholds[cur_idx] if cur_idx < len(thresholds) else active_upper
+            )
             if mph >= boundary * (1 + h):
                 return raw_level
             return current_level
@@ -336,20 +356,15 @@ class GroupActivityTracker:
     def _prune_buckets(self, state: GroupActivityState) -> None:
         """清理超出滑动窗口的桶"""
         cutoff = self._current_hour_ts() - self._window_hours * 3600
-        state.hourly_counts = [
-            (ts, c) for ts, c in state.hourly_counts if ts >= cutoff
-        ]
+        state.hourly_counts = [(ts, c) for ts, c in state.hourly_counts if ts >= cutoff]
 
     # ---------- 序列化 ----------
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
         """序列化所有群活跃度状态"""
-        return {
-            gid: state.to_dict()
-            for gid, state in self._states.items()
-        }
+        return {gid: state.to_dict() for gid, state in self._states.items()}
 
-    def deserialize(self, data: Dict[str, Any]) -> None:
+    def deserialize(self, data: dict[str, Any]) -> None:
         """从序列化数据恢复"""
         self._states.clear()
         for gid, state_data in data.items():
@@ -374,7 +389,7 @@ class ActivityAwareConfigProvider:
     """
 
     # 支持的配置键到 Schema 路径的映射
-    _DEFAULT_SCHEMA_KEYS: Dict[str, str] = {
+    _DEFAULT_SCHEMA_KEYS: dict[str, str] = {
         "cooldown_seconds": "proactive_reply.cooldown_seconds",
         "max_daily_replies": "proactive_reply.max_daily_replies",
         "batch_threshold_count": "message_processing.batch_threshold_count",
@@ -395,7 +410,7 @@ class ActivityAwareConfigProvider:
         self._cache_ttl = cache_ttl
 
         # 配置缓存：group_id -> {key: (value, expire_ts)}
-        self._cache: Dict[str, Dict[str, Tuple[Any, float]]] = {}
+        self._cache: dict[str, dict[str, tuple[Any, float]]] = {}
 
     @property
     def enabled(self) -> bool:
@@ -411,7 +426,7 @@ class ActivityAwareConfigProvider:
     def tracker(self) -> GroupActivityTracker:
         return self._tracker
 
-    def get_config(self, group_id: Optional[str], key: str) -> Any:
+    def get_config(self, group_id: str | None, key: str) -> Any:
         """获取指定群的配置值
 
         Args:
@@ -444,14 +459,14 @@ class ActivityAwareConfigProvider:
         self._set_cache(group_id, key, value)
         return value
 
-    def get_group_config_snapshot(self, group_id: str) -> Dict[str, Any]:
+    def get_group_config_snapshot(self, group_id: str) -> dict[str, Any]:
         """获取指定群的所有自适应配置快照"""
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         for key in self._DEFAULT_FALLBACKS:
             result[key] = self.get_config(group_id, key)
         return result
 
-    def get_group_activity_summary(self, group_id: str) -> Dict[str, Any]:
+    def get_group_activity_summary(self, group_id: str) -> dict[str, Any]:
         """获取群活跃度摘要（用于状态展示）"""
         level = self._tracker.get_activity_level(group_id)
         mph = self._tracker.get_messages_per_hour(group_id)
@@ -463,21 +478,23 @@ class ActivityAwareConfigProvider:
             "config": config_snapshot,
         }
 
-    def get_all_activity_summaries(self) -> List[Dict[str, Any]]:
+    def get_all_activity_summaries(self) -> list[dict[str, Any]]:
         """获取所有群的活跃度摘要"""
         summaries = []
         for gid, state in self._tracker.get_all_states().items():
-            summaries.append({
-                "group_id": gid,
-                "activity_level": state.level.value,
-                "messages_per_hour": round(state.messages_per_hour, 1),
-            })
+            summaries.append(
+                {
+                    "group_id": gid,
+                    "activity_level": state.level.value,
+                    "messages_per_hour": round(state.messages_per_hour, 1),
+                }
+            )
         # 按活跃度降序
         level_order = {"intensive": 0, "active": 1, "moderate": 2, "quiet": 3}
         summaries.sort(key=lambda s: level_order.get(s["activity_level"], 99))
         return summaries
 
-    def invalidate_cache(self, group_id: Optional[str] = None) -> None:
+    def invalidate_cache(self, group_id: str | None = None) -> None:
         """清除配置缓存"""
         if group_id:
             self._cache.pop(group_id, None)
@@ -491,6 +508,7 @@ class ActivityAwareConfigProvider:
         schema_key = self._DEFAULT_SCHEMA_KEYS.get(key)
         if schema_key:
             from iris_memory.config import get_store
+
             return get_store().get(schema_key)
         return None
 
@@ -516,30 +534,30 @@ class ActivityAwareConfigProvider:
 
     # ---------- 群级自适应配置快捷方法 ----------
 
-    def get_batch_threshold_count(self, group_id: Optional[str] = None) -> int:
+    def get_batch_threshold_count(self, group_id: str | None = None) -> int:
         """获取批量处理数量阈值"""
         return self.get_config(group_id, "batch_threshold_count")
 
-    def get_batch_threshold_interval(self, group_id: Optional[str] = None) -> int:
+    def get_batch_threshold_interval(self, group_id: str | None = None) -> int:
         """获取批量处理时间间隔"""
         return self.get_config(group_id, "batch_threshold_interval")
 
-    def get_chat_context_count(self, group_id: Optional[str] = None) -> int:
+    def get_chat_context_count(self, group_id: str | None = None) -> int:
         """获取聊天上下文数量"""
         return self.get_config(group_id, "chat_context_count")
 
-    def get_cooldown_seconds(self, group_id: Optional[str] = None) -> int:
+    def get_cooldown_seconds(self, group_id: str | None = None) -> int:
         """获取冷却时间（秒）"""
         return self.get_config(group_id, "cooldown_seconds")
 
-    def get_max_daily_replies(self, group_id: Optional[str] = None) -> int:
+    def get_max_daily_replies(self, group_id: str | None = None) -> int:
         """获取每日最大回复数"""
         return self.get_config(group_id, "max_daily_replies")
 
-    def get_daily_analysis_budget(self, group_id: Optional[str] = None) -> int:
+    def get_daily_analysis_budget(self, group_id: str | None = None) -> int:
         """获取每日分析预算"""
         return self.get_config(group_id, "daily_analysis_budget")
 
-    def get_reply_temperature(self, group_id: Optional[str] = None) -> float:
+    def get_reply_temperature(self, group_id: str | None = None) -> float:
         """获取回复温度"""
         return self.get_config(group_id, "reply_temperature")

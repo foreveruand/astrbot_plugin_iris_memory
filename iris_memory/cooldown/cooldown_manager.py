@@ -4,11 +4,12 @@
 核心逻辑：管理群聊冷却状态的激活、取消、查询。
 使用 BoundedDict 存储，重启自动重置。
 """
+
 from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Final
+from typing import Final
 
 from iris_memory.cooldown.cooldown_state import CooldownState
 from iris_memory.utils.bounded_dict import BoundedDict
@@ -38,7 +39,7 @@ _DURATION_PATTERN: Final = re.compile(
 )
 
 
-def parse_duration(raw: str) -> Optional[int]:
+def parse_duration(raw: str) -> int | None:
     """解析时长字符串为分钟数
 
     支持格式:
@@ -99,8 +100,8 @@ class CooldownManager:
     def activate(
         self,
         group_id: str,
-        duration_minutes: Optional[int] = None,
-        reason: Optional[str] = None,
+        duration_minutes: int | None = None,
+        reason: str | None = None,
         initiated_by: str = "user",
     ) -> str:
         """激活群冷却
@@ -159,7 +160,7 @@ class CooldownManager:
 
         return "当前群聊未处于冷却模式"
 
-    def get_status(self, group_id: str) -> Optional[CooldownState]:
+    def get_status(self, group_id: str) -> CooldownState | None:
         """获取群冷却状态
 
         如果冷却已过期，自动清理并返回 None。

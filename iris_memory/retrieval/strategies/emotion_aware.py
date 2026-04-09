@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Callable, List, TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from iris_memory.retrieval.strategies.base import StrategyParams
 
 if TYPE_CHECKING:
     from iris_memory.models.memory import Memory
-    from iris_memory.models.emotion_state import EmotionalState
 
 
 class EmotionAwareStrategy:
@@ -27,7 +27,7 @@ class EmotionAwareStrategy:
         self._update_access = update_access_fn
         self._apply_emotion_filter = emotion_filter_fn
 
-    async def execute(self, params: StrategyParams) -> List["Memory"]:
+    async def execute(self, params: StrategyParams) -> list[Memory]:
         memories = await self._chroma.query_memories(
             query_text=params.query,
             user_id=params.user_id,
@@ -42,6 +42,6 @@ class EmotionAwareStrategy:
                 memories, params.emotional_state, params.user_id
             )
 
-        result = memories[:params.top_k]
+        result = memories[: params.top_k]
         await self._update_access(result)
         return result

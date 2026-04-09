@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any, Dict
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -19,7 +19,7 @@ class SystemWebService:
     def __init__(self, memory_service: Any) -> None:
         self._service = memory_service
 
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """返回健康检查信息"""
         return {
             "status": "ok",
@@ -27,9 +27,9 @@ class SystemWebService:
             "initialized": self._service.is_initialized if self._service else False,
         }
 
-    def get_storage_stats(self) -> Dict[str, Any]:
+    def get_storage_stats(self) -> dict[str, Any]:
         """存储统计"""
-        result: Dict[str, Any] = {"chroma": None, "kg": None}
+        result: dict[str, Any] = {"chroma": None, "kg": None}
 
         try:
             chroma = self._service.chroma_manager
@@ -53,7 +53,7 @@ class SystemWebService:
 
         return result
 
-    def get_overview(self) -> Dict[str, Any]:
+    def get_overview(self) -> dict[str, Any]:
         """系统概览（仪表盘顶部）"""
         return {
             "health": self.health(),

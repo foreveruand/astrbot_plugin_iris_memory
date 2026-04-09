@@ -6,15 +6,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Optional
-import time
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 @dataclass
 class LLMCallRecord:
     """单次 LLM 调用记录"""
-    
+
     record_id: str
     timestamp: float
     provider_id: str
@@ -23,20 +22,20 @@ class LLMCallRecord:
     success: bool
     tokens_used: int
     duration_ms: float
-    error_message: Optional[str] = None
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
-    group_id: Optional[str] = None
+    error_message: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
+    group_id: str | None = None
     prompt_preview: str = ""
     response_preview: str = ""
     is_multimodal: bool = False
     image_count: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> LLMCallRecord:
+    def from_dict(cls, data: dict[str, Any]) -> LLMCallRecord:
         return cls(
             record_id=data.get("record_id", ""),
             timestamp=data.get("timestamp", 0.0),
@@ -60,22 +59,22 @@ class LLMCallRecord:
 @dataclass
 class LLMAggregatedStats:
     """LLM 聚合统计"""
-    
+
     total_calls: int = 0
     successful_calls: int = 0
     failed_calls: int = 0
     total_tokens: int = 0
     total_duration_ms: float = 0.0
-    
-    calls_by_provider: Dict[str, int] = field(default_factory=dict)
-    tokens_by_provider: Dict[str, int] = field(default_factory=dict)
-    calls_by_source: Dict[str, int] = field(default_factory=dict)
-    calls_by_date: Dict[str, int] = field(default_factory=dict)
-    
+
+    calls_by_provider: dict[str, int] = field(default_factory=dict)
+    tokens_by_provider: dict[str, int] = field(default_factory=dict)
+    calls_by_source: dict[str, int] = field(default_factory=dict)
+    calls_by_date: dict[str, int] = field(default_factory=dict)
+
     rate_limit_rejections: int = 0
     circuit_breaker_rejections: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total_calls": self.total_calls,
             "successful_calls": self.successful_calls,
@@ -91,7 +90,7 @@ class LLMAggregatedStats:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> LLMAggregatedStats:
+    def from_dict(cls, data: dict[str, Any]) -> LLMAggregatedStats:
         return cls(
             total_calls=data.get("total_calls", 0),
             successful_calls=data.get("successful_calls", 0),
@@ -141,24 +140,24 @@ class LLMAggregatedStats:
 @dataclass
 class StatsQuery:
     """统计查询条件"""
-    
-    provider_id: Optional[str] = None
-    source_module: Optional[str] = None
-    source_class: Optional[str] = None
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
-    group_id: Optional[str] = None
-    success: Optional[bool] = None
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
+
+    provider_id: str | None = None
+    source_module: str | None = None
+    source_class: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
+    group_id: str | None = None
+    success: bool | None = None
+    start_time: float | None = None
+    end_time: float | None = None
     limit: int = 100
     offset: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> StatsQuery:
+    def from_dict(cls, data: dict[str, Any]) -> StatsQuery:
         return cls(
             provider_id=data.get("provider_id"),
             source_module=data.get("source_module"),
@@ -177,16 +176,16 @@ class StatsQuery:
 @dataclass
 class StatsSummary:
     """统计摘要（用于 Dashboard）"""
-    
+
     total_calls: int = 0
     success_rate: float = 0.0
     total_tokens: int = 0
     avg_duration_ms: float = 0.0
-    top_providers: List[Dict[str, Any]] = field(default_factory=list)
-    top_sources: List[Dict[str, Any]] = field(default_factory=list)
+    top_providers: list[dict[str, Any]] = field(default_factory=list)
+    top_sources: list[dict[str, Any]] = field(default_factory=list)
     recent_errors: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total_calls": self.total_calls,
             "success_rate": self.success_rate,

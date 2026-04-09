@@ -15,12 +15,10 @@ import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
 
 from iris_memory.knowledge_graph.kg_models import (
     KGEdge,
     KGNode,
-    KGNodeType,
     KGPath,
     KGRelationType,
 )
@@ -33,15 +31,16 @@ logger = get_logger("kg_reasoning")
 DEFAULT_MAX_DEPTH = 3
 DEFAULT_MAX_NODES_PER_HOP = 10
 DEFAULT_MIN_CONFIDENCE = 0.2
-CONFIDENCE_DECAY = 0.85            # 每跳置信度衰减因子
-BFS_TIMEOUT = 2.0                  # BFS 遍历超时（秒）
+CONFIDENCE_DECAY = 0.85  # 每跳置信度衰减因子
+BFS_TIMEOUT = 2.0  # BFS 遍历超时（秒）
 
 
 @dataclass
 class ReasoningResult:
     """推理结果"""
-    paths: List[KGPath] = field(default_factory=list)
-    seed_nodes: List[KGNode] = field(default_factory=list)
+
+    paths: list[KGPath] = field(default_factory=list)
+    seed_nodes: list[KGNode] = field(default_factory=list)
     explored_count: int = 0
     max_depth_reached: int = 0
 
@@ -49,10 +48,10 @@ class ReasoningResult:
     def has_results(self) -> bool:
         return len(self.paths) > 0
 
-    def get_all_nodes(self) -> List[KGNode]:
+    def get_all_nodes(self) -> list[KGNode]:
         """获取所有涉及的节点（去重）"""
-        seen: Set[str] = set()
-        nodes: List[KGNode] = []
+        seen: set[str] = set()
+        nodes: list[KGNode] = []
         for path in self.paths:
             for node in path.nodes:
                 if node.id not in seen:
@@ -60,10 +59,10 @@ class ReasoningResult:
                     nodes.append(node)
         return nodes
 
-    def get_all_edges(self) -> List[KGEdge]:
+    def get_all_edges(self) -> list[KGEdge]:
         """获取所有涉及的边（去重）"""
-        seen: Set[str] = set()
-        edges: List[KGEdge] = []
+        seen: set[str] = set()
+        edges: list[KGEdge] = []
         for path in self.paths:
             for edge in path.edges:
                 if edge.id not in seen:
@@ -71,9 +70,9 @@ class ReasoningResult:
                     edges.append(edge)
         return edges
 
-    def get_fact_summary(self) -> List[str]:
+    def get_fact_summary(self) -> list[str]:
         """将推理结果转为事实摘要列表"""
-        facts: List[str] = []
+        facts: list[str] = []
         for path in self.paths:
             text = path.to_text()
             if text:
@@ -107,43 +106,43 @@ class KGReasoning:
 
     def estimate_query_depth(self, query: str) -> int:
         """根据查询复杂度动态估算推理深度
-        
+
         规则：
         - 包含多跳关键词（"之间的关系"、"有什么联系"）→ max_depth + 1
         - 包含比较/链式关键词（"通过谁认识"、"间接"）→ max_depth + 2
         - 查询中提及 2+ 实体 → max_depth + 1
         - 简单单实体查询 → max_depth
-        
+
         上限为 5，下限为 1。
-        
+
         Args:
             query: 查询文本
-            
+
         Returns:
             int: 建议推理深度
         """
         depth = self.max_depth
-        
+
         # 多跳关系查询
         multi_hop_keywords = ["之间", "联系", "关系", "关联", "连接", "有关"]
         if any(kw in query for kw in multi_hop_keywords):
             depth += 1
-        
+
         # 间接/链式推理查询
         chain_keywords = ["通过", "间接", "经过", "中间", "怎么认识"]
         if any(kw in query for kw in chain_keywords):
             depth += 2
-        
+
         return max(1, min(depth, 5))
 
     async def reason(
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
-        max_depth: Optional[int] = None,
+        group_id: str | None = None,
+        max_depth: int | None = None,
         max_results: int = 10,
-        persona_id: Optional[str] = None,
+        persona_id: str | None = None,
     ) -> ReasoningResult:
         """执行多跳推理
 
@@ -169,7 +168,7 @@ class KGReasoning:
         result.seed_nodes = seed_nodes
 
         # ── Step 2: BFS 遍历 ──
-        all_paths: List[KGPath] = []
+        all_paths: list[KGPath] = []
         for seed in seed_nodes:
             paths = await self._bfs_from_node(
                 start_node=seed,
@@ -198,10 +197,10 @@ class KGReasoning:
         self,
         entity_name: str,
         user_id: str,
-        group_id: Optional[str] = None,
-        relation_type: Optional[KGRelationType] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[Tuple[KGEdge, KGNode]]:
+        group_id: str | None = None,
+        relation_type: KGRelationType | None = None,
+        persona_id: str | None = None,
+    ) -> list[tuple[KGEdge, KGNode]]:
         """查询指定实体的直接关系（1 跳）
 
         Args:
@@ -215,13 +214,16 @@ class KGReasoning:
             (边, 邻居节点) 列表
         """
         nodes = await self.storage.search_nodes(
-            entity_name, user_id=user_id, group_id=group_id, limit=3,
+            entity_name,
+            user_id=user_id,
+            group_id=group_id,
+            limit=3,
             persona_id=persona_id,
         )
         if not nodes:
             return []
 
-        results: List[Tuple[KGEdge, KGNode]] = []
+        results: list[tuple[KGEdge, KGNode]] = []
         for node in nodes:
             neighbors = await self.storage.get_neighbors(node.id)
             for edge, neighbor in neighbors:
@@ -242,19 +244,19 @@ class KGReasoning:
         start_node: KGNode,
         max_depth: int,
         user_id: str,
-        group_id: Optional[str],
-        persona_id: Optional[str] = None,
-    ) -> List[KGPath]:
+        group_id: str | None,
+        persona_id: str | None = None,
+    ) -> list[KGPath]:
         """从单个节点开始 BFS
 
         使用 deque 实现标准 BFS，每跳限制 max_nodes_per_hop 个节点。
         同时收集路径信息。设有超时机制防止大规模图谱查询阻塞事件循环。
         """
-        paths: List[KGPath] = []
-        visited: Set[str] = {start_node.id}
+        paths: list[KGPath] = []
+        visited: set[str] = {start_node.id}
 
         # BFS 队列：(当前节点, 当前路径节点列表, 当前路径边列表, 当前置信度, 当前深度)
-        queue: deque[Tuple[KGNode, List[KGNode], List[KGEdge], float, int]] = deque()
+        queue: deque[tuple[KGNode, list[KGNode], list[KGEdge], float, int]] = deque()
         queue.append((start_node, [start_node], [], start_node.confidence, 0))
 
         explored = 0
@@ -276,7 +278,9 @@ class KGReasoning:
                 continue
 
             # 获取邻居
-            neighbors = self.storage.get_neighbors_sync(current.id, limit=self.max_nodes_per_hop * 2)
+            neighbors = self.storage.get_neighbors_sync(
+                current.id, limit=self.max_nodes_per_hop * 2
+            )
             hop_count = 0
 
             for edge, neighbor in neighbors:
@@ -310,10 +314,15 @@ class KGReasoning:
 
                 # 继续扩展
                 if depth + 1 < max_depth:
-                    queue.append((
-                        neighbor, new_path_nodes, new_path_edges,
-                        new_conf, depth + 1,
-                    ))
+                    queue.append(
+                        (
+                            neighbor,
+                            new_path_nodes,
+                            new_path_edges,
+                            new_conf,
+                            depth + 1,
+                        )
+                    )
 
                 if hop_count >= self.max_nodes_per_hop:
                     break
@@ -328,9 +337,9 @@ class KGReasoning:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str],
-        persona_id: Optional[str] = None,
-    ) -> List[KGNode]:
+        group_id: str | None,
+        persona_id: str | None = None,
+    ) -> list[KGNode]:
         """从查询中提取种子实体
 
         策略：
@@ -341,13 +350,16 @@ class KGReasoning:
         # 提取候选关键词
         candidates = self._extract_query_entities(query)
 
-        seed_nodes: List[KGNode] = []
-        seen_ids: Set[str] = set()
+        seed_nodes: list[KGNode] = []
+        seen_ids: set[str] = set()
 
         # 先尝试每个候选词单独搜索
         for candidate in candidates:
             nodes = await self.storage.search_nodes(
-                candidate, user_id=user_id, group_id=group_id, limit=5,
+                candidate,
+                user_id=user_id,
+                group_id=group_id,
+                limit=5,
                 persona_id=persona_id,
             )
             for node in nodes:
@@ -358,7 +370,10 @@ class KGReasoning:
         # 如果没找到，用整个查询搜索
         if not seed_nodes:
             nodes = await self.storage.search_nodes(
-                query, user_id=user_id, group_id=group_id, limit=5,
+                query,
+                user_id=user_id,
+                group_id=group_id,
+                limit=5,
                 persona_id=persona_id,
             )
             for node in nodes:
@@ -370,7 +385,7 @@ class KGReasoning:
         seed_nodes.sort(key=lambda n: n.mention_count, reverse=True)
         return seed_nodes[:5]  # 最多 5 个种子
 
-    def _extract_query_entities(self, query: str) -> List[str]:
+    def _extract_query_entities(self, query: str) -> list[str]:
         """从查询文本提取候选实体词
 
         简单规则：
@@ -379,40 +394,44 @@ class KGReasoning:
         - 引号内容
         - 关系查询中的关键主体
         """
-        candidates: List[str] = []
+        candidates: list[str] = []
 
         # 引号中的内容
         for m in re.finditer(r'[""「」『』](.*?)[""「」『』]', query):
             candidates.append(m.group(1))
 
         # 中文人名/昵称
-        for m in re.finditer(r'[小老阿][\u4e00-\u9fa5]', query):
+        for m in re.finditer(r"[小老阿][\u4e00-\u9fa5]", query):
             candidates.append(m.group())
         # 常见姓氏
-        surnames = '王李张刘陈杨黄赵吴周徐孙马朱胡郭何高林罗郑梁谢宋唐许韩冯邓曹'
+        surnames = "王李张刘陈杨黄赵吴周徐孙马朱胡郭何高林罗郑梁谢宋唐许韩冯邓曹"
         # 2 字名
-        for m in re.finditer(f'[{surnames}][\u4e00-\u9fa5]', query):
+        for m in re.finditer(f"[{surnames}][\u4e00-\u9fa5]", query):
             candidates.append(m.group())
         # 3 字名
-        for m in re.finditer(f'[{surnames}][\u4e00-\u9fa5]{{2}}(?![\u4e00-\u9fa5])', query):
+        for m in re.finditer(
+            f"[{surnames}][\u4e00-\u9fa5]{{2}}(?![\u4e00-\u9fa5])", query
+        ):
             candidates.append(m.group())
 
         # 英文专有名词
-        for m in re.finditer(r'[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*', query):
+        for m in re.finditer(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*", query):
             candidates.append(m.group())
 
         # 关系查询结构提取
         # "XXX的YYY是谁" / "谁是XXX的YYY"
-        for m in re.finditer(r'([\u4e00-\u9fa5A-Za-z]+)的(?:[上下]司|同事|朋友|老板)', query):
+        for m in re.finditer(
+            r"([\u4e00-\u9fa5A-Za-z]+)的(?:[上下]司|同事|朋友|老板)", query
+        ):
             candidates.append(m.group(1))
-        for m in re.finditer(r'谁是([\u4e00-\u9fa5A-Za-z]+)', query):
+        for m in re.finditer(r"谁是([\u4e00-\u9fa5A-Za-z]+)", query):
             candidates.append(m.group(1))
-        for m in re.finditer(r'([\u4e00-\u9fa5A-Za-z]+)是谁', query):
+        for m in re.finditer(r"([\u4e00-\u9fa5A-Za-z]+)是谁", query):
             candidates.append(m.group(1))
 
         # 去重，保持顺序
-        seen: Set[str] = set()
-        unique: List[str] = []
+        seen: set[str] = set()
+        unique: list[str] = []
         for c in candidates:
             c = c.strip()
             if c and c not in seen and len(c) >= 1:
@@ -429,8 +448,8 @@ class KGReasoning:
         self,
         node: KGNode,
         user_id: str,
-        group_id: Optional[str],
-        persona_id: Optional[str] = None,
+        group_id: str | None,
+        persona_id: str | None = None,
     ) -> bool:
         """检查节点对当前 scope 是否可见"""
         # persona 过滤
@@ -439,11 +458,13 @@ class KGReasoning:
         if group_id:
             return node.user_id == user_id or node.group_id == group_id
         else:
-            return node.user_id == user_id and (node.group_id is None or node.group_id == "")
+            return node.user_id == user_id and (
+                node.group_id is None or node.group_id == ""
+            )
 
-    def _deduplicate_paths(self, paths: List[KGPath]) -> List[KGPath]:
+    def _deduplicate_paths(self, paths: list[KGPath]) -> list[KGPath]:
         """路径去重：按终点+起点去重，保留置信度最高的"""
-        best: Dict[str, KGPath] = {}
+        best: dict[str, KGPath] = {}
         for path in paths:
             if len(path.nodes) < 2:
                 continue

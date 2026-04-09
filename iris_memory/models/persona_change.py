@@ -7,23 +7,24 @@ PersonaChangeRecord - 画像变更审计记录
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass
 class PersonaChangeRecord:
     """画像单次变更的审计记录"""
+
     timestamp: str = ""
     field_name: str = ""
     old_value: Any = None
     new_value: Any = None
-    source_memory_id: Optional[str] = None
-    memory_type: Optional[str] = None
-    rule_id: str = ""          # 触发规则标识
+    source_memory_id: str | None = None
+    memory_type: str | None = None
+    rule_id: str = ""  # 触发规则标识
     confidence: float = 0.0
     evidence_type: str = "inferred"  # confirmed / inferred / contested
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "ts": self.timestamp,
             "field": self.field_name,
@@ -37,7 +38,7 @@ class PersonaChangeRecord:
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> PersonaChangeRecord:
+    def from_dict(cls, d: dict[str, Any]) -> PersonaChangeRecord:
         return cls(
             timestamp=d.get("ts", ""),
             field_name=d.get("field", ""),

@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from iris_memory.utils.logger import get_logger
 
@@ -33,6 +33,7 @@ DEFAULT_LOW_CONFIDENCE_THRESHOLD: float = 0.3
 @dataclass
 class LowConfidenceStats:
     """低置信度统计"""
+
     low_confidence_node_count: int = 0
     low_confidence_node_ratio: float = 0.0
     low_confidence_edge_count: int = 0
@@ -43,6 +44,7 @@ class LowConfidenceStats:
 @dataclass
 class QualityReport:
     """图谱质量报告"""
+
     # 基础统计
     total_nodes: int = 0
     total_edges: int = 0
@@ -59,8 +61,8 @@ class QualityReport:
     avg_edge_confidence: float = 0.0
 
     # 分布
-    relation_type_distribution: Dict[str, int] = field(default_factory=dict)
-    node_type_distribution: Dict[str, int] = field(default_factory=dict)
+    relation_type_distribution: dict[str, int] = field(default_factory=dict)
+    node_type_distribution: dict[str, int] = field(default_factory=dict)
 
     # 连通性（可选扩展）
     avg_edges_per_node: float = 0.0
@@ -70,7 +72,9 @@ class QualityReport:
         lines = ["图谱质量报告："]
         lines.append(f"  节点总数: {self.total_nodes}")
         lines.append(f"  边总数: {self.total_edges}")
-        lines.append(f"  孤立节点: {self.orphan_node_count} ({self.orphan_node_ratio:.1%})")
+        lines.append(
+            f"  孤立节点: {self.orphan_node_count} ({self.orphan_node_ratio:.1%})"
+        )
         lines.append(
             f"  低置信度节点: {self.low_confidence_stats.low_confidence_node_count} "
             f"({self.low_confidence_stats.low_confidence_node_ratio:.1%})"
@@ -113,7 +117,7 @@ class KGQualityReporter:
     优先使用 SQL 聚合查询避免全量加载到 Python 内存。
     """
 
-    def __init__(self, storage: "KGStorage") -> None:
+    def __init__(self, storage: KGStorage) -> None:
         self._storage = storage
 
     # ================================================================
@@ -158,9 +162,13 @@ class KGQualityReporter:
 
         return LowConfidenceStats(
             low_confidence_node_count=low_conf_nodes,
-            low_confidence_node_ratio=low_conf_nodes / total_nodes if total_nodes > 0 else 0.0,
+            low_confidence_node_ratio=low_conf_nodes / total_nodes
+            if total_nodes > 0
+            else 0.0,
             low_confidence_edge_count=low_conf_edges,
-            low_confidence_edge_ratio=low_conf_edges / total_edges if total_edges > 0 else 0.0,
+            low_confidence_edge_ratio=low_conf_edges / total_edges
+            if total_edges > 0
+            else 0.0,
             threshold=threshold,
         )
 
@@ -168,7 +176,7 @@ class KGQualityReporter:
     # 关系类型分布
     # ================================================================
 
-    async def get_relation_type_distribution(self) -> Dict[str, int]:
+    async def get_relation_type_distribution(self) -> dict[str, int]:
         """统计关系类型分布（使用 SQL GROUP BY）
 
         Returns:
@@ -180,7 +188,7 @@ class KGQualityReporter:
     # 节点类型分布
     # ================================================================
 
-    async def get_node_type_distribution(self) -> Dict[str, int]:
+    async def get_node_type_distribution(self) -> dict[str, int]:
         """统计节点类型分布（使用 SQL GROUP BY）
 
         Returns:
@@ -192,7 +200,7 @@ class KGQualityReporter:
     # 平均置信度
     # ================================================================
 
-    async def get_avg_confidence(self) -> Dict[str, float]:
+    async def get_avg_confidence(self) -> dict[str, float]:
         """计算节点和边的平均置信度（使用 SQL AVG）
 
         Returns:
@@ -223,7 +231,9 @@ class KGQualityReporter:
         total_edges = await self._storage.get_edge_count()
         orphan_ids = await self._storage.get_orphan_node_ids()
         avg_conf = await self._storage.get_avg_confidence()
-        low_counts = await self._storage.get_low_confidence_counts(low_confidence_threshold)
+        low_counts = await self._storage.get_low_confidence_counts(
+            low_confidence_threshold
+        )
         node_type_dist = await self._storage.get_node_type_distribution()
         relation_type_dist = await self._storage.get_relation_type_distribution()
 
@@ -240,9 +250,13 @@ class KGQualityReporter:
             orphan_node_ratio=len(orphan_ids) / total_nodes if total_nodes > 0 else 0.0,
             low_confidence_stats=LowConfidenceStats(
                 low_confidence_node_count=low_conf_nodes,
-                low_confidence_node_ratio=low_conf_nodes / total_nodes if total_nodes > 0 else 0.0,
+                low_confidence_node_ratio=low_conf_nodes / total_nodes
+                if total_nodes > 0
+                else 0.0,
                 low_confidence_edge_count=low_conf_edges,
-                low_confidence_edge_ratio=low_conf_edges / total_edges if total_edges > 0 else 0.0,
+                low_confidence_edge_ratio=low_conf_edges / total_edges
+                if total_edges > 0
+                else 0.0,
                 threshold=low_confidence_threshold,
             ),
             avg_node_confidence=avg_conf["nodes"],

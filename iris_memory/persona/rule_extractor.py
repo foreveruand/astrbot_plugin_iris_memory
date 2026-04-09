@@ -2,8 +2,6 @@
 规则提取器 - 基于关键词规则的画像提取
 """
 
-import re
-from typing import Optional
 
 from iris_memory.persona.keyword_maps import ExtractionResult, KeywordMaps
 
@@ -19,7 +17,7 @@ class RuleExtractor:
         """安全关键词匹配：兼容 YAML 中的数字等非字符串标量。"""
         return any(str(kw).lower() in text for kw in keywords if kw is not None)
 
-    def extract(self, content: str, summary: Optional[str] = None) -> ExtractionResult:
+    def extract(self, content: str, summary: str | None = None) -> ExtractionResult:
         """从文本中基于关键词提取画像信息"""
         result = ExtractionResult(source="rule")
         content_lower = content.lower()
@@ -69,7 +67,10 @@ class RuleExtractor:
                 break
 
         # 工作挑战
-        if self._contains_any(content_lower, self._kw.work_challenge_keywords) and summary:
+        if (
+            self._contains_any(content_lower, self._kw.work_challenge_keywords)
+            and summary
+        ):
             result.work_challenge = summary
 
         # 生活方式
@@ -83,7 +84,7 @@ class RuleExtractor:
             if kw in content:
                 # 尝试提取触发器上下文（关键词后最多20字）
                 idx = content.index(kw)
-                trigger_ctx = content[idx:idx + 25].strip()
+                trigger_ctx = content[idx : idx + 25].strip()
                 if trigger_ctx and trigger_ctx not in result.emotional_triggers:
                     result.emotional_triggers.append(trigger_ctx)
 
@@ -92,7 +93,7 @@ class RuleExtractor:
             if kw in content:
                 idx = content.index(kw)
                 # 向前回溯尝试提取安慰物（如「听音乐能放松」→ 音乐: 放松）
-                soother_ctx = content[max(0, idx - 15):idx + len(kw) + 10].strip()
+                soother_ctx = content[max(0, idx - 15) : idx + len(kw) + 10].strip()
                 if soother_ctx:
                     result.emotional_soothers[kw] = soother_ctx
 
@@ -100,7 +101,7 @@ class RuleExtractor:
         for kw in self._kw.social_boundary_keywords:
             if kw in content:
                 idx = content.index(kw)
-                boundary_ctx = content[idx:idx + 20].strip()
+                boundary_ctx = content[idx : idx + 20].strip()
                 if boundary_ctx:
                     result.social_boundaries[kw] = boundary_ctx
 
@@ -144,28 +145,37 @@ class RuleExtractor:
                     setattr(result, attr_name, delta)
 
         # 计算置信度（匹配的维度数越多 -> 越高）
-        hit_count = sum([
-            bool(result.interests),
-            result.social_style is not None,
-            result.reply_style_preference is not None,
-            result.formality_adjustment != 0.0,
-            result.work_info is not None,
-            result.life_info is not None,
-            result.trust_delta > 0,
-            result.intimacy_delta > 0,
-            result.work_style is not None,
-            result.work_challenge is not None,
-            result.lifestyle is not None,
-            bool(result.emotional_triggers),
-            bool(result.emotional_soothers),
-            bool(result.social_boundaries),
-            result.directness_adjustment != 0.0,
-            result.humor_adjustment != 0.0,
-            result.empathy_adjustment != 0.0,
-            result.proactive_reply_delta != 0.0,
-            any(getattr(result, f"personality_{t}_delta", 0.0) != 0.0
-                for t in ("openness", "conscientiousness", "extraversion",
-                          "agreeableness", "neuroticism")),
-        ])
+        hit_count = sum(
+            [
+                bool(result.interests),
+                result.social_style is not None,
+                result.reply_style_preference is not None,
+                result.formality_adjustment != 0.0,
+                result.work_info is not None,
+                result.life_info is not None,
+                result.trust_delta > 0,
+                result.intimacy_delta > 0,
+                result.work_style is not None,
+                result.work_challenge is not None,
+                result.lifestyle is not None,
+                bool(result.emotional_triggers),
+                bool(result.emotional_soothers),
+                bool(result.social_boundaries),
+                result.directness_adjustment != 0.0,
+                result.humor_adjustment != 0.0,
+                result.empathy_adjustment != 0.0,
+                result.proactive_reply_delta != 0.0,
+                any(
+                    getattr(result, f"personality_{t}_delta", 0.0) != 0.0
+                    for t in (
+                        "openness",
+                        "conscientiousness",
+                        "extraversion",
+                        "agreeableness",
+                        "neuroticism",
+                    )
+                ),
+            ]
+        )
         result.confidence = min(1.0, hit_count * 0.15) if hit_count else 0.0
         return result

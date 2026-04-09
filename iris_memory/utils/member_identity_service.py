@@ -15,9 +15,9 @@ MemberIdentityContext、TokenManager）都通过本服务获取标识，
 
 import asyncio
 from collections import defaultdict
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Set, Any
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.member_utils import short_member_id
@@ -33,9 +33,9 @@ class MemberProfile:
     # 当前首选名称（最后确认的稳定名称）
     preferred_name: str = ""
     # 名称变更历史：[(old_name, new_name, timestamp), ...]
-    name_history: List[Dict[str, str]] = field(default_factory=list)
+    name_history: list[dict[str, str]] = field(default_factory=list)
     # 该用户参与的群组集合
-    groups: Set[str] = field(default_factory=set)
+    groups: set[str] = field(default_factory=set)
     # 最后活跃时间
     last_active: datetime = field(default_factory=datetime.now)
     # 消息计数（粗粒度活跃度指标）
@@ -61,7 +61,7 @@ class MemberProfile:
         """距最后活跃的天数"""
         return (datetime.now() - self.last_active).total_seconds() / 86400
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "user_id": self.user_id,
             "preferred_name": self.preferred_name,
@@ -73,7 +73,7 @@ class MemberProfile:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MemberProfile":
+    def from_dict(cls, data: dict[str, Any]) -> "MemberProfile":
         last_active = data.get("last_active")
         if isinstance(last_active, str):
             last_active = datetime.fromisoformat(last_active)
@@ -117,9 +117,9 @@ class MemberIdentityService:
 
     def __init__(self) -> None:
         # user_id → MemberProfile
-        self._profiles: Dict[str, MemberProfile] = {}
+        self._profiles: dict[str, MemberProfile] = {}
         # group_id → set of user_id
-        self._group_members: Dict[str, Set[str]] = defaultdict(set)
+        self._group_members: dict[str, set[str]] = defaultdict(set)
         self._lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
@@ -129,8 +129,8 @@ class MemberIdentityService:
     async def resolve_tag(
         self,
         user_id: str,
-        sender_name: Optional[str] = None,
-        group_id: Optional[str] = None,
+        sender_name: str | None = None,
+        group_id: str | None = None,
     ) -> str:
         """获取或更新成员标识标签（统一入口）
 
@@ -175,8 +175,8 @@ class MemberIdentityService:
     def resolve_tag_sync(
         self,
         user_id: str,
-        sender_name: Optional[str] = None,
-        group_id: Optional[str] = None,
+        sender_name: str | None = None,
+        group_id: str | None = None,
     ) -> str:
         """同步版本——供不方便 await 的格式化路径使用"""
         if not user_id:
@@ -206,7 +206,7 @@ class MemberIdentityService:
     # 群成员列表
     # ------------------------------------------------------------------
 
-    def get_group_members(self, group_id: str) -> List[str]:
+    def get_group_members(self, group_id: str) -> list[str]:
         """获取群组中所有已知成员的标签列表
 
         Args:
@@ -216,11 +216,7 @@ class MemberIdentityService:
             按最后活跃时间倒序排列的成员标签列表
         """
         member_ids = self._group_members.get(group_id, set())
-        profiles = [
-            self._profiles[uid]
-            for uid in member_ids
-            if uid in self._profiles
-        ]
+        profiles = [self._profiles[uid] for uid in member_ids if uid in self._profiles]
         # 按最后活跃时间排序
         profiles.sort(key=lambda p: p.last_active, reverse=True)
         return [p.display_tag for p in profiles]
@@ -254,6 +250,7 @@ class MemberIdentityService:
 
         # 消息频率分量：对数归一化
         import math
+
         freq_score = min(1.0, math.log1p(profile.message_count) / math.log1p(100))
 
         # 综合（时间 70%，频率 30%）
@@ -267,14 +264,14 @@ class MemberIdentityService:
     # 名称追踪
     # ------------------------------------------------------------------
 
-    def get_name_history(self, user_id: str) -> List[Dict[str, str]]:
+    def get_name_history(self, user_id: str) -> list[dict[str, str]]:
         """获取成员名称变更历史"""
         profile = self._profiles.get(user_id)
         if not profile:
             return []
         return list(profile.name_history)
 
-    def get_all_known_names(self, user_id: str) -> List[str]:
+    def get_all_known_names(self, user_id: str) -> list[str]:
         """获取成员所有已知名称（含当前名称）"""
         profile = self._profiles.get(user_id)
         if not profile:
@@ -304,7 +301,7 @@ class MemberIdentityService:
             return False
         return id_a == id_b
 
-    def get_user_id_by_tag(self, tag: str) -> Optional[str]:
+    def get_user_id_by_tag(self, tag: str) -> str | None:
         """根据标签反查 user_id"""
         sid = self._extract_short_id(tag)
         if not sid:
@@ -318,20 +315,18 @@ class MemberIdentityService:
     # 序列化
     # ------------------------------------------------------------------
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self) -> dict[str, Any]:
         """序列化为可持久化字典"""
         return {
             "profiles": {
-                uid: profile.to_dict()
-                for uid, profile in self._profiles.items()
+                uid: profile.to_dict() for uid, profile in self._profiles.items()
             },
             "group_members": {
-                gid: list(members)
-                for gid, members in self._group_members.items()
+                gid: list(members) for gid, members in self._group_members.items()
             },
         }
 
-    def deserialize(self, data: Dict[str, Any]) -> None:
+    def deserialize(self, data: dict[str, Any]) -> None:
         """从持久化字典恢复状态"""
         if not data:
             return
@@ -359,9 +354,7 @@ class MemberIdentityService:
         """
         threshold = datetime.now() - timedelta(days=inactive_days)
         to_remove = [
-            uid
-            for uid, p in self._profiles.items()
-            if p.last_active < threshold
+            uid for uid, p in self._profiles.items() if p.last_active < threshold
         ]
 
         for uid in to_remove:
@@ -372,7 +365,7 @@ class MemberIdentityService:
 
         return len(to_remove)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取服务统计信息"""
         return {
             "total_profiles": len(self._profiles),
@@ -393,15 +386,17 @@ class MemberIdentityService:
             return
 
         if old_name:  # 首次设置不记录到历史
-            profile.name_history.append({
-                "old_name": old_name,
-                "new_name": new_name,
-                "timestamp": datetime.now().isoformat(),
-            })
+            profile.name_history.append(
+                {
+                    "old_name": old_name,
+                    "new_name": new_name,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
 
             # 保留上限
             if len(profile.name_history) > self._MAX_NAME_HISTORY:
-                profile.name_history = profile.name_history[-self._MAX_NAME_HISTORY:]
+                profile.name_history = profile.name_history[-self._MAX_NAME_HISTORY :]
 
             logger.debug(
                 f"Member name changed: user={profile.user_id}, "

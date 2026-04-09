@@ -11,15 +11,15 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import sqlite3
 import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from iris_memory.core.constants import CacheDefaults
 from iris_memory.knowledge_graph.kg_models import (
     KGEdge,
     KGNode,
@@ -27,7 +27,6 @@ from iris_memory.knowledge_graph.kg_models import (
     KGRelationType,
 )
 from iris_memory.utils.logger import get_logger
-from iris_memory.core.constants import CacheDefaults
 
 logger = get_logger("kg_storage")
 
@@ -38,18 +37,20 @@ _NODE_CACHE_TTL = 300  # 5 分钟缓存 TTL
 _NODE_CACHE_MAX_SIZE = CacheDefaults.KG_NODE_CACHE_MAX_SIZE
 
 # 中文字符范围正则
-_CN_CHAR_RE = re.compile(r'[\u4e00-\u9fff]')
+_CN_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 class KGStorage:
     """SQLite + FTS5 知识图谱存储"""
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
+    def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = db_path
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         self._lock = asyncio.Lock()
         # ── 节点缓存层（减少重复查询）──
-        self._node_cache: Dict[str, Tuple[KGNode, float]] = {}  # cache_key -> (node, timestamp)
+        self._node_cache: dict[
+            str, tuple[KGNode, float]
+        ] = {}  # cache_key -> (node, timestamp)
         self._cache_ttl = _NODE_CACHE_TTL
         self._cache_max_size = _NODE_CACHE_MAX_SIZE
 
@@ -114,15 +115,33 @@ class KGStorage:
 
             # ── 索引 ──
             cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_name ON kg_nodes(name)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_user ON kg_nodes(user_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_group ON kg_nodes(group_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_nodes_type ON kg_nodes(node_type)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON kg_edges(source_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON kg_edges(target_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_rel ON kg_edges(relation_type)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_memory ON kg_edges(memory_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_user ON kg_edges(user_id)")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_edges_group ON kg_edges(group_id)")
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_nodes_user ON kg_nodes(user_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_nodes_group ON kg_nodes(group_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_nodes_type ON kg_nodes(node_type)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edges_source ON kg_edges(source_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edges_target ON kg_edges(target_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edges_rel ON kg_edges(relation_type)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edges_memory ON kg_edges(memory_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edges_user ON kg_edges(user_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_edges_group ON kg_edges(group_id)"
+            )
 
             # ── FTS5 虚拟表 ──
             # tokenize='unicode61' 支持中英文
@@ -220,30 +239,43 @@ class KGStorage:
                     ("schema_version", str(_SCHEMA_VERSION)),
                 )
                 self._conn.commit()
-                logger.info(f"KG schema migration completed: v{current} → v{_SCHEMA_VERSION}")
+                logger.info(
+                    f"KG schema migration completed: v{current} → v{_SCHEMA_VERSION}"
+                )
 
             self._ensure_persona_indexes()
         except Exception as e:
             self._conn.rollback()
             logger.error(f"KG schema migration failed: {e}")
             from iris_memory.core.exceptions import MigrationError
+
             raise MigrationError(f"Database migration failed: {e}") from e
 
     def _ensure_persona_columns(self) -> None:
         """确保 persona_id 列存在（修复可能被跳过的迁移）
-        
+
         注意：此方法不使用事务上下文，直接操作连接，
         因为 ALTER TABLE 需要立即提交才能被后续操作看到。
         """
         assert self._conn
         try:
-            cols = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()}
+            cols = {
+                info[1]
+                for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()
+            }
             if "persona_id" not in cols:
-                self._conn.execute("ALTER TABLE kg_nodes ADD COLUMN persona_id TEXT DEFAULT 'default'")
+                self._conn.execute(
+                    "ALTER TABLE kg_nodes ADD COLUMN persona_id TEXT DEFAULT 'default'"
+                )
                 logger.info("Migration: added missing persona_id to kg_nodes")
-            cols_e = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()}
+            cols_e = {
+                info[1]
+                for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()
+            }
             if "persona_id" not in cols_e:
-                self._conn.execute("ALTER TABLE kg_edges ADD COLUMN persona_id TEXT DEFAULT 'default'")
+                self._conn.execute(
+                    "ALTER TABLE kg_edges ADD COLUMN persona_id TEXT DEFAULT 'default'"
+                )
                 logger.info("Migration: added missing persona_id to kg_edges")
             self._conn.commit()
         except sqlite3.Error as e:
@@ -255,14 +287,28 @@ class KGStorage:
         """确保 persona_id 相关索引存在（新旧数据库都需要）"""
         assert self._conn
         try:
-            cols = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()}
+            cols = {
+                info[1]
+                for info in self._conn.execute("PRAGMA table_info(kg_nodes)").fetchall()
+            }
             if "persona_id" in cols:
-                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_persona ON kg_nodes(persona_id)")
-                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_user_persona ON kg_nodes(user_id, persona_id)")
-            cols_e = {info[1] for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()}
+                self._conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_nodes_persona ON kg_nodes(persona_id)"
+                )
+                self._conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_nodes_user_persona ON kg_nodes(user_id, persona_id)"
+                )
+            cols_e = {
+                info[1]
+                for info in self._conn.execute("PRAGMA table_info(kg_edges)").fetchall()
+            }
             if "persona_id" in cols_e:
-                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_persona ON kg_edges(persona_id)")
-                self._conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_user_persona ON kg_edges(user_id, persona_id)")
+                self._conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_edges_persona ON kg_edges(persona_id)"
+                )
+                self._conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_edges_user_persona ON kg_edges(user_id, persona_id)"
+                )
         except sqlite3.Error as e:
             logger.warning(f"Failed to create persona indexes: {e}")
 
@@ -296,7 +342,9 @@ class KGStorage:
             if cached is not None:
                 existing = cached
             else:
-                existing = self._find_node_by_name(node.name, node.user_id, node.group_id)
+                existing = self._find_node_by_name(
+                    node.name, node.user_id, node.group_id
+                )
 
             if existing:
                 # 合并：增加提及次数，提升置信度
@@ -305,7 +353,11 @@ class KGStorage:
                 existing.updated_time = datetime.now()
                 # 合并别名
                 alias_set = set(existing.aliases)
-                if node.display_name and node.display_name not in alias_set and node.display_name != existing.name:
+                if (
+                    node.display_name
+                    and node.display_name not in alias_set
+                    and node.display_name != existing.name
+                ):
                     existing.aliases.append(node.display_name)
                 for a in node.aliases:
                     if a not in alias_set:
@@ -321,8 +373,8 @@ class KGStorage:
                 return node
 
     def _find_node_by_name(
-        self, name: str, user_id: str, group_id: Optional[str]
-    ) -> Optional[KGNode]:
+        self, name: str, user_id: str, group_id: str | None
+    ) -> KGNode | None:
         """按 normalized name 查找节点"""
         assert self._conn
         normalized = self._normalize_name(name)
@@ -370,7 +422,7 @@ class KGStorage:
                 d,
             )
 
-    async def get_node(self, node_id: str) -> Optional[KGNode]:
+    async def get_node(self, node_id: str) -> KGNode | None:
         """按 ID 获取节点"""
         async with self._lock:
             assert self._conn
@@ -382,12 +434,12 @@ class KGStorage:
     async def search_nodes(
         self,
         query: str,
-        user_id: Optional[str] = None,
-        group_id: Optional[str] = None,
-        node_type: Optional[KGNodeType] = None,
+        user_id: str | None = None,
+        group_id: str | None = None,
+        node_type: KGNodeType | None = None,
         limit: int = 20,
-        persona_id: Optional[str] = None,
-    ) -> List[KGNode]:
+        persona_id: str | None = None,
+    ) -> list[KGNode]:
         """FTS5 全文搜索节点
 
         Args:
@@ -402,17 +454,19 @@ class KGStorage:
             匹配的节点列表（按 rank 排序）
         """
         async with self._lock:
-            return self._search_nodes_sync(query, user_id, group_id, node_type, limit, persona_id)
+            return self._search_nodes_sync(
+                query, user_id, group_id, node_type, limit, persona_id
+            )
 
     def _search_nodes_sync(
         self,
         query: str,
-        user_id: Optional[str] = None,
-        group_id: Optional[str] = None,
-        node_type: Optional[KGNodeType] = None,
+        user_id: str | None = None,
+        group_id: str | None = None,
+        node_type: KGNodeType | None = None,
         limit: int = 20,
-        persona_id: Optional[str] = None,
-    ) -> List[KGNode]:
+        persona_id: str | None = None,
+    ) -> list[KGNode]:
         """同步版全文搜索
 
         对中文查询优先使用精确 LIKE 匹配（FTS5 unicode61 对中文按字符切分，
@@ -423,16 +477,22 @@ class KGStorage:
 
         # 中文查询优先使用 LIKE 精确匹配
         if self._is_chinese(query):
-            results = self._search_nodes_like_exact(query, user_id, group_id, node_type, limit, persona_id)
+            results = self._search_nodes_like_exact(
+                query, user_id, group_id, node_type, limit, persona_id
+            )
             if results:
                 return results
             # 精确匹配无结果时退回模糊 LIKE
-            return self._search_nodes_like(query, user_id, group_id, node_type, limit, persona_id)
+            return self._search_nodes_like(
+                query, user_id, group_id, node_type, limit, persona_id
+            )
 
         # 英文使用 FTS5
         fts_query = self._build_fts_query(query)
         if not fts_query:
-            return self._search_nodes_like(query, user_id, group_id, node_type, limit, persona_id)
+            return self._search_nodes_like(
+                query, user_id, group_id, node_type, limit, persona_id
+            )
 
         try:
             rows = self._conn.execute(
@@ -445,20 +505,24 @@ class KGStorage:
             ).fetchall()
         except sqlite3.OperationalError:
             # FTS 查询语法错误时 fallback
-            return self._search_nodes_like(query, user_id, group_id, node_type, limit, persona_id)
+            return self._search_nodes_like(
+                query, user_id, group_id, node_type, limit, persona_id
+            )
 
         nodes = [KGNode.from_row(dict(r)) for r in rows]
-        return self._filter_nodes_by_scope(nodes, user_id, group_id, node_type, limit, persona_id)
+        return self._filter_nodes_by_scope(
+            nodes, user_id, group_id, node_type, limit, persona_id
+        )
 
     def _search_nodes_like_exact(
         self,
         query: str,
-        user_id: Optional[str],
-        group_id: Optional[str],
-        node_type: Optional[KGNodeType],
+        user_id: str | None,
+        group_id: str | None,
+        node_type: KGNodeType | None,
         limit: int,
-        persona_id: Optional[str] = None,
-    ) -> List[KGNode]:
+        persona_id: str | None = None,
+    ) -> list[KGNode]:
         """精确名称匹配搜索（用于中文实体）
 
         优先匹配名称完全相等的节点，再匹配别名包含查询词的节点。
@@ -479,17 +543,19 @@ class KGStorage:
             ).fetchall()
             rows = list(rows) + list(extra)
         nodes = [KGNode.from_row(dict(r)) for r in rows]
-        return self._filter_nodes_by_scope(nodes, user_id, group_id, node_type, limit, persona_id)
+        return self._filter_nodes_by_scope(
+            nodes, user_id, group_id, node_type, limit, persona_id
+        )
 
     def _search_nodes_like(
         self,
         query: str,
-        user_id: Optional[str],
-        group_id: Optional[str],
-        node_type: Optional[KGNodeType],
+        user_id: str | None,
+        group_id: str | None,
+        node_type: KGNodeType | None,
         limit: int,
-        persona_id: Optional[str] = None,
-    ) -> List[KGNode]:
+        persona_id: str | None = None,
+    ) -> list[KGNode]:
         """LIKE 回退搜索"""
         assert self._conn
         pattern = f"%{query}%"
@@ -498,17 +564,19 @@ class KGStorage:
             (pattern, pattern, limit * 3),
         ).fetchall()
         nodes = [KGNode.from_row(dict(r)) for r in rows]
-        return self._filter_nodes_by_scope(nodes, user_id, group_id, node_type, limit, persona_id)
+        return self._filter_nodes_by_scope(
+            nodes, user_id, group_id, node_type, limit, persona_id
+        )
 
     def _filter_nodes_by_scope(
         self,
-        nodes: List[KGNode],
-        user_id: Optional[str],
-        group_id: Optional[str],
-        node_type: Optional[KGNodeType],
+        nodes: list[KGNode],
+        user_id: str | None,
+        group_id: str | None,
+        node_type: KGNodeType | None,
         limit: int,
-        persona_id: Optional[str] = None,
-    ) -> List[KGNode]:
+        persona_id: str | None = None,
+    ) -> list[KGNode]:
         """根据 scope 和 persona 过滤节点
 
         安全约束：当 user_id 为空时返回空列表，防止数据泄露。
@@ -544,12 +612,17 @@ class KGStorage:
     async def upsert_edge(self, edge: KGEdge) -> KGEdge:
         """插入或更新边（按 source_id + target_id + relation_type 去重）"""
         async with self._lock:
-            existing = self._find_edge(edge.source_id, edge.target_id, edge.relation_type)
+            existing = self._find_edge(
+                edge.source_id, edge.target_id, edge.relation_type
+            )
             if existing:
                 existing.weight += 0.5
                 existing.confidence = min(1.0, existing.confidence + 0.05)
                 existing.updated_time = datetime.now()
-                if edge.relation_label and edge.relation_label != existing.relation_label:
+                if (
+                    edge.relation_label
+                    and edge.relation_label != existing.relation_label
+                ):
                     existing.relation_label = edge.relation_label
                 existing.properties.update(edge.properties)
                 self._update_edge(existing)
@@ -560,7 +633,7 @@ class KGStorage:
 
     def _find_edge(
         self, source_id: str, target_id: str, relation_type: KGRelationType
-    ) -> Optional[KGEdge]:
+    ) -> KGEdge | None:
         """查找现有边"""
         assert self._conn
         row = self._conn.execute(
@@ -598,9 +671,9 @@ class KGStorage:
     async def get_edges_from(
         self,
         node_id: str,
-        relation_type: Optional[KGRelationType] = None,
+        relation_type: KGRelationType | None = None,
         limit: int = 50,
-    ) -> List[KGEdge]:
+    ) -> list[KGEdge]:
         """获取从 node_id 出发的所有边"""
         async with self._lock:
             return self._get_edges_from_sync(node_id, relation_type, limit)
@@ -608,9 +681,9 @@ class KGStorage:
     def _get_edges_from_sync(
         self,
         node_id: str,
-        relation_type: Optional[KGRelationType] = None,
+        relation_type: KGRelationType | None = None,
         limit: int = 50,
-    ) -> List[KGEdge]:
+    ) -> list[KGEdge]:
         assert self._conn
         if relation_type:
             rows = self._conn.execute(
@@ -627,9 +700,9 @@ class KGStorage:
     async def get_edges_to(
         self,
         node_id: str,
-        relation_type: Optional[KGRelationType] = None,
+        relation_type: KGRelationType | None = None,
         limit: int = 50,
-    ) -> List[KGEdge]:
+    ) -> list[KGEdge]:
         """获取指向 node_id 的所有边"""
         async with self._lock:
             return self._get_edges_to_sync(node_id, relation_type, limit)
@@ -637,9 +710,9 @@ class KGStorage:
     def _get_edges_to_sync(
         self,
         node_id: str,
-        relation_type: Optional[KGRelationType] = None,
+        relation_type: KGRelationType | None = None,
         limit: int = 50,
-    ) -> List[KGEdge]:
+    ) -> list[KGEdge]:
         assert self._conn
         if relation_type:
             rows = self._conn.execute(
@@ -657,7 +730,7 @@ class KGStorage:
         self,
         node_id: str,
         limit: int = 50,
-    ) -> List[Tuple[KGEdge, KGNode]]:
+    ) -> list[tuple[KGEdge, KGNode]]:
         """获取邻居节点（双向）"""
         async with self._lock:
             return self._get_neighbors_sync(node_id, limit)
@@ -666,10 +739,10 @@ class KGStorage:
         self,
         node_id: str,
         limit: int = 50,
-    ) -> List[Tuple[KGEdge, KGNode]]:
+    ) -> list[tuple[KGEdge, KGNode]]:
         """同步获取邻居"""
         assert self._conn
-        results: List[Tuple[KGEdge, KGNode]] = []
+        results: list[tuple[KGEdge, KGNode]] = []
 
         # 出边
         rows = self._conn.execute(
@@ -687,15 +760,23 @@ class KGStorage:
         for r in rows:
             rd = dict(r)
             edge = KGEdge.from_row(rd)
-            node = KGNode.from_row({
-                "id": rd["n_id"], "name": rd["n_name"],
-                "display_name": rd["n_display"], "node_type": rd["n_type"],
-                "user_id": rd["n_user"], "group_id": rd["n_group"],
-                "persona_id": rd.get("n_persona", "default"),
-                "aliases": rd["n_aliases"], "properties": rd["n_props"],
-                "mention_count": rd["n_mention"], "confidence": rd["n_conf"],
-                "created_time": rd["n_created"], "updated_time": rd["n_updated"],
-            })
+            node = KGNode.from_row(
+                {
+                    "id": rd["n_id"],
+                    "name": rd["n_name"],
+                    "display_name": rd["n_display"],
+                    "node_type": rd["n_type"],
+                    "user_id": rd["n_user"],
+                    "group_id": rd["n_group"],
+                    "persona_id": rd.get("n_persona", "default"),
+                    "aliases": rd["n_aliases"],
+                    "properties": rd["n_props"],
+                    "mention_count": rd["n_mention"],
+                    "confidence": rd["n_conf"],
+                    "created_time": rd["n_created"],
+                    "updated_time": rd["n_updated"],
+                }
+            )
             results.append((edge, node))
 
         # 入边
@@ -714,15 +795,23 @@ class KGStorage:
         for r in rows:
             rd = dict(r)
             edge = KGEdge.from_row(rd)
-            node = KGNode.from_row({
-                "id": rd["n_id"], "name": rd["n_name"],
-                "display_name": rd["n_display"], "node_type": rd["n_type"],
-                "user_id": rd["n_user"], "group_id": rd["n_group"],
-                "persona_id": rd.get("n_persona", "default"),
-                "aliases": rd["n_aliases"], "properties": rd["n_props"],
-                "mention_count": rd["n_mention"], "confidence": rd["n_conf"],
-                "created_time": rd["n_created"], "updated_time": rd["n_updated"],
-            })
+            node = KGNode.from_row(
+                {
+                    "id": rd["n_id"],
+                    "name": rd["n_name"],
+                    "display_name": rd["n_display"],
+                    "node_type": rd["n_type"],
+                    "user_id": rd["n_user"],
+                    "group_id": rd["n_group"],
+                    "persona_id": rd.get("n_persona", "default"),
+                    "aliases": rd["n_aliases"],
+                    "properties": rd["n_props"],
+                    "mention_count": rd["n_mention"],
+                    "confidence": rd["n_conf"],
+                    "created_time": rd["n_created"],
+                    "updated_time": rd["n_updated"],
+                }
+            )
             results.append((edge, node))
 
         return results[:limit]
@@ -750,15 +839,23 @@ class KGStorage:
             self._invalidate_cache()
             return count
 
-    async def delete_user_data(self, user_id: str, group_id: Optional[str] = None) -> int:
+    async def delete_user_data(
+        self, user_id: str, group_id: str | None = None
+    ) -> int:
         """删除用户的所有知识图谱数据"""
         async with self._lock:
             count = 0
             with self._tx() as cur:
                 if group_id:
-                    cur.execute("DELETE FROM kg_edges WHERE user_id = ? AND group_id = ?", (user_id, group_id))
+                    cur.execute(
+                        "DELETE FROM kg_edges WHERE user_id = ? AND group_id = ?",
+                        (user_id, group_id),
+                    )
                     count += cur.rowcount
-                    cur.execute("DELETE FROM kg_nodes WHERE user_id = ? AND group_id = ?", (user_id, group_id))
+                    cur.execute(
+                        "DELETE FROM kg_nodes WHERE user_id = ? AND group_id = ?",
+                        (user_id, group_id),
+                    )
                     count += cur.rowcount
                 else:
                     cur.execute("DELETE FROM kg_edges WHERE user_id = ?", (user_id,))
@@ -786,13 +883,13 @@ class KGStorage:
 
     async def get_stats(
         self,
-        user_id: Optional[str] = None,
-        group_id: Optional[str] = None,
-    ) -> Dict[str, int]:
+        user_id: str | None = None,
+        group_id: str | None = None,
+    ) -> dict[str, int]:
         """获取统计信息"""
         async with self._lock:
             assert self._conn
-            params: List[Any] = []
+            params: list[Any] = []
             node_where = ""
             edge_where = ""
             if user_id:
@@ -817,12 +914,12 @@ class KGStorage:
     # 缓存方法
     # ================================================================
 
-    def _node_cache_key(self, name: str, user_id: str, group_id: Optional[str]) -> str:
+    def _node_cache_key(self, name: str, user_id: str, group_id: str | None) -> str:
         """生成节点缓存 key"""
         normalized = self._normalize_name(name)
         return f"{normalized}:{user_id}:{group_id or ''}"
 
-    def _get_from_cache(self, key: str) -> Optional[KGNode]:
+    def _get_from_cache(self, key: str) -> KGNode | None:
         """从缓存获取节点，返回 None 表示未命中或已过期"""
         entry = self._node_cache.get(key)
         if entry is None:
@@ -838,12 +935,16 @@ class KGStorage:
         if len(self._node_cache) >= self._cache_max_size:
             # 淘汰最旧的10%条目
             items = sorted(self._node_cache.items(), key=lambda x: x[1][1])
-            for k, _ in items[:max(1, self._cache_max_size // 10)]:
+            for k, _ in items[: max(1, self._cache_max_size // 10)]:
                 del self._node_cache[k]
         self._node_cache[key] = (node, time.monotonic())
 
-    def _invalidate_cache(self, name: Optional[str] = None, user_id: Optional[str] = None,
-                          group_id: Optional[str] = None) -> None:
+    def _invalidate_cache(
+        self,
+        name: str | None = None,
+        user_id: str | None = None,
+        group_id: str | None = None,
+    ) -> None:
         """失效缓存条目"""
         if name and user_id:
             key = self._node_cache_key(name, user_id, group_id)
@@ -859,11 +960,11 @@ class KGStorage:
     # 图遍历基础（供 reasoning 模块调用）
     # ================================================================
 
-    async def get_node_by_id(self, node_id: str) -> Optional[KGNode]:
+    async def get_node_by_id(self, node_id: str) -> KGNode | None:
         """按 ID 获取节点（无锁版，供内部使用）"""
         return await self.get_node(node_id)
 
-    def get_node_by_id_sync(self, node_id: str) -> Optional[KGNode]:
+    def get_node_by_id_sync(self, node_id: str) -> KGNode | None:
         """同步按 ID 获取节点"""
         assert self._conn
         row = self._conn.execute(
@@ -871,7 +972,9 @@ class KGStorage:
         ).fetchone()
         return KGNode.from_row(dict(row)) if row else None
 
-    def get_neighbors_sync(self, node_id: str, limit: int = 50) -> List[Tuple[KGEdge, KGNode]]:
+    def get_neighbors_sync(
+        self, node_id: str, limit: int = 50
+    ) -> list[tuple[KGEdge, KGNode]]:
         """同步获取邻居（供 BFS 使用）"""
         return self._get_neighbors_sync(node_id, limit)
 
@@ -879,7 +982,7 @@ class KGStorage:
     # 维护支持方法（供 kg_maintenance / kg_consistency / kg_quality 使用）
     # ================================================================
 
-    async def get_all_nodes(self, limit: int = 10000) -> List[KGNode]:
+    async def get_all_nodes(self, limit: int = 10000) -> list[KGNode]:
         """获取所有节点（供维护/质量检测使用）"""
         async with self._lock:
             assert self._conn
@@ -888,7 +991,7 @@ class KGStorage:
             ).fetchall()
             return [KGNode.from_row(dict(r)) for r in rows]
 
-    async def get_all_edges(self, limit: int = 50000) -> List[KGEdge]:
+    async def get_all_edges(self, limit: int = 50000) -> list[KGEdge]:
         """获取所有边（供维护/质量检测使用）"""
         async with self._lock:
             assert self._conn
@@ -897,7 +1000,7 @@ class KGStorage:
             ).fetchall()
             return [KGEdge.from_row(dict(r)) for r in rows]
 
-    async def get_orphan_node_ids(self) -> List[str]:
+    async def get_orphan_node_ids(self) -> list[str]:
         """获取孤立节点 ID（无任何边连接的节点）"""
         async with self._lock:
             assert self._conn
@@ -912,7 +1015,7 @@ class KGStorage:
             ).fetchall()
             return [r[0] for r in rows]
 
-    async def get_dangling_edges(self) -> List[KGEdge]:
+    async def get_dangling_edges(self) -> list[KGEdge]:
         """获取悬空边（指向不存在节点的边）"""
         async with self._lock:
             assert self._conn
@@ -927,7 +1030,7 @@ class KGStorage:
             ).fetchall()
             return [KGEdge.from_row(dict(r)) for r in rows]
 
-    async def get_self_referencing_edges(self) -> List[KGEdge]:
+    async def get_self_referencing_edges(self) -> list[KGEdge]:
         """获取自引用边（source_id == target_id）"""
         async with self._lock:
             assert self._conn
@@ -936,7 +1039,7 @@ class KGStorage:
             ).fetchall()
             return [KGEdge.from_row(dict(r)) for r in rows]
 
-    async def get_edges_between(self, source_id: str, target_id: str) -> List[KGEdge]:
+    async def get_edges_between(self, source_id: str, target_id: str) -> list[KGEdge]:
         """获取两个节点之间的所有边（双向）"""
         async with self._lock:
             assert self._conn
@@ -948,7 +1051,7 @@ class KGStorage:
             ).fetchall()
             return [KGEdge.from_row(dict(r)) for r in rows]
 
-    async def delete_nodes_by_ids(self, node_ids: List[str]) -> int:
+    async def delete_nodes_by_ids(self, node_ids: list[str]) -> int:
         """批量删除节点"""
         if not node_ids:
             return 0
@@ -963,7 +1066,7 @@ class KGStorage:
             self._invalidate_cache()
             return count
 
-    async def delete_edges_by_ids(self, edge_ids: List[str]) -> int:
+    async def delete_edges_by_ids(self, edge_ids: list[str]) -> int:
         """批量删除边"""
         if not edge_ids:
             return 0
@@ -1001,7 +1104,7 @@ class KGStorage:
             row = self._conn.execute("SELECT COUNT(*) FROM kg_edges").fetchone()
             return row[0] if row else 0
 
-    async def get_avg_confidence(self) -> Dict[str, float]:
+    async def get_avg_confidence(self) -> dict[str, float]:
         """使用 SQL 聚合计算平均置信度
 
         Returns:
@@ -1009,18 +1112,14 @@ class KGStorage:
         """
         async with self._lock:
             assert self._conn
-            nr = self._conn.execute(
-                "SELECT AVG(confidence) FROM kg_nodes"
-            ).fetchone()
-            er = self._conn.execute(
-                "SELECT AVG(confidence) FROM kg_edges"
-            ).fetchone()
+            nr = self._conn.execute("SELECT AVG(confidence) FROM kg_nodes").fetchone()
+            er = self._conn.execute("SELECT AVG(confidence) FROM kg_edges").fetchone()
             return {
                 "nodes": nr[0] if nr and nr[0] is not None else 0.0,
                 "edges": er[0] if er and er[0] is not None else 0.0,
             }
 
-    async def get_low_confidence_counts(self, threshold: float = 0.3) -> Dict[str, int]:
+    async def get_low_confidence_counts(self, threshold: float = 0.3) -> dict[str, int]:
         """使用 SQL 计算低置信度节点和边数量
 
         Args:
@@ -1044,7 +1143,7 @@ class KGStorage:
                 "edges": er[0] if er else 0,
             }
 
-    async def get_node_type_distribution(self) -> Dict[str, int]:
+    async def get_node_type_distribution(self) -> dict[str, int]:
         """使用 SQL GROUP BY 统计节点类型分布
 
         Returns:
@@ -1057,7 +1156,7 @@ class KGStorage:
             ).fetchall()
             return {r[0]: r[1] for r in rows}
 
-    async def get_relation_type_distribution(self) -> Dict[str, int]:
+    async def get_relation_type_distribution(self) -> dict[str, int]:
         """使用 SQL GROUP BY 统计关系类型分布
 
         Returns:
@@ -1074,7 +1173,7 @@ class KGStorage:
         self,
         confidence_threshold: float = 0.2,
         cutoff_iso: str = "",
-    ) -> List[str]:
+    ) -> list[str]:
         """使用 SQL 获取低置信度且过期的边 ID 列表
 
         Args:
@@ -1094,8 +1193,8 @@ class KGStorage:
 
     async def detect_contradictions_sql(
         self,
-        relation_pairs: List[tuple],
-    ) -> List[Dict[str, Any]]:
+        relation_pairs: list[tuple],
+    ) -> list[dict[str, Any]]:
         """使用 SQL JOIN 检测矛盾关系对
 
         Args:
@@ -1109,7 +1208,7 @@ class KGStorage:
 
         async with self._lock:
             assert self._conn
-            results: List[Dict[str, Any]] = []
+            results: list[dict[str, Any]] = []
             for rel_a, rel_b in relation_pairs:
                 rows = self._conn.execute(
                     """SELECT e1.id as e1_id, e2.id as e2_id,
@@ -1131,7 +1230,7 @@ class KGStorage:
     # 分批迭代方法（大图谱内存优化）
     # ================================================================
 
-    async def iter_nodes_batch(self, batch_size: int = 500) -> List[List[KGNode]]:
+    async def iter_nodes_batch(self, batch_size: int = 500) -> list[list[KGNode]]:
         """分批获取所有节点
 
         对于需要遍历所有节点的场景，分批加载减少内存峰值。
@@ -1142,7 +1241,7 @@ class KGStorage:
         Returns:
             节点批次列表
         """
-        batches: List[List[KGNode]] = []
+        batches: list[list[KGNode]] = []
         async with self._lock:
             assert self._conn
             offset = 0
@@ -1157,7 +1256,7 @@ class KGStorage:
                 offset += batch_size
         return batches
 
-    async def iter_edges_batch(self, batch_size: int = 500) -> List[List[KGEdge]]:
+    async def iter_edges_batch(self, batch_size: int = 500) -> list[list[KGEdge]]:
         """分批获取所有边
 
         Args:
@@ -1166,7 +1265,7 @@ class KGStorage:
         Returns:
             边批次列表
         """
-        batches: List[List[KGEdge]] = []
+        batches: list[list[KGEdge]] = []
         async with self._lock:
             assert self._conn
             offset = 0

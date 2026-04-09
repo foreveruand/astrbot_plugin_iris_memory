@@ -4,28 +4,27 @@
 封装所有 AstrBot 插件命令的处理逻辑，与 main.py 解耦。
 """
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from astrbot.api.event import AstrMessageEvent
-
 from iris_memory.commands.permissions import PermissionChecker
-from iris_memory.utils.event_utils import get_group_id, get_sender_name
-from iris_memory.utils.persona_utils import get_event_persona_id
-from iris_memory.utils.command_utils import (
-    CommandParser,
-    StatsFormatter,
-    SessionKeyBuilder,
-    UnifiedDeleteScopeParser,
-)
 from iris_memory.core.constants import (
     CommandPrefix,
-    ErrorMessages,
-    SuccessMessages,
-    NumericDefaults,
     DeleteMainScope,
+    ErrorMessages,
     InputValidationConfig,
     KVStoreKeys,
+    NumericDefaults,
+    SuccessMessages,
 )
+from iris_memory.utils.command_utils import (
+    CommandParser,
+    SessionKeyBuilder,
+    StatsFormatter,
+    UnifiedDeleteScopeParser,
+)
+from iris_memory.utils.event_utils import get_group_id, get_sender_name
+from iris_memory.utils.persona_utils import get_event_persona_id
 
 if TYPE_CHECKING:
     from iris_memory.services.memory_service import MemoryService
@@ -86,7 +85,9 @@ class CommandHandlers:
         if not content:
             return ErrorMessages.EMPTY_CONTENT
         if len(content) > InputValidationConfig.MAX_SAVE_CONTENT_LENGTH:
-            return f"内容过长（最大 {InputValidationConfig.MAX_SAVE_CONTENT_LENGTH} 字符）"
+            return (
+                f"内容过长（最大 {InputValidationConfig.MAX_SAVE_CONTENT_LENGTH} 字符）"
+            )
 
         content = InputValidationConfig.sanitize_input(content)
         if not content:
@@ -95,7 +96,9 @@ class CommandHandlers:
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         raw_persona_id = get_event_persona_id(event)
-        store_persona = self._service.cfg.get("persona_isolation.default_persona_id", raw_persona_id)
+        store_persona = self._service.cfg.get(
+            "persona_isolation.default_persona_id", raw_persona_id
+        )
 
         memory = await self._service.capture_and_store_memory(
             message=content,
@@ -123,7 +126,9 @@ class CommandHandlers:
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         raw_persona_id = get_event_persona_id(event)
-        query_persona = self._service.cfg.get("persona_isolation.default_persona_id", raw_persona_id)
+        query_persona = self._service.cfg.get(
+            "persona_isolation.default_persona_id", raw_persona_id
+        )
 
         memories = await self._service.search_memories(
             query=content,
@@ -139,7 +144,9 @@ class CommandHandlers:
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         success = await self._service.clear_memories(user_id, group_id)
-        return SuccessMessages.MEMORY_CLEARED if success else ErrorMessages.DELETE_FAILED
+        return (
+            SuccessMessages.MEMORY_CLEARED if success else ErrorMessages.DELETE_FAILED
+        )
 
     async def _handle_memory_stats(self, event: AstrMessageEvent, parsed: Any) -> str:
         """记忆统计"""
@@ -157,14 +164,18 @@ class CommandHandlers:
             image_stats=image_stats,
         )
 
-    async def _handle_memory_delete(self, event: AstrMessageEvent, delete_kv_func: Any) -> str:
+    async def _handle_memory_delete(
+        self, event: AstrMessageEvent, delete_kv_func: Any
+    ) -> str:
         """删除记忆"""
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
         parsed = CommandParser.parse(event.message_str, CommandPrefix.MEMORY)
         args = parsed.args[1:] if len(parsed.args) > 1 else []
 
-        has_confirm = len(args) >= 2 and args[-1].lower() == NumericDefaults.CONFIRM_VALUE
+        has_confirm = (
+            len(args) >= 2 and args[-1].lower() == NumericDefaults.CONFIRM_VALUE
+        )
         args_for_parser = args[:-1] if has_confirm else args
         result = UnifiedDeleteScopeParser.parse(args_for_parser, has_confirm)
 
@@ -183,7 +194,11 @@ class CommandHandlers:
             success, count = await self._service.delete_private_memories(user_id)
             kv_key = SessionKeyBuilder.build_for_kv(user_id, None)
             await delete_kv_func(kv_key)
-            return SuccessMessages.PRIVATE_DELETED.format(count=count) if success else ErrorMessages.DELETE_FAILED
+            return (
+                SuccessMessages.PRIVATE_DELETED.format(count=count)
+                if success
+                else ErrorMessages.DELETE_FAILED
+            )
 
         elif result.main_scope == DeleteMainScope.GROUP:
             if not group_id:
@@ -193,7 +208,13 @@ class CommandHandlers:
             success, count = await self._service.delete_group_memories(
                 group_id=group_id, scope_filter=result.scope_filter, user_id=user_id
             )
-            return SuccessMessages.GROUP_DELETED.format(count=count, scope_desc=result.scope_desc) if success else ErrorMessages.DELETE_FAILED
+            return (
+                SuccessMessages.GROUP_DELETED.format(
+                    count=count, scope_desc=result.scope_desc
+                )
+                if success
+                else ErrorMessages.DELETE_FAILED
+            )
 
         elif result.main_scope == DeleteMainScope.ALL:
             if not self._perms.is_admin(event):
@@ -201,7 +222,11 @@ class CommandHandlers:
             if not has_confirm:
                 return ErrorMessages.DELETE_CONFIRM_REQUIRED
             success, count = await self._service.delete_all_memories()
-            return SuccessMessages.ALL_DELETED.format(count=count) if success else ErrorMessages.DELETE_FAILED
+            return (
+                SuccessMessages.ALL_DELETED.format(count=count)
+                if success
+                else ErrorMessages.DELETE_FAILED
+            )
 
         return ErrorMessages.DELETE_FAILED
 
@@ -253,7 +278,9 @@ class CommandHandlers:
 
         return f"未知子命令：{sub_cmd}\n使用 /iris 查看可用子命令"
 
-    async def _handle_iris_proactive(self, event: AstrMessageEvent, put_kv_func: Any) -> str:
+    async def _handle_iris_proactive(
+        self, event: AstrMessageEvent, put_kv_func: Any
+    ) -> str:
         """主动回复控制"""
         if not self._perms.is_admin(event):
             return ErrorMessages.ADMIN_REQUIRED
@@ -270,7 +297,9 @@ class CommandHandlers:
         if action == "list":
             whitelist = proactive_mgr.get_whitelist()
             if whitelist:
-                return "已开启主动回复的群聊：\n" + "\n".join(f"- {gid}" for gid in whitelist)
+                return "已开启主动回复的群聊：\n" + "\n".join(
+                    f"- {gid}" for gid in whitelist
+                )
             return "当前没有群聊开启主动回复"
 
         group_id = self._perms.check_group_only(event)
@@ -307,8 +336,10 @@ class CommandHandlers:
             return "场景自适应系统未启用"
 
         level_labels = {
-            "quiet": "🌙 安静", "moderate": "☀️ 中等",
-            "active": "🔥 活跃", "intensive": "⚡ 超活跃",
+            "quiet": "🌙 安静",
+            "moderate": "☀️ 中等",
+            "active": "🔥 活跃",
+            "intensive": "⚡ 超活跃",
         }
 
         if sub_cmd == "all":
@@ -320,7 +351,9 @@ class CommandHandlers:
             lines = ["📊 群活跃度概览：\n"]
             for s in summaries:
                 label = level_labels.get(s["activity_level"], s["activity_level"])
-                lines.append(f"  群 {s['group_id']}: {label} ({s['messages_per_hour']:.0f} 条/时)")
+                lines.append(
+                    f"  群 {s['group_id']}: {label} ({s['messages_per_hour']:.0f} 条/时)"
+                )
             return "\n".join(lines)
 
         if not group_id:
@@ -331,20 +364,24 @@ class CommandHandlers:
         label = level_labels.get(level, level)
         cfg = summary["config"]
 
-        return "\n".join([
-            f"📊 当前群活跃度：{label}",
-            f"消息频率：约 {summary['messages_per_hour']:.0f} 条/小时",
-            "",
-            "当前自适应配置：",
-            f"  • 主动回复冷却：{cfg.get('proactive_reply.cooldown_seconds', '?')}秒",
-            f"  • 每日回复上限：{cfg.get('proactive_reply.max_daily_replies', '?')}次",
-            f"  • 批处理阈值：{cfg.get('message_processing.batch_threshold_count', '?')}条",
-            f"  • 处理间隔：{cfg.get('message_processing.batch_threshold_interval', '?')}秒",
-            f"  • 图片分析预算：{cfg.get('image_analysis.daily_budget', '?')}次/日",
-            f"  • 上下文条数：{cfg.get('advanced.chat_context_count', '?')}条",
-        ])
+        return "\n".join(
+            [
+                f"📊 当前群活跃度：{label}",
+                f"消息频率：约 {summary['messages_per_hour']:.0f} 条/小时",
+                "",
+                "当前自适应配置：",
+                f"  • 主动回复冷却：{cfg.get('proactive_reply.cooldown_seconds', '?')}秒",
+                f"  • 每日回复上限：{cfg.get('proactive_reply.max_daily_replies', '?')}次",
+                f"  • 批处理阈值：{cfg.get('message_processing.batch_threshold_count', '?')}条",
+                f"  • 处理间隔：{cfg.get('message_processing.batch_threshold_interval', '?')}秒",
+                f"  • 图片分析预算：{cfg.get('image_analysis.daily_budget', '?')}次/日",
+                f"  • 上下文条数：{cfg.get('advanced.chat_context_count', '?')}条",
+            ]
+        )
 
-    async def _handle_iris_reset(self, event: AstrMessageEvent, delete_kv_func: Any) -> str:
+    async def _handle_iris_reset(
+        self, event: AstrMessageEvent, delete_kv_func: Any
+    ) -> str:
         """重置所有数据"""
         if not self._perms.is_admin(event):
             return ErrorMessages.ADMIN_REQUIRED
@@ -360,9 +397,14 @@ class CommandHandlers:
             )
 
         keys_to_delete = [
-            KVStoreKeys.SESSIONS, KVStoreKeys.LIFECYCLE_STATE, KVStoreKeys.BATCH_QUEUES,
-            KVStoreKeys.CHAT_HISTORY, KVStoreKeys.USER_PERSONAS, KVStoreKeys.MEMBER_IDENTITY,
-            KVStoreKeys.GROUP_ACTIVITY, KVStoreKeys.PROACTIVE_REPLY_WHITELIST,
+            KVStoreKeys.SESSIONS,
+            KVStoreKeys.LIFECYCLE_STATE,
+            KVStoreKeys.BATCH_QUEUES,
+            KVStoreKeys.CHAT_HISTORY,
+            KVStoreKeys.USER_PERSONAS,
+            KVStoreKeys.MEMBER_IDENTITY,
+            KVStoreKeys.GROUP_ACTIVITY,
+            KVStoreKeys.PROACTIVE_REPLY_WHITELIST,
             KVStoreKeys.PERSONA_BATCH_QUEUES,
         ]
 
@@ -384,12 +426,14 @@ class CommandHandlers:
         try:
             success, db_deleted_count = await self._service.delete_all_memories()
             if not success:
-                failed_keys.append("chroma_memories: delete_all_memories returned False")
+                failed_keys.append(
+                    "chroma_memories: delete_all_memories returned False"
+                )
         except Exception as e:
             failed_keys.append(f"chroma_memories: {e}")
             self._service.logger.warning(f"Failed to delete all memories: {e}")
 
-        result = f"✅ 已重置 Iris Memory 数据\n"
+        result = "✅ 已重置 Iris Memory 数据\n"
         result += f"- 成功清理 {deleted_count}/{len(keys_to_delete)} 个存储键\n"
         result += f"- 成功清理 {db_deleted_count} 条数据库记忆\n"
         if failed_keys:
@@ -399,14 +443,16 @@ class CommandHandlers:
 
     async def _handle_iris_cooldown(self, event: AstrMessageEvent, parsed: Any) -> str:
         """群冷却控制"""
-        from iris_memory.core.constants import CooldownMessages
         from iris_memory.cooldown.cooldown_manager import parse_duration
+        from iris_memory.core.constants import CooldownMessages
 
         group_id = get_group_id(event)
         if not group_id:
             return CooldownMessages.GROUP_ONLY
 
-        cooldown_mgr = getattr(getattr(self._service, 'cooldown', None), 'cooldown_manager', None)
+        cooldown_mgr = getattr(
+            getattr(self._service, "cooldown", None), "cooldown_manager", None
+        )
         if cooldown_mgr is None:
             return "冷却模块未初始化"
 
@@ -433,7 +479,9 @@ class CommandHandlers:
         cooldown_mgr.set_cooldown(group_id, duration)
         return f"已开启群冷却 {duration} 分钟"
 
-    async def _handle_iris_persona(self, event: AstrMessageEvent, put_kv_func: Any) -> str:
+    async def _handle_iris_persona(
+        self, event: AstrMessageEvent, put_kv_func: Any
+    ) -> str:
         """用户画像管理"""
         parsed = CommandParser.parse(event.message_str, CommandPrefix.IRIS)
         action = parsed.args[1].lower() if len(parsed.args) > 1 else ""

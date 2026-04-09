@@ -12,7 +12,7 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class ConfigBackup:
         self._max_backups = max_backups
         self._backup_dir = config_path.parent / "config_backups"
 
-    def backup_before_write(self) -> Optional[Path]:
+    def backup_before_write(self) -> Path | None:
         """在写入新配置前备份当前版本
 
         Returns:
@@ -52,7 +52,7 @@ class ConfigBackup:
             logger.exception("配置备份失败")
             return None
 
-    def restore_latest(self) -> Optional[Dict[str, Any]]:
+    def restore_latest(self) -> dict[str, Any] | None:
         """恢复最近的有效备份
 
         Returns:
@@ -90,7 +90,7 @@ class ConfigBackup:
     def _prune_old_backups(self) -> None:
         """清理超出数量限制的旧备份"""
         backups = self._sorted_backups()
-        for old in backups[self._max_backups:]:
+        for old in backups[self._max_backups :]:
             try:
                 old.unlink()
                 logger.debug("清理旧备份: %s", old)

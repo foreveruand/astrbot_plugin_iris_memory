@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class ServiceContainer:
@@ -28,11 +28,11 @@ class ServiceContainer:
     采用单例模式，线程安全。所有服务按名称注册。
     """
 
-    _instance: Optional[ServiceContainer] = None
+    _instance: ServiceContainer | None = None
     _lock = threading.Lock()
 
     def __init__(self) -> None:
-        self._services: Dict[str, Any] = {}
+        self._services: dict[str, Any] = {}
         self._service_lock = threading.Lock()
 
     # ── 单例 ──
@@ -84,7 +84,7 @@ class ServiceContainer:
         """检查服务是否已注册"""
         return name in self._services
 
-    def unregister(self, name: str) -> Optional[Any]:
+    def unregister(self, name: str) -> Any | None:
         """注销一个服务
 
         Args:

@@ -2,10 +2,11 @@
 主动回复模块 — 封装主动回复相关组件（v3）
 使用 ProactiveManager（SignalQueue + GroupScheduler + FollowUpPlanner）
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -20,16 +21,16 @@ class ProactiveModule:
     """主动回复模块"""
 
     def __init__(self) -> None:
-        self._manager: Optional[ProactiveManager] = None
+        self._manager: ProactiveManager | None = None
 
     @property
-    def manager(self) -> Optional[ProactiveManager]:
+    def manager(self) -> ProactiveManager | None:
         """主动回复管理器"""
         return self._manager
 
     async def initialize(
         self,
-        plugin_data_path: Optional[Path] = None,
+        plugin_data_path: Path | None = None,
         llm_provider: Any = None,
         context: Any = None,
     ) -> None:
@@ -47,15 +48,21 @@ class ProactiveModule:
 
         logger.debug(LogTemplates.COMPONENT_INIT.format(component="proactive reply"))
 
-        followup_after_all = cfg.get("proactive_reply.followup_after_all_replies", False)
+        followup_after_all = cfg.get(
+            "proactive_reply.followup_after_all_replies", False
+        )
         proactive_enabled = cfg.get("proactive_reply.enable", False)
-        
+
         if not proactive_enabled and not followup_after_all:
-            logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Proactive reply"))
+            logger.debug(
+                LogTemplates.COMPONENT_INIT_DISABLED.format(component="Proactive reply")
+            )
             return
 
         if not plugin_data_path:
-            logger.warning("ProactiveModule: plugin_data_path not provided, skipping initialization")
+            logger.warning(
+                "ProactiveModule: plugin_data_path not provided, skipping initialization"
+            )
             return
 
         try:
@@ -84,7 +91,7 @@ class ProactiveModule:
             logger.warning(f"Failed to initialize proactive manager: {e}")
             self._manager = None
 
-    def setup_reply_sender(self, sender: "ProactiveReplySender") -> None:
+    def setup_reply_sender(self, sender: ProactiveReplySender) -> None:
         """注入主动回复发送器
 
         在所有组件初始化完成后，由 MemoryService 调用。

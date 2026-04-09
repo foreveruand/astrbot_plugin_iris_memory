@@ -6,7 +6,7 @@
 
 import re
 from enum import IntEnum
-from typing import ClassVar, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from iris_memory.models.memory import Memory
@@ -14,11 +14,12 @@ if TYPE_CHECKING:
 
 class ProtectionFlag(IntEnum):
     """保护标记位定义"""
-    CORE_IDENTITY = 0x01      # 核心身份信息（姓名/生日/年龄）
-    USER_PINNED = 0x02        # 用户手动钉选
-    HIGH_EMOTION = 0x04       # 高情感价值记忆
-    ANNIVERSARY = 0x08        # 纪念日/特殊日期关联
-    RELATIONSHIP_KEY = 0x10   # 关系定义性记忆
+
+    CORE_IDENTITY = 0x01  # 核心身份信息（姓名/生日/年龄）
+    USER_PINNED = 0x02  # 用户手动钉选
+    HIGH_EMOTION = 0x04  # 高情感价值记忆
+    ANNIVERSARY = 0x08  # 纪念日/特殊日期关联
+    RELATIONSHIP_KEY = 0x10  # 关系定义性记忆
 
 
 class ProtectionMixin:
@@ -50,6 +51,7 @@ class ProtectionMixin:
         if self.is_user_requested:
             return False
         from iris_memory.core.types import QualityLevel
+
         if self.quality_level == QualityLevel.CONFIRMED:
             return False
         return True
@@ -58,19 +60,19 @@ class ProtectionMixin:
 class ProtectionRules:
     """保护标记自动判定规则"""
 
-    CORE_IDENTITY_PATTERNS: ClassVar[List[str]] = [
+    CORE_IDENTITY_PATTERNS: ClassVar[list[str]] = [
         r"(?:我|俺|本人)(?:叫|是|的?名字(?:是|叫))",
         r"(?:我|俺)(?:今年|的?年龄|岁)",
         r"(?:我|俺)的?(?:生日|出生)",
         r"(?:my\s+name\s+is|i\s+am|i'm)\s+",
     ]
 
-    RELATIONSHIP_KEY_PATTERNS: ClassVar[List[str]] = [
+    RELATIONSHIP_KEY_PATTERNS: ClassVar[list[str]] = [
         r"(?:你|我们)是(?:朋友|闺蜜|兄弟|姐妹|情侣|家人)",
         r"(?:我把你当|你对我来说是|我们的关系)",
     ]
 
-    ANNIVERSARY_PATTERNS: ClassVar[List[str]] = [
+    ANNIVERSARY_PATTERNS: ClassVar[list[str]] = [
         r"(?:纪念日|周年|生日|第一次)",
         r"(?:anniversary|birthday|first\s+time)",
     ]

@@ -15,29 +15,29 @@ Iris Memory Plugin - 主入口
 """
 
 import sys
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Optional, AsyncGenerator, Any
+from typing import Any
 
 plugin_root = Path(__file__).parent
 if str(plugin_root) not in sys.path:
     sys.path.insert(0, str(plugin_root))
 
-from astrbot.api.star import Context, Star, register, StarTools
-from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api import AstrBotConfig, llm_tool, logger
-from astrbot.core.message.message_event_result import ResultContentType
-
-from iris_memory.services.memory_service import MemoryService
-from iris_memory.utils.logger import init_logging_from_config
 from iris_memory.commands import CommandHandlers
-from iris_memory.web.web_ui import WebUIManager
-from iris_memory.processing.message_processor import (
-    MessageProcessor,
-    ErrorFriendlyProcessor,
-)
 from iris_memory.processing.markdown_stripper import MarkdownStripper
-from iris_memory.core.constants import PROACTIVE_EXTRA_KEY
+from iris_memory.processing.message_processor import (
+    ErrorFriendlyProcessor,
+    MessageProcessor,
+)
+from iris_memory.services.memory_service import MemoryService
 from iris_memory.stats import get_stats_registry
+from iris_memory.utils.logger import init_logging_from_config
+from iris_memory.web.web_ui import WebUIManager
+
+from astrbot.api import AstrBotConfig, llm_tool
+from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.core.message.message_event_result import ResultContentType
 
 
 @register(
@@ -71,12 +71,12 @@ class IrisMemoryPlugin(Star):
         self.config = config
         self.name = "iris_memory"
 
-        self._service: Optional[MemoryService] = None
-        self._command_handlers: Optional[CommandHandlers] = None
-        self._web_ui: Optional[WebUIManager] = None
-        self._message_processor: Optional[MessageProcessor] = None
-        self._error_processor: Optional[ErrorFriendlyProcessor] = None
-        self._markdown_stripper: Optional[MarkdownStripper] = None
+        self._service: MemoryService | None = None
+        self._command_handlers: CommandHandlers | None = None
+        self._web_ui: WebUIManager | None = None
+        self._message_processor: MessageProcessor | None = None
+        self._error_processor: ErrorFriendlyProcessor | None = None
+        self._markdown_stripper: MarkdownStripper | None = None
 
     async def initialize(self) -> None:
         """异步初始化插件"""
@@ -218,8 +218,8 @@ class IrisMemoryPlugin(Star):
         Args:
             content(string): 要保存的记忆内容，应该是一个完整的陈述句
         """
-        from iris_memory.models.memory import Memory
         from iris_memory.capture.scope_classifier import ScopeClassifier
+        from iris_memory.models.memory import Memory
         from iris_memory.utils.event_utils import get_group_id
 
         group_id = get_group_id(event)

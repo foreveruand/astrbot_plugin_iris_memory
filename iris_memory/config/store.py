@@ -12,12 +12,13 @@ ConfigStore — 核心配置存储与访问
 
 from __future__ import annotations
 
+import builtins
 import json
 import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from iris_memory.config.backup import ConfigBackup
 from iris_memory.config.events import ConfigEventEmitter, config_events
@@ -26,7 +27,6 @@ from iris_memory.config.schema import (
     ALIAS_MAP,
     SCHEMA,
     AccessLevel,
-    ConfigField,
 )
 from iris_memory.config.validators import validate_field
 
@@ -51,10 +51,10 @@ class ConfigStore:
     def __init__(
         self,
         user_config: Any = None,
-        plugin_data_path: Optional[Path] = None,
+        plugin_data_path: Path | None = None,
         *,
-        cache_ttl: Optional[float] = None,
-        events: Optional[ConfigEventEmitter] = None,
+        cache_ttl: float | None = None,
+        events: ConfigEventEmitter | None = None,
     ):
         self._lock = threading.Lock()
         self._user_config = user_config
@@ -64,20 +64,21 @@ class ConfigStore:
 
         # 加载并合并配置
         self._loader = ConfigLoader(user_config, plugin_data_path)
-        self._data: Dict[str, Any] = self._loader.load()
+        self._data: dict[str, Any] = self._loader.load()
 
         # Debug 输出：记录初始化后所有载入的最终配置
-        logger.debug("ConfigStore initialized with final config: %s", json.dumps(self._data, ensure_ascii=False, indent=2))
+        logger.debug(
+            "ConfigStore initialized with final config: %s",
+            json.dumps(self._data, ensure_ascii=False, indent=2),
+        )
 
         # TTL 缓存（兼容旧 ConfigManager 行为）
-        self._cache: Dict[str, Tuple[Any, float]] = {}
+        self._cache: dict[str, tuple[Any, float]] = {}
 
         # 备份管理器
-        self._backup: Optional[ConfigBackup] = None
+        self._backup: ConfigBackup | None = None
         if plugin_data_path is not None:
-            self._backup = ConfigBackup(
-                plugin_data_path / PLUGIN_DATA_FILENAME
-            )
+            self._backup = ConfigBackup(plugin_data_path / PLUGIN_DATA_FILENAME)
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     #  核心读取 API
@@ -113,18 +114,10 @@ class ConfigStore:
             if field is not None:
                 val = field.default if default is None else default
                 self._cache[key] = (val, now + self._cache_ttl)
-                logger.warning(
-                    "配置 '%s' 未设置，使用Schema默认值: %s",
-                    key,
-                    val
-                )
+                logger.warning("配置 '%s' 未设置，使用Schema默认值: %s", key, val)
                 return val
 
-            logger.warning(
-                "配置 '%s' 未设置，使用退化值: %s",
-                key,
-                default
-            )
+            logger.warning("配置 '%s' 未设置，使用退化值: %s", key, default)
             return default
 
     def get_typed(self, key: str, tp: type, default: Any = None) -> Any:
@@ -155,7 +148,7 @@ class ConfigStore:
                 "[Config Warning] 配置键 '%s' 未在 schema 中定义%s，使用退化值: %s",
                 key,
                 f" [{context}]" if context else "",
-                default
+                default,
             )
             return default
 
@@ -170,7 +163,7 @@ class ConfigStore:
                     "[Config Warning] 配置 '%s' 未设置%s，使用退化值: %s",
                     key,
                     f" [{context}]" if context else "",
-                    value
+                    value,
                 )
 
         return value
@@ -199,6 +192,7 @@ class ConfigStore:
 
         if name == "persona_llm_provider":
             from iris_memory.core.provider_utils import normalize_provider_id
+
             provider_id = normalize_provider_id(
                 self.get("llm_providers.persona_provider_id", "")
             )
@@ -222,12 +216,11 @@ class ConfigStore:
             field = SCHEMA.get(key)
             if field and field.normalize_provider:
                 from iris_memory.core.provider_utils import normalize_provider_id
+
                 return normalize_provider_id(value)
             return value
 
-        raise AttributeError(
-            f"'{type(self).__name__}' has no attribute '{name}'"
-        )
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     #  写入 API（仅 Level 2 可写配置）
@@ -269,14 +262,14 @@ class ConfigStore:
         # 广播事件
         self._events.emit(key, old_value, validated)
 
-    def set_batch(self, updates: Dict[str, Any]) -> Dict[str, str]:
+    def set_batch(self, updates: dict[str, Any]) -> dict[str, str]:
         """批量设置配置值
 
         Returns:
             错误信息字典 ``{key: error_msg}``，空表示全部成功
         """
-        changes: Dict[str, Tuple[Any, Any]] = {}
-        errors: Dict[str, str] = {}
+        changes: dict[str, tuple[Any, Any]] = {}
+        errors: dict[str, str] = {}
 
         with self._lock:
             for key, value in updates.items():
@@ -307,7 +300,7 @@ class ConfigStore:
     #  WebUI / 外部 API
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    def get_all_for_webui(self) -> List[Dict[str, Any]]:
+    def get_all_for_webui(self) -> list[dict[str, Any]]:
         """返回全量配置列表（附带只读/可写状态标记）
 
         用于 WebUI 展示。
@@ -319,32 +312,33 @@ class ConfigStore:
         for key, field in SCHEMA.items():
             if field.access == AccessLevel.INTERNAL:
                 continue
-            result.append({
-                "key": key,
-                "value": self.get(key),
-                "default": field.default,
-                "type": field.value_type.__name__,
-                "description": field.description,
-                "access": field.access.value,
-                "section": field.section,
-                "choices": list(field.choices) if field.choices else None,
-                "min_val": field.min_val,
-                "max_val": field.max_val,
-            })
+            result.append(
+                {
+                    "key": key,
+                    "value": self.get(key),
+                    "default": field.default,
+                    "type": field.value_type.__name__,
+                    "description": field.description,
+                    "access": field.access.value,
+                    "section": field.section,
+                    "choices": list(field.choices) if field.choices else None,
+                    "min_val": field.min_val,
+                    "max_val": field.max_val,
+                }
+            )
         return result
 
-    def get_writable_keys(self) -> Set[str]:
+    def get_writable_keys(self) -> builtins.set[str]:
         """返回所有可写配置键"""
         return {
-            key for key, field in SCHEMA.items()
-            if field.access == AccessLevel.WRITABLE
+            key for key, field in SCHEMA.items() if field.access == AccessLevel.WRITABLE
         }
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     #  缓存 & 热更新
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    def invalidate_cache(self, key: Optional[str] = None) -> None:
+    def invalidate_cache(self, key: str | None = None) -> None:
         """清除缓存"""
         with self._lock:
             if key is None:
@@ -385,13 +379,14 @@ class ConfigStore:
     #  快照 & 诊断
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         """返回当前配置的完整快照（深拷贝）"""
         import copy
+
         with self._lock:
             return copy.deepcopy(self._data)
 
-    def diff_from_defaults(self) -> Dict[str, Tuple[Any, Any]]:
+    def diff_from_defaults(self) -> dict[str, tuple[Any, Any]]:
         """返回与默认值不同的配置项 ``{key: (current, default)}``"""
         result = {}
         for key, field in SCHEMA.items():
@@ -404,7 +399,7 @@ class ConfigStore:
     #  人格隔离相关
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    def get_persona_id_for_storage(self, event_persona_id: Optional[str]) -> str:
+    def get_persona_id_for_storage(self, event_persona_id: str | None) -> str:
         """获取用于存储的人格 ID"""
         if event_persona_id and event_persona_id.strip():
             normalized = event_persona_id.strip()
@@ -415,8 +410,8 @@ class ConfigStore:
         return self.default_persona_id
 
     def get_persona_id_for_query(
-        self, event_persona_id: Optional[str], module: str = "memory"
-    ) -> Optional[str]:
+        self, event_persona_id: str | None, module: str = "memory"
+    ) -> str | None:
         """获取用于查询的人格 ID"""
         if module == "memory" and not self.memory_query_by_persona:
             return None
@@ -450,7 +445,7 @@ class ConfigStore:
             self._backup.backup_before_write()
 
         # 收集需要持久化的值
-        persist_data: Dict[str, Any] = {}
+        persist_data: dict[str, Any] = {}
         for key, field in SCHEMA.items():
             if field.access != AccessLevel.WRITABLE:
                 continue

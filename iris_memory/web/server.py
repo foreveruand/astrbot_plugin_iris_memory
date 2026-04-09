@@ -9,14 +9,14 @@ from __future__ import annotations
 import asyncio
 import os
 import socket
-from typing import Any, Optional
+from typing import Any
 
 from quart import Quart, request
 
+from iris_memory.utils.logger import get_logger
 from iris_memory.web.auth import AuthMiddleware
 from iris_memory.web.container import WebContainer
-from iris_memory.web.response import error_response, json_response
-from iris_memory.utils.logger import get_logger
+from iris_memory.web.response import error_response
 
 logger = get_logger("web_server")
 
@@ -29,7 +29,7 @@ except ImportError:
 def create_app(
     memory_service: Any,
     access_key: str = "",
-    static_folder: Optional[str] = None,
+    static_folder: str | None = None,
 ) -> Quart:
     """创建 Quart 应用并注册所有路由"""
 
@@ -48,8 +48,12 @@ def create_app(
         @app.after_request
         async def _add_cors_headers(response):
             response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+            response.headers["Access-Control-Allow-Methods"] = (
+                "GET, POST, PUT, DELETE, OPTIONS"
+            )
+            response.headers["Access-Control-Allow-Headers"] = (
+                "Content-Type, Authorization"
+            )
             return response
 
     # ── 认证中间件 ──
@@ -118,7 +122,7 @@ def create_app(
 
 class StandaloneWebServer:
     """独立 Web 服务器生命周期管理
-    
+
     适配 AstrBot 热重启机制：
     1. 使用 SO_REUSEADDR/SO_REUSEPORT 支持端口复用
     2. 即使旧进程未正常关闭，也能重新绑定端口
@@ -136,45 +140,45 @@ class StandaloneWebServer:
         self._host = host
         self._port = port
         self._access_key = access_key
-        self._app: Optional[Quart] = None
-        self._server: Optional[Any] = None
-        self._task: Optional[asyncio.Task] = None
+        self._app: Quart | None = None
+        self._server: Any | None = None
+        self._task: asyncio.Task | None = None
         self._started: bool = False
         self._should_exit: bool = False
 
     @property
-    def app(self) -> Optional[Quart]:
+    def app(self) -> Quart | None:
         return self._app
 
     def _create_reuse_socket(self) -> socket.socket:
         """创建支持端口复用的 socket
-        
+
         设置 SO_REUSEADDR 和 SO_REUSEPORT，允许：
         1. 快速重启（TIME_WAIT 状态下也能绑定）
         2. 多进程绑定同一端口（某些平台支持）
         """
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        
+
         # SO_REUSEADDR: 允许重用处于 TIME_WAIT 状态的端口
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        
+
         # SO_REUSEPORT: 允许多个 socket 绑定同一端口（Linux 3.9+, macOS）
         # 这对于热重启场景特别有用
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         except (AttributeError, OSError):
             pass
-        
+
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        
+
         sock.bind((self._host, self._port))
         sock.listen(128)
-        
+
         return sock
 
     async def start(self) -> None:
         """启动 Web 服务器
-        
+
         使用 Uvicorn + 端口复用，支持 AstrBot 热重启。
         """
         if self._started and self._task and not self._task.done():
@@ -190,9 +194,9 @@ class StandaloneWebServer:
         try:
             import uvicorn
             from uvicorn import Config
-            
+
             sock = self._create_reuse_socket()
-            
+
             config = Config(
                 app=self._app,
                 host=self._host,
@@ -200,9 +204,9 @@ class StandaloneWebServer:
                 access_log=False,
                 log_level="warning",
             )
-            
+
             self._server = uvicorn.Server(config=config)
-            
+
             async def _serve():
                 try:
                     await self._server.serve(sockets=[sock])
@@ -210,14 +214,14 @@ class StandaloneWebServer:
                     logger.error(f"Web 服务器运行错误: {e}", exc_info=True)
                 finally:
                     sock.close()
-            
+
             logger.info(f"Web UI 启动于 http://{self._host}:{self._port}")
-            
+
             self._task = asyncio.create_task(_serve())
             self._started = True
-            
+
             await asyncio.sleep(0.1)
-            
+
             if self._task.done():
                 exc = self._task.exception()
                 if exc:
@@ -227,7 +231,9 @@ class StandaloneWebServer:
                 return
 
         except ImportError:
-            logger.error("Uvicorn 未安装，无法启动 Web 服务器。请执行: pip install uvicorn")
+            logger.error(
+                "Uvicorn 未安装，无法启动 Web 服务器。请执行: pip install uvicorn"
+            )
         except OSError as e:
             if "Address already in use" in str(e) or "address already in use" in str(e):
                 logger.error(f"端口 {self._port} 已被占用，Web 服务器启动失败")
@@ -239,7 +245,7 @@ class StandaloneWebServer:
 
     async def stop(self) -> None:
         """停止 Web 服务器
-        
+
         触发优雅关闭，等待连接处理完成。
         """
         if not self._started:

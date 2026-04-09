@@ -8,7 +8,8 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import TypeVar, Optional, Iterator, Callable
+from collections.abc import Callable
+from typing import TypeVar
 
 KT = TypeVar("KT")
 VT = TypeVar("VT")
@@ -30,7 +31,13 @@ class BoundedDict(OrderedDict[KT, VT]):
         on_evict: 淘汰回调函数，签名 ``(key, value) -> None``，在条目被移除时调用
     """
 
-    def __init__(self, max_size: int = 1000, on_evict: Optional[Callable[[KT, VT], None]] = None, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        max_size: int = 1000,
+        on_evict: Callable[[KT, VT], None] | None = None,
+        *args,
+        **kwargs,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._max_size = max(1, max_size)
         self._on_evict = on_evict
@@ -50,7 +57,7 @@ class BoundedDict(OrderedDict[KT, VT]):
         self.move_to_end(key)
         return value
 
-    def get(self, key: KT, default: Optional[VT] = None) -> Optional[VT]:  # type: ignore[override]
+    def get(self, key: KT, default: VT | None = None) -> VT | None:  # type: ignore[override]
         if key in self:
             return self[key]
         return default

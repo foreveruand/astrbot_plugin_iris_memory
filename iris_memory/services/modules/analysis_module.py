@@ -3,19 +3,21 @@
 
 包含：EmotionAnalyzer, RIFScorer, PersonaExtractor, PersonaBatchProcessor, MemoryReinforcementEngine
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional, Any, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
-    from iris_memory.analysis.rif_scorer import RIFScorer
-    from iris_memory.persona.persona_extractor import PersonaExtractor
-    from iris_memory.persona.persona_batch_processor import PersonaBatchProcessor
     from iris_memory.analysis.reinforcement import MemoryReinforcementEngine
+    from iris_memory.analysis.rif_scorer import RIFScorer
+    from iris_memory.persona.persona_batch_processor import PersonaBatchProcessor
+    from iris_memory.persona.persona_extractor import PersonaExtractor
 
 logger = get_logger("module.analysis")
 
@@ -27,30 +29,30 @@ class AnalysisModule:
     """
 
     def __init__(self) -> None:
-        self._emotion_analyzer: Optional[EmotionAnalyzer] = None
-        self._rif_scorer: Optional[RIFScorer] = None
-        self._persona_extractor: Optional[PersonaExtractor] = None
-        self._persona_batch_processor: Optional[PersonaBatchProcessor] = None
-        self._reinforcement_engine: Optional[MemoryReinforcementEngine] = None
+        self._emotion_analyzer: EmotionAnalyzer | None = None
+        self._rif_scorer: RIFScorer | None = None
+        self._persona_extractor: PersonaExtractor | None = None
+        self._persona_batch_processor: PersonaBatchProcessor | None = None
+        self._reinforcement_engine: MemoryReinforcementEngine | None = None
 
     @property
-    def emotion_analyzer(self) -> Optional[EmotionAnalyzer]:
+    def emotion_analyzer(self) -> EmotionAnalyzer | None:
         return self._emotion_analyzer
 
     @property
-    def rif_scorer(self) -> Optional[RIFScorer]:
+    def rif_scorer(self) -> RIFScorer | None:
         return self._rif_scorer
 
     @property
-    def persona_extractor(self) -> Optional[PersonaExtractor]:
+    def persona_extractor(self) -> PersonaExtractor | None:
         return self._persona_extractor
 
     @property
-    def persona_batch_processor(self) -> Optional[PersonaBatchProcessor]:
+    def persona_batch_processor(self) -> PersonaBatchProcessor | None:
         return self._persona_batch_processor
 
     @property
-    def reinforcement_engine(self) -> Optional[MemoryReinforcementEngine]:
+    def reinforcement_engine(self) -> MemoryReinforcementEngine | None:
         return self._reinforcement_engine
 
     def initialize(self, config: Any) -> None:
@@ -69,8 +71,8 @@ class AnalysisModule:
         context: Any,
     ) -> None:
         """初始化画像提取器"""
-        from iris_memory.persona.persona_extractor import PersonaExtractor
         from iris_memory.persona.keyword_maps import KeywordMaps
+        from iris_memory.persona.persona_extractor import PersonaExtractor
 
         mode = cfg.persona_extraction_mode
         logger.debug(f"Initializing persona extractor (mode={mode})")
@@ -117,8 +119,8 @@ class AnalysisModule:
     async def init_persona_batch_processor(
         self,
         cfg: Any,
-        apply_result_callback: Optional[Callable] = None,
-        working_memory_callback: Optional[Callable] = None,
+        apply_result_callback: Callable | None = None,
+        working_memory_callback: Callable | None = None,
     ) -> None:
         """初始化画像批量处理器
 
@@ -188,7 +190,9 @@ class AnalysisModule:
                 await self._persona_batch_processor.stop()
                 logger.debug("[Hot-Reload] Persona batch processor stopped")
             except Exception as e:
-                logger.warning(f"[Hot-Reload] Error stopping persona batch processor: {e}")
+                logger.warning(
+                    f"[Hot-Reload] Error stopping persona batch processor: {e}"
+                )
         if self._reinforcement_engine:
             try:
                 await self._reinforcement_engine.stop()

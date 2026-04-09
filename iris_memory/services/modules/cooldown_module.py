@@ -4,9 +4,8 @@
 将 CooldownManager 封装为 Feature Module，
 遵循项目 Facade + 组合模式架构。
 """
-from __future__ import annotations
 
-from typing import Optional
+from __future__ import annotations
 
 from iris_memory.utils.logger import get_logger
 
@@ -22,15 +21,16 @@ class CooldownModule:
 
     def __init__(self) -> None:
         from iris_memory.cooldown.cooldown_manager import CooldownManager
+
         self._cooldown_manager: CooldownManager = CooldownManager()
         logger.debug("CooldownModule initialized")
 
     @property
-    def cooldown_manager(self) -> "CooldownManager":
+    def cooldown_manager(self) -> CooldownManager:
         """获取冷却管理器"""
         return self._cooldown_manager
 
-    def is_active(self, group_id: Optional[str]) -> bool:
+    def is_active(self, group_id: str | None) -> bool:
         """检查群是否处于冷却中
 
         便捷代理方法，供 ProactiveModule 等外部模块直接调用。

@@ -5,19 +5,22 @@
 """
 
 import asyncio
-from typing import Optional, Any, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from astrbot.api.event import AstrMessageEvent
-
-from iris_memory.utils.event_utils import get_group_id, get_sender_name, extract_reply_info
-from iris_memory.utils.persona_utils import get_event_persona_id
-from iris_memory.utils.command_utils import SessionKeyBuilder, MessageFilter
 from iris_memory.core.constants import (
-    InputValidationConfig,
-    PROACTIVE_EXTRA_KEY,
-    PROACTIVE_CONTEXT_KEY,
     CHAT_RECORDED_KEY,
+    PROACTIVE_CONTEXT_KEY,
+    PROACTIVE_EXTRA_KEY,
+    InputValidationConfig,
 )
+from iris_memory.utils.command_utils import MessageFilter, SessionKeyBuilder
+from iris_memory.utils.event_utils import (
+    extract_reply_info,
+    get_group_id,
+    get_sender_name,
+)
+from iris_memory.utils.persona_utils import get_event_persona_id
 
 if TYPE_CHECKING:
     from iris_memory.services.memory_service import MemoryService
@@ -42,11 +45,7 @@ class MessageProcessor:
         """
         self._service = service
 
-    async def prepare_llm_context(
-        self,
-        event: AstrMessageEvent,
-        req: Any
-    ) -> None:
+    async def prepare_llm_context(self, event: AstrMessageEvent, req: Any) -> None:
         """
         在 LLM 请求前注入上下文
 
@@ -61,16 +60,24 @@ class MessageProcessor:
             event: 消息事件对象
             req: LLM 请求对象
         """
-        if not getattr(self._service, 'is_initialized', False):
-            req.system_prompt += "\n\n[系统提示：记忆插件正在初始化，暂时无法提供服务]\n"
+        if not getattr(self._service, "is_initialized", False):
+            req.system_prompt += (
+                "\n\n[系统提示：记忆插件正在初始化，暂时无法提供服务]\n"
+            )
             return
 
-        if not hasattr(self._service, 'cfg') or not self._service.cfg.get("basic.enable_inject", True):
+        if not hasattr(self._service, "cfg") or not self._service.cfg.get(
+            "basic.enable_inject", True
+        ):
             return
 
         if not self._service.is_embedding_ready():
-            req.system_prompt += "\n\n[系统提示：记忆系统正在初始化，暂时无法提供历史记忆参考]\n"
-            self._service.logger.info("Embedding model not ready, skipping memory injection")
+            req.system_prompt += (
+                "\n\n[系统提示：记忆系统正在初始化，暂时无法提供历史记忆参考]\n"
+            )
+            self._service.logger.info(
+                "Embedding model not ready, skipping memory injection"
+            )
             return
 
         user_id = event.get_sender_id()
@@ -82,8 +89,8 @@ class MessageProcessor:
 
         # 竞态防护：标记正常回复开始，阻止主动回复在 LLM 处理期间发送
         if not is_proactive and group_id:
-            proactive_mgr = getattr(self._service, 'proactive_manager', None)
-            if proactive_mgr and hasattr(proactive_mgr, 'reply_coordinator'):
+            proactive_mgr = getattr(self._service, "proactive_manager", None)
+            if proactive_mgr and hasattr(proactive_mgr, "reply_coordinator"):
                 proactive_mgr.reply_coordinator.mark_normal_reply_start(group_id)
 
         if self._service.member_identity and not is_proactive:
@@ -102,7 +109,7 @@ class MessageProcessor:
                     group_id=group_id,
                     context_text=query,
                     umo=event.unified_msg_origin,
-                    session_id=SessionKeyBuilder.build(user_id, group_id)
+                    session_id=SessionKeyBuilder.build(user_id, group_id),
                 )
                 image_context = llm_ctx
             except Exception as e:
@@ -124,7 +131,9 @@ class MessageProcessor:
                 )
 
         raw_persona_id = get_event_persona_id(event)
-        query_persona = self._service.cfg.get("persona_isolation.default_persona_id", raw_persona_id)
+        query_persona = self._service.cfg.get(
+            "persona_isolation.default_persona_id", raw_persona_id
+        )
         context = await self._service.prepare_llm_context(
             query=query,
             user_id=user_id,
@@ -139,7 +148,7 @@ class MessageProcessor:
             req.system_prompt += f"\n\n{context}\n"
 
         # 群冷却工具提示（仅群聊场景）
-        if group_id and hasattr(self._service, 'cooldown'):
+        if group_id and hasattr(self._service, "cooldown"):
             cooldown_hint = self._build_cooldown_hint(group_id, req)
             if cooldown_hint:
                 req.system_prompt += f"\n\n{cooldown_hint}\n"
@@ -152,11 +161,7 @@ class MessageProcessor:
                 f"Proactive reply context injected for user={user_id}"
             )
 
-    async def handle_llm_response(
-        self,
-        event: AstrMessageEvent,
-        resp: Any
-    ) -> None:
+    async def handle_llm_response(self, event: AstrMessageEvent, resp: Any) -> None:
         """
         在 LLM 响应后处理
 
@@ -167,10 +172,12 @@ class MessageProcessor:
             event: 消息事件对象
             resp: LLM 响应对象
         """
-        if not getattr(self._service, 'is_initialized', False):
+        if not getattr(self._service, "is_initialized", False):
             return
 
-        if not hasattr(self._service, 'cfg') or not self._service.cfg.get("basic.enable_memory", True):
+        if not hasattr(self._service, "cfg") or not self._service.cfg.get(
+            "basic.enable_memory", True
+        ):
             return
 
         user_id = event.get_sender_id()
@@ -181,9 +188,9 @@ class MessageProcessor:
         is_proactive = event.get_extra(PROACTIVE_EXTRA_KEY, False)
 
         bot_reply = ""
-        if hasattr(resp, 'completion_text'):
+        if hasattr(resp, "completion_text"):
             bot_reply = resp.completion_text or ""
-        elif hasattr(resp, 'text'):
+        elif hasattr(resp, "text"):
             bot_reply = resp.text or ""
         elif isinstance(resp, str):
             bot_reply = resp
@@ -195,10 +202,10 @@ class MessageProcessor:
                 content=bot_reply,
                 group_id=group_id,
                 is_bot=True,
-                session_user_id=user_id
+                session_user_id=user_id,
             )
-            
-            proactive_mgr = getattr(self._service, 'proactive_manager', None)
+
+            proactive_mgr = getattr(self._service, "proactive_manager", None)
             if proactive_mgr:
                 if not is_proactive:
                     proactive_mgr.clear_pending_tasks_for_session(user_id, group_id)
@@ -222,7 +229,7 @@ class MessageProcessor:
 
         if event.get_extra(CHAT_RECORDED_KEY, False):
             self._service.logger.debug(
-                f"User message already processed in on_all_messages, skipping capture"
+                "User message already processed in on_all_messages, skipping capture"
             )
             return
 
@@ -232,7 +239,9 @@ class MessageProcessor:
             capture_message = f"{message}\n{reply_info.format_for_buffer()}"
 
         raw_persona_id = get_event_persona_id(event)
-        store_persona = self._service.cfg.get("persona_isolation.default_persona_id", raw_persona_id)
+        store_persona = self._service.cfg.get(
+            "persona_isolation.default_persona_id", raw_persona_id
+        )
         memory = await self._service.capture_and_store_memory(
             message=capture_message,
             user_id=user_id,
@@ -244,10 +253,7 @@ class MessageProcessor:
         if memory:
             self._service.logger.debug(f"Memory captured: {memory.id}")
 
-    async def process_normal_message(
-        self,
-        event: AstrMessageEvent
-    ) -> Optional[str]:
+    async def process_normal_message(self, event: AstrMessageEvent) -> str | None:
         """
         处理普通消息
 
@@ -267,7 +273,7 @@ class MessageProcessor:
         Returns:
             Optional[str]: 如果需要 LLM 请求，返回 prompt；否则返回 None
         """
-        if not getattr(self._service, 'is_initialized', False):
+        if not getattr(self._service, "is_initialized", False):
             return None
 
         user_id = event.get_sender_id()
@@ -277,8 +283,7 @@ class MessageProcessor:
 
         if event.get_extra(PROACTIVE_EXTRA_KEY, False):
             self._service.logger.info(
-                f"Proactive reply event detected for user={user_id}, "
-                f"group={group_id}"
+                f"Proactive reply event detected for user={user_id}, group={group_id}"
             )
             return message
 
@@ -293,7 +298,7 @@ class MessageProcessor:
             return None
 
         if len(message) > InputValidationConfig.MAX_MESSAGE_LENGTH:
-            message = message[:InputValidationConfig.MAX_MESSAGE_LENGTH]
+            message = message[: InputValidationConfig.MAX_MESSAGE_LENGTH]
 
         if self._service.member_identity:
             await self._service.member_identity.resolve_tag(
@@ -314,7 +319,7 @@ class MessageProcessor:
             content=message,
             group_id=group_id,
             is_bot=False,
-            **reply_kw
+            **reply_kw,
         )
 
         self._service.update_session_activity(user_id, group_id)
@@ -325,8 +330,8 @@ class MessageProcessor:
         # batch_processor 处理消息有延迟（默认 20 条或 300s），而 FollowUp 短期
         # 窗口仅 10s，必须在此处实时通知，否则用户回复永远无法被捕获。
         if group_id:
-            proactive_mgr = getattr(self._service, 'proactive_manager', None)
-            if proactive_mgr and hasattr(proactive_mgr, 'notify_message_for_followup'):
+            proactive_mgr = getattr(self._service, "proactive_manager", None)
+            if proactive_mgr and hasattr(proactive_mgr, "notify_message_for_followup"):
                 proactive_mgr.notify_message_for_followup(
                     user_id=user_id,
                     group_id=group_id,
@@ -342,7 +347,9 @@ class MessageProcessor:
             enriched_message = f"{message}\n{reply_info.format_for_buffer()}"
 
         raw_persona_id = get_event_persona_id(event)
-        store_persona = self._service.cfg.get("persona_isolation.default_persona_id", raw_persona_id)
+        store_persona = self._service.cfg.get(
+            "persona_isolation.default_persona_id", raw_persona_id
+        )
 
         # 将图片分析和批量处理放到后台任务，避免阻塞 LLM 响应（这些是记忆写入操作，
         # 不需要在 Bot 回复前完成）
@@ -365,11 +372,11 @@ class MessageProcessor:
         self,
         event: AstrMessageEvent,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         message: str,
         enriched_message: str,
         sender_name: str,
-        store_persona: Optional[str],
+        store_persona: str | None,
         umo: str,
     ) -> None:
         """后台批量处理：图片分析 + 记忆批写入，不阻塞 LLM 响应
@@ -394,11 +401,13 @@ class MessageProcessor:
                         group_id=group_id,
                         context_text=message,
                         umo=umo,
-                        session_id=SessionKeyBuilder.build(user_id, group_id)
+                        session_id=SessionKeyBuilder.build(user_id, group_id),
                     )
                     image_description = mem_format
                 except Exception as e:
-                    self._service.logger.warning(f"Background image analysis failed: {e}")
+                    self._service.logger.warning(
+                        f"Background image analysis failed: {e}"
+                    )
 
             context = await self._build_message_context(user_id, group_id)
             context["sender_name"] = sender_name
@@ -416,9 +425,7 @@ class MessageProcessor:
             self._service.logger.warning(f"Background batch processing failed: {e}")
 
     async def _build_message_context(
-        self,
-        user_id: str,
-        group_id: Optional[str]
+        self, user_id: str, group_id: str | None
     ) -> dict[str, Any]:
         """
         构建消息上下文
@@ -440,7 +447,7 @@ class MessageProcessor:
             "session_key": session_key,
             "session_message_count": session.get("message_count", 0) if session else 0,
             "user_persona": self._service.get_or_create_user_persona(user_id),
-            "emotional_state": self._service._get_or_create_emotional_state(user_id)
+            "emotional_state": self._service._get_or_create_emotional_state(user_id),
         }
 
     def _build_proactive_directive(self, proactive_ctx: dict) -> str:
@@ -496,7 +503,7 @@ class MessageProcessor:
 
         return directive
 
-    def _build_cooldown_hint(self, group_id: str, req: Any = None) -> Optional[str]:
+    def _build_cooldown_hint(self, group_id: str, req: Any = None) -> str | None:
         """构建群冷却工具提示
 
         当前群处于冷却中时返回状态提示；
@@ -510,7 +517,7 @@ class MessageProcessor:
         Returns:
             str 或 None
         """
-        cooldown_mod = getattr(self._service, 'cooldown', None)
+        cooldown_mod = getattr(self._service, "cooldown", None)
         if cooldown_mod is None:
             return None
 
@@ -524,7 +531,7 @@ class MessageProcessor:
                 )
 
         # 仅在模型支持工具调用时注入工具引导文本
-        if req is None or getattr(req, 'func_tool', None) is None:
+        if req is None or getattr(req, "func_tool", None) is None:
             return None
 
         return (
@@ -613,7 +620,7 @@ class ErrorFriendlyProcessor:
         Returns:
             纯文本内容，无法获取时返回空字符串
         """
-        if hasattr(result, 'get_plain_text'):
+        if hasattr(result, "get_plain_text"):
             return result.get_plain_text() or ""
         return ""
 
@@ -632,23 +639,36 @@ class ErrorFriendlyProcessor:
         text_lower = text.lower()
 
         match_count = sum(
-            1 for pattern in ErrorFriendlyMessages.ERROR_PATTERNS
+            1
+            for pattern in ErrorFriendlyMessages.ERROR_PATTERNS
             if pattern.lower() in text_lower
         )
         if match_count >= 2:
             return True
 
         if "400" in text or "bad request" in text_lower:
-            if any(keyword in text_lower for keyword in ["请求", "request", "error", "failed"]):
+            if any(
+                keyword in text_lower
+                for keyword in ["请求", "request", "error", "failed"]
+            ):
                 return True
 
         error_keywords = [
-            "error", "failed", "exception", "traceback",
-            "请求失败", "错误", "异常"
+            "error",
+            "failed",
+            "exception",
+            "traceback",
+            "请求失败",
+            "错误",
+            "异常",
         ]
         framework_indicators = [
-            "platform", "api", "http", "status code",
-            "平台", "框架"
+            "platform",
+            "api",
+            "http",
+            "status code",
+            "平台",
+            "框架",
         ]
 
         has_error_keyword = any(kw in text_lower for kw in error_keywords)
@@ -673,7 +693,9 @@ class ErrorFriendlyProcessor:
         if "400" in text or "bad request" in text_lower:
             return ErrorFriendlyMessages.BAD_REQUEST_MSG
 
-        if any(kw in text_lower for kw in ["network", "timeout", "连接", "网络", "timeout"]):
+        if any(
+            kw in text_lower for kw in ["network", "timeout", "连接", "网络", "timeout"]
+        ):
             return ErrorFriendlyMessages.NETWORK_ERROR_MSG
 
         if any(kw in text_lower for kw in ["rate", "limit", "限流", "频率", "频繁"]):

@@ -20,8 +20,9 @@ from __future__ import annotations
 import re
 import threading
 import time
+from collections.abc import Callable
 from re import Pattern
-from typing import Any, Callable, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from iris_memory.config import get_store
 from iris_memory.utils.logger import get_logger
@@ -122,16 +123,16 @@ class MarkdownStripper:
 
     # 编译后的快速检测正则：匹配常见 Markdown 标记
     _MARKDOWN_QUICK_RE: Pattern[str] = re.compile(
-        r"\*{1,3}"   # *斜体* **粗体** ***粗斜体***
-        r"|__"        # __粗体__
-        r"|~~"        # ~~删除线~~
-        r"|`"         # `代码` 或 ```代码块```
+        r"\*{1,3}"  # *斜体* **粗体** ***粗斜体***
+        r"|__"  # __粗体__
+        r"|~~"  # ~~删除线~~
+        r"|`"  # `代码` 或 ```代码块```
         r"|#{1,6}\s"  # # 标题
-        r"|^>\s"      # > 引用
-        r"|\[.+?\]\(" # [链接](url)
-        r"|!\["       # ![图片](url)
+        r"|^>\s"  # > 引用
+        r"|\[.+?\]\("  # [链接](url)
+        r"|!\["  # ![图片](url)
         r"|^[-*+]\s"  # - 列表
-        r"|^\d+\.\s", # 1. 有序列表
+        r"|^\d+\.\s",  # 1. 有序列表
         re.MULTILINE,
     )
 
@@ -143,7 +144,7 @@ class MarkdownStripper:
     def __init__(
         self,
         context: Context,
-        config: "ConfigStore",
+        config: ConfigStore,
     ) -> None:
         self._context = context
         self._config = config
@@ -182,7 +183,7 @@ class MarkdownStripper:
 
         self._strip_chain_plain_texts(result)
 
-    def should_strip(self, text: str, use_t2i: Optional[bool] = None) -> bool:
+    def should_strip(self, text: str, use_t2i: bool | None = None) -> bool:
         """判断是否需要去除 Markdown
 
         Args:
@@ -315,13 +316,9 @@ class MarkdownStripper:
         # ── 代码块与行内代码（优先处理） ──
         if not get_store().get("markdown_stripper.preserve_code_blocks"):
             # 围栏代码块：提取内容，去除围栏标记
-            rules.append(
-                (re.compile(r"```(?:\w*)\n?([\s\S]*?)```"), r"\1")
-            )
+            rules.append((re.compile(r"```(?:\w*)\n?([\s\S]*?)```"), r"\1"))
             # 行内代码：提取内容
-            rules.append(
-                (re.compile(r"`([^`]+)`"), r"\1")
-            )
+            rules.append((re.compile(r"`([^`]+)`"), r"\1"))
 
         # ── 图片（在链接之前处理） ──
         rules.append(
@@ -330,9 +327,7 @@ class MarkdownStripper:
 
         # ── 链接 ──
         if not get_store().get("markdown_stripper.preserve_links"):
-            rules.append(
-                (re.compile(r"\[([^\]]+)\]\([^)]+\)"), r"\1")
-            )
+            rules.append((re.compile(r"\[([^\]]+)\]\([^)]+\)"), r"\1"))
 
         # ── 分隔线（在粗体/斜体之前处理，避免 *** 被误匹配） ──
         rules.append((re.compile(r"^[-*_]{3,}\s*$", re.MULTILINE), ""))
@@ -349,7 +344,14 @@ class MarkdownStripper:
         # 修复：避免匹配数学表达式（如 3*4*5 或 a*b*c）
         # 策略：斜体标记要求内容以字母/中文开头和结尾，或两侧有空格
         # 匹配 *斜体*、*italic* 但不匹配 *4*、*b*（单字母变量）
-        rules.append((re.compile(r"\*(?=[a-zA-Z\u4e00-\u9fa5])([a-zA-Z\u4e00-\u9fa5].*?[a-zA-Z\u4e00-\u9fa5])\*"), r"\1"))
+        rules.append(
+            (
+                re.compile(
+                    r"\*(?=[a-zA-Z\u4e00-\u9fa5])([a-zA-Z\u4e00-\u9fa5].*?[a-zA-Z\u4e00-\u9fa5])\*"
+                ),
+                r"\1",
+            )
+        )
         rules.append((re.compile(r"(?<!\w)_(.+?)_(?!\w)"), r"\1"))
 
         # ── 删除线 ──

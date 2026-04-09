@@ -9,9 +9,9 @@ from iris_memory.core.detection.llm_enhanced_base import (
 )
 
 __all__ = [
-    'BaseDetectionResult',
-    'DetectionMode',
-    'LLMCallResult',
-    'LLMEnhancedBase',
-    'LLMEnhancedDetector',
+    "BaseDetectionResult",
+    "DetectionMode",
+    "LLMCallResult",
+    "LLMEnhancedBase",
+    "LLMEnhancedDetector",
 ]

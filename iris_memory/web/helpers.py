@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 
 def safe_int(
-    value: Optional[str],
+    value: str | None,
     default: int,
     min_val: int = 1,
     max_val: int = 10000,

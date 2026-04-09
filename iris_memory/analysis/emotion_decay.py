@@ -8,7 +8,7 @@
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from typing import ClassVar, Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from iris_memory.models.memory import Memory
@@ -23,24 +23,24 @@ class EmotionDecayProfile:
     """
 
     # 正面情感：慢衰减，保留美好陪伴记忆
-    POSITIVE_DECAY_RATES: ClassVar[Dict[str, float]] = {
-        "joy": 0.012,          # ~60天半衰期
-        "grateful": 0.012,     # ~60天
-        "love": 0.015,         # ~45天
-        "excitement": 0.018,   # ~38天
-        "calm": 0.020,         # ~35天
+    POSITIVE_DECAY_RATES: ClassVar[dict[str, float]] = {
+        "joy": 0.012,  # ~60天半衰期
+        "grateful": 0.012,  # ~60天
+        "love": 0.015,  # ~45天
+        "excitement": 0.018,  # ~38天
+        "calm": 0.020,  # ~35天
         "contentment": 0.015,  # ~45天
-        "amusement": 0.023,    # ~30天（默认）
+        "amusement": 0.023,  # ~30天（默认）
     }
 
     # 负面情感：快衰减，加速情感愈合
-    NEGATIVE_DECAY_RATES: ClassVar[Dict[str, float]] = {
-        "sadness": 0.099,      # ~7天半衰期
-        "anger": 0.099,        # ~7天
-        "anxiety": 0.099,      # ~7天
-        "anxious": 0.099,      # ~7天（别名）
-        "fear": 0.077,         # ~9天
-        "disgust": 0.077,      # ~9天
+    NEGATIVE_DECAY_RATES: ClassVar[dict[str, float]] = {
+        "sadness": 0.099,  # ~7天半衰期
+        "anger": 0.099,  # ~7天
+        "anxiety": 0.099,  # ~7天
+        "anxious": 0.099,  # ~7天（别名）
+        "fear": 0.077,  # ~9天
+        "disgust": 0.077,  # ~9天
         "frustration": 0.077,  # ~9天
     }
 
@@ -48,7 +48,7 @@ class EmotionDecayProfile:
     NEUTRAL_DECAY_RATE: ClassVar[float] = 0.023  # ~30天
 
     @classmethod
-    def get_decay_rate(cls, emotion_subtype: Optional[str]) -> float:
+    def get_decay_rate(cls, emotion_subtype: str | None) -> float:
         """获取特定情感的衰减率"""
         if not emotion_subtype:
             return cls.NEUTRAL_DECAY_RATE
@@ -60,7 +60,7 @@ class EmotionDecayProfile:
         return cls.NEUTRAL_DECAY_RATE
 
     @classmethod
-    def get_valence(cls, emotion_subtype: Optional[str]) -> str:
+    def get_valence(cls, emotion_subtype: str | None) -> str:
         """获取情感效价: 'positive' / 'negative' / 'neutral'"""
         if not emotion_subtype:
             return "neutral"
@@ -75,7 +75,7 @@ class EmotionDecayProfile:
     def calculate_emotion_time_score(
         cls,
         memory: "Memory",
-        reference_time: Optional[datetime] = None,
+        reference_time: datetime | None = None,
     ) -> float:
         """计算情感记忆的时间得分
 
@@ -94,13 +94,18 @@ class EmotionDecayProfile:
             days_since_access = 0
 
         # 优先使用记忆自身的衰减率，否则按子类型查表
-        decay_rate = memory.emotion_decay_rate if (hasattr(memory, "emotion_decay_rate") and memory.emotion_decay_rate) else cls.get_decay_rate(memory.subtype)
+        decay_rate = (
+            memory.emotion_decay_rate
+            if (hasattr(memory, "emotion_decay_rate") and memory.emotion_decay_rate)
+            else cls.get_decay_rate(memory.subtype)
+        )
 
         score = math.exp(-decay_rate * days_since_access)
 
         # 保护标记加成
         if hasattr(memory, "has_protection"):
             from iris_memory.models.protection import ProtectionFlag
+
             if memory.has_protection(ProtectionFlag.HIGH_EMOTION):
                 score = min(1.0, score * 1.3)
 

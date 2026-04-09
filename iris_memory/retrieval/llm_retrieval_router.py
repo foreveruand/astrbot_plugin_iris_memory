@@ -4,17 +4,18 @@ LLM增强检索路由器
 
 基于 LLMEnhancedDetector 模板方法模式
 """
-from dataclasses import dataclass, field
-import re
-from typing import Any, Dict, List, Optional
 
-from iris_memory.core.types import RetrievalStrategy
-from iris_memory.retrieval.retrieval_router import RetrievalRouter
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
 from iris_memory.core.detection.base_result import BaseDetectionResult
 from iris_memory.core.detection.llm_enhanced_base import (
     DetectionMode,
     LLMEnhancedDetector,
 )
+from iris_memory.core.types import RetrievalStrategy
+from iris_memory.retrieval.retrieval_router import RetrievalRouter
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("llm_retrieval_router")
@@ -73,52 +74,83 @@ _STRATEGY_MAP = {
 # 复杂查询指示词（扩展多维度语义检测）
 _COMPLEX_INDICATORS = [
     # 连接词（多实体/多约束）
-    "和", "与", "跟", "一起", "同时", "以及", "还有",
+    "和",
+    "与",
+    "跟",
+    "一起",
+    "同时",
+    "以及",
+    "还有",
     # 时间约束
-    "之前", "之后", "期间", "时候", "那时", "当时",
+    "之前",
+    "之后",
+    "期间",
+    "时候",
+    "那时",
+    "当时",
     # 因果/推理
-    "为什么", "怎么", "如何", "原因", "因为", "所以", "导致",
+    "为什么",
+    "怎么",
+    "如何",
+    "原因",
+    "因为",
+    "所以",
+    "导致",
     # 条件/比较
-    "如果", "假如", "相比", "比较", "不同", "区别",
+    "如果",
+    "假如",
+    "相比",
+    "比较",
+    "不同",
+    "区别",
     # 多跳推理信号
-    "关于", "有关", "涉及", "相关",
+    "关于",
+    "有关",
+    "涉及",
+    "相关",
     # 英文
-    "why", "how", "because", "compared", "between", "about",
+    "why",
+    "how",
+    "because",
+    "compared",
+    "between",
+    "about",
 ]
 
 # 高价值查询模式（语义复杂度更高，用正则匹配）
 _HIGH_VALUE_QUERY_PATTERNS = [
-    r"(?:什么|哪些).*(?:和|与|跟)",   # "什么和什么"
-    r"(?:谁|哪个).*(?:之间|关系)",    # "谁和谁之间"
+    r"(?:什么|哪些).*(?:和|与|跟)",  # "什么和什么"
+    r"(?:谁|哪个).*(?:之间|关系)",  # "谁和谁之间"
     r"(?:怎么|如何).*(?:变化|改变)",  # "怎么变化的"
-    r"(?:为什么).*(?:不|没|却)",         # "为什么不..."
-    r"(?:从.*到).*(?:变|成)",            # "从...到...变化"
-    r"(?:what|which).*(?:and|between|with)",    # English multi-entity
-    r"(?:how|why).*(?:change|differ|affect)",   # English causation
+    r"(?:为什么).*(?:不|没|却)",  # "为什么不..."
+    r"(?:从.*到).*(?:变|成)",  # "从...到...变化"
+    r"(?:what|which).*(?:and|between|with)",  # English multi-entity
+    r"(?:how|why).*(?:change|differ|affect)",  # English causation
 ]
 
 
 @dataclass
 class RoutingDetectionResult(BaseDetectionResult):
     """路由检测结果"""
+
     strategy: RetrievalStrategy = RetrievalStrategy.VECTOR_ONLY
     query_type: str = "simple"
-    key_entities: List[str] = field(default_factory=list)
+    key_entities: list[str] = field(default_factory=list)
 
 
 class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
     """LLM增强检索路由器
-    
+
     支持三种模式：
     - rule: 仅使用规则路由（快速）
     - llm: 仅使用LLM路由（意图理解）
     - hybrid: 混合（推荐）
     """
-    
+
     def __init__(
         self,
         astrbot_context=None,
-        provider_id: Optional[str] = None,
+        provider_id: str | None = None,
         mode: DetectionMode = DetectionMode.RULE,
         daily_limit: int = 0,
     ):
@@ -130,11 +162,11 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
             max_tokens=200,
         )
         self._rule_router = RetrievalRouter()
-    
+
     def _should_skip_input(self, query: str = "", **kwargs) -> bool:
         """空查询时跳过"""
         return not query
-    
+
     def _get_empty_result(self) -> RoutingDetectionResult:
         """空输入默认结果"""
         return RoutingDetectionResult(
@@ -142,16 +174,14 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
             source="rule",
             reason="空查询",
         )
-    
+
     def _rule_detect(
-        self,
-        query: str,
-        context: Optional[Dict[str, Any]] = None
+        self, query: str, context: dict[str, Any] | None = None
     ) -> RoutingDetectionResult:
         """规则路由"""
         strategy = self._rule_router.route(query, context)
         analysis = self._rule_router.analyze_query_complexity(query)
-        
+
         return RoutingDetectionResult(
             strategy=strategy,
             confidence=0.7,
@@ -159,12 +189,12 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
             query_type=analysis["complexity"],
             source="rule",
         )
-    
+
     def _build_prompt(self, query: str, **kwargs) -> str:
         """构建LLM提示词"""
         return RETRIEVAL_ROUTING_PROMPT.format(query=query[:300])
-    
-    def _parse_llm_result(self, data: Dict[str, Any]) -> RoutingDetectionResult:
+
+    def _parse_llm_result(self, data: dict[str, Any]) -> RoutingDetectionResult:
         """解析LLM结果"""
         return RoutingDetectionResult(
             strategy=BaseDetectionResult.map_enum(
@@ -175,20 +205,16 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
             confidence=BaseDetectionResult.parse_confidence(data),
             reason=data.get("reason", "LLM判断"),
             query_type=data.get("query_type", "simple"),
-            key_entities=BaseDetectionResult.ensure_list(
-                data.get("key_entities", [])
-            ),
+            key_entities=BaseDetectionResult.ensure_list(data.get("key_entities", [])),
             source="llm",
         )
-    
+
     async def _hybrid_detect(
-        self,
-        query: str,
-        context: Optional[Dict[str, Any]] = None
+        self, query: str, context: dict[str, Any] | None = None
     ) -> RoutingDetectionResult:
         """混合路由：规则快速判断 + LLM复杂确认"""
         rule_result = self._rule_detect(query, context)
-        
+
         # VECTOR_ONLY 且可能复杂 → LLM确认
         if rule_result.strategy == RetrievalStrategy.VECTOR_ONLY:
             if len(query) > 20 or self._might_be_complex(query):
@@ -196,20 +222,20 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
                 if llm_result.confidence >= 0.6:
                     llm_result.source = "hybrid"
                     return llm_result
-        
+
         # HYBRID策略 → LLM确认
         if rule_result.strategy == RetrievalStrategy.HYBRID:
             llm_result = await self._llm_detect(query, context=context)
             if llm_result.confidence >= 0.6:
                 llm_result.source = "hybrid"
                 return llm_result
-        
+
         rule_result.source = "hybrid"
         return rule_result
-    
+
     def _might_be_complex(self, query: str) -> bool:
         """检查是否可能是复杂查询
-        
+
         多层检测：
         1. 复杂指示词计数（≥2 个立即判定）
         2. 高价值模式正则匹配
@@ -220,20 +246,19 @@ class LLMRetrievalRouter(LLMEnhancedDetector[RoutingDetectionResult]):
         indicator_count = sum(1 for ind in _COMPLEX_INDICATORS if ind in query)
         if indicator_count >= 2:
             return True
-        
+
         # 2. 高价值模式匹配
         for pattern in _HIGH_VALUE_QUERY_PATTERNS:
             if re.search(pattern, query, re.IGNORECASE):
                 return True
-        
+
         # 3. 实体数量估计（引号内容或专有名词）
-        quoted_entities = re.findall(r'[「」“”\'\"]+', query)
+        quoted_entities = re.findall(r"[「」“”\'\"]+", query)
         if len(quoted_entities) >= 2:
             return True
-        
+
         # 4. 单个指示词 + 较长文本
         if indicator_count >= 1 and len(query) > 15:
             return True
-        
+
         return False
-    

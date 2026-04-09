@@ -6,24 +6,23 @@ v3: 情感维度委托给 EmotionalState，消除数据冗余
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
+from iris_memory.core.constants import DEFAULT_EMOTION
 from iris_memory.core.types import DecayRate, MemoryType
-from iris_memory.core.constants import DEFAULT_EMOTION, NEGATIVE_EMOTION_STRINGS
-from iris_memory.utils.logger import get_logger
 from iris_memory.models.persona_change import PersonaChangeRecord
-from iris_memory.models.persona_view import build_injection_view
 from iris_memory.models.persona_extraction_applier import (
     apply_extraction_result as _apply_extraction_result,
 )
+from iris_memory.models.persona_view import build_injection_view
+from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from iris_memory.persona.keyword_maps import ExtractionResult
     from iris_memory.models.emotion_state import EmotionalState
+    from iris_memory.persona.keyword_maps import ExtractionResult
 
 
 logger = get_logger("user_persona")
-
 
 
 # ---------------------------------------------------------------------------
@@ -41,38 +40,40 @@ class UserPersona:
 
     # ========== 基础信息 ==========
     user_id: str = ""
-    display_name: Optional[str] = None  # 用户昵称/姓名
+    display_name: str | None = None  # 用户昵称/姓名
     version: int = 3
     last_updated: datetime = field(default_factory=datetime.now)
     update_count: int = 0  # 累计更新次数
 
     # ========== 工作维度 ==========
-    work_style: Optional[str] = None
-    work_goals: List[str] = field(default_factory=list)
-    work_challenges: List[str] = field(default_factory=list)
-    work_preferences: Dict[str, Any] = field(default_factory=dict)
+    work_style: str | None = None
+    work_goals: list[str] = field(default_factory=list)
+    work_challenges: list[str] = field(default_factory=list)
+    work_preferences: dict[str, Any] = field(default_factory=dict)
 
     # ========== 生活维度 ==========
-    lifestyle: Optional[str] = None
-    interests: Dict[str, float] = field(default_factory=dict)
-    habits: List[str] = field(default_factory=list)
-    life_preferences: Dict[str, Any] = field(default_factory=dict)
+    lifestyle: str | None = None
+    interests: dict[str, float] = field(default_factory=dict)
+    habits: list[str] = field(default_factory=list)
+    life_preferences: dict[str, Any] = field(default_factory=dict)
 
     # ========== 情感维度（委托给 EmotionalState）==========
     # 保留字段用于序列化兼容，实际通过属性访问器委托
-    _emotional_state: Optional["EmotionalState"] = field(default=None, repr=False, compare=False)
+    _emotional_state: Optional["EmotionalState"] = field(
+        default=None, repr=False, compare=False
+    )
     # 以下字段保留用于向后兼容的序列化/反序列化
     emotional_baseline: str = DEFAULT_EMOTION
     emotional_volatility: float = 0.5
-    emotional_triggers: List[str] = field(default_factory=list)
-    emotional_soothers: Dict[str, Any] = field(default_factory=dict)
-    emotional_patterns: Dict[str, int] = field(default_factory=dict)
-    emotional_trajectory: Optional[str] = None
+    emotional_triggers: list[str] = field(default_factory=list)
+    emotional_soothers: dict[str, Any] = field(default_factory=dict)
+    emotional_patterns: dict[str, int] = field(default_factory=dict)
+    emotional_trajectory: str | None = None
     negative_ratio: float = 0.3
 
     # ========== 关系维度 ==========
-    social_style: Optional[str] = None
-    social_boundaries: Dict[str, Any] = field(default_factory=dict)
+    social_style: str | None = None
+    social_boundaries: dict[str, Any] = field(default_factory=dict)
     trust_level: float = 0.5
     intimacy_level: float = 0.5
 
@@ -92,26 +93,26 @@ class UserPersona:
 
     # ========== 交互偏好 ==========
     proactive_reply_preference: float = 0.5  # 0→不希望被主动回复  1→欢迎
-    preferred_reply_style: Optional[str] = None  # brief / detailed / default
-    topic_blacklist: List[str] = field(default_factory=list)  # 用户排斥话题
+    preferred_reply_style: str | None = None  # brief / detailed / default
+    topic_blacklist: list[str] = field(default_factory=list)  # 用户排斥话题
 
     # ========== 行为模式 ==========
-    hourly_distribution: List[float] = field(default_factory=lambda: [0.0] * 24)
-    topic_sequences: List[str] = field(default_factory=list)
-    memory_cooccurrence: Dict[str, List[str]] = field(default_factory=dict)
+    hourly_distribution: list[float] = field(default_factory=lambda: [0.0] * 24)
+    topic_sequences: list[str] = field(default_factory=list)
+    memory_cooccurrence: dict[str, list[str]] = field(default_factory=dict)
 
     # ========== 证据追踪 ==========
-    evidence_confirmed: List[str] = field(default_factory=list)
-    evidence_inferred: List[str] = field(default_factory=list)
-    evidence_contested: List[str] = field(default_factory=list)
+    evidence_confirmed: list[str] = field(default_factory=list)
+    evidence_inferred: list[str] = field(default_factory=list)
+    evidence_contested: list[str] = field(default_factory=list)
     _max_evidence: int = field(default=500, repr=False)
 
     # ========== 变更审计 ==========
-    change_log: List[PersonaChangeRecord] = field(default_factory=list)
+    change_log: list[PersonaChangeRecord] = field(default_factory=list)
     _max_change_log: int = field(default=200, repr=False)
 
     # ========== 元数据 ==========
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
     # 情感状态委托接口
@@ -133,22 +134,33 @@ class UserPersona:
         if self._emotional_state is None:
             return
         es = self._emotional_state
-        self.emotional_baseline = es.current.primary.value if es.current else DEFAULT_EMOTION
+        self.emotional_baseline = (
+            es.current.primary.value if es.current else DEFAULT_EMOTION
+        )
         self.emotional_volatility = es.trajectory.volatility if es.trajectory else 0.5
         self.emotional_patterns = dict(es.patterns)
         self.emotional_trajectory = es.trajectory.trend.value if es.trajectory else None
         self.negative_ratio = es.get_negative_ratio()
-        self.emotional_triggers = [t.get("description", "") for t in es.triggers if t.get("description")]
-        self.emotional_soothers = {s.get("type", ""): s.get("description", "") for s in es.soothers if s.get("type")}
+        self.emotional_triggers = [
+            t.get("description", "") for t in es.triggers if t.get("description")
+        ]
+        self.emotional_soothers = {
+            s.get("type", ""): s.get("description", "")
+            for s in es.soothers
+            if s.get("type")
+        }
 
     def _sync_to_emotional_state(self) -> None:
         """从本地字段同步到 EmotionalState（用于反向更新）"""
         if self._emotional_state is None:
             return
-        from iris_memory.models.emotion_state import (
-            EmotionalState, CurrentEmotionState, EmotionalTrajectory, TrendType
-        )
         from iris_memory.core.types import EmotionType
+        from iris_memory.models.emotion_state import (
+            CurrentEmotionState,
+            EmotionalTrajectory,
+            TrendType,
+        )
+
         es = self._emotional_state
         try:
             es.current = CurrentEmotionState(
@@ -159,7 +171,9 @@ class UserPersona:
         except ValueError:
             es.current = CurrentEmotionState(primary=EmotionType.NEUTRAL)
         es.trajectory = EmotionalTrajectory(
-            trend=TrendType(self.emotional_trajectory) if self.emotional_trajectory else TrendType.STABLE,
+            trend=TrendType(self.emotional_trajectory)
+            if self.emotional_trajectory
+            else TrendType.STABLE,
             volatility=self.emotional_volatility,
         )
         es.patterns = dict(self.emotional_patterns)
@@ -181,7 +195,7 @@ class UserPersona:
             return self._emotional_state.trajectory.volatility
         return self.emotional_volatility
 
-    def get_emotional_trajectory(self) -> Optional[str]:
+    def get_emotional_trajectory(self) -> str | None:
         """获取情感轨迹（优先从 EmotionalState 读取）"""
         if self._emotional_state:
             return self._emotional_state.trajectory.trend.value
@@ -196,13 +210,13 @@ class UserPersona:
     # ------------------------------------------------------------------
     # 序列化
     # ------------------------------------------------------------------
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为可序列化字典
 
         序列化前会从绑定的 EmotionalState 同步情感字段，确保数据一致性。
         """
         self._sync_from_emotional_state()
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
         for key, value in self.__dict__.items():
             if key.startswith("_"):
                 continue
@@ -215,7 +229,7 @@ class UserPersona:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "UserPersona":
+    def from_dict(cls, data: dict[str, Any]) -> "UserPersona":
         """从字典恢复"""
         data = dict(data)  # shallow copy
         if "last_updated" in data and isinstance(data["last_updated"], str):
@@ -227,7 +241,8 @@ class UserPersona:
             ]
         # 过滤掉私有字段和无效字段
         valid_fields = {
-            f.name for f in cls.__dataclass_fields__.values()
+            f.name
+            for f in cls.__dataclass_fields__.values()
             if not f.name.startswith("_")
         }
         filtered = {k: v for k, v in data.items() if k in valid_fields}
@@ -250,7 +265,7 @@ class UserPersona:
     # ------------------------------------------------------------------
     # 注入视图 — 用于传给 LLM 上下文 / PersonaCoordinator
     # ------------------------------------------------------------------
-    def to_injection_view(self) -> Dict[str, Any]:
+    def to_injection_view(self) -> dict[str, Any]:
         """生成精简的画像视图（供 prompt 注入使用，不含审计日志）"""
         return build_injection_view(self)
 
@@ -262,12 +277,12 @@ class UserPersona:
         field_name: str,
         new_value: Any,
         *,
-        source_memory_id: Optional[str] = None,
-        memory_type: Optional[str] = None,
+        source_memory_id: str | None = None,
+        memory_type: str | None = None,
         rule_id: str = "",
         confidence: float = 0.5,
         evidence_type: str = "inferred",
-    ) -> Optional[PersonaChangeRecord]:
+    ) -> PersonaChangeRecord | None:
         """安全地更新一个字段并写入审计日志。
 
         对于 ``list`` 类型字段，``new_value`` (str) 的语义为 *追加*（去重）。
@@ -321,7 +336,7 @@ class UserPersona:
         )
         self.change_log.append(record)
         if len(self.change_log) > self._max_change_log:
-            self.change_log = self.change_log[-self._max_change_log:]
+            self.change_log = self.change_log[-self._max_change_log :]
 
         self.last_updated = datetime.now()
         self.update_count += 1
@@ -345,28 +360,30 @@ class UserPersona:
         if evidence_type == "confirmed" and memory_id not in self.evidence_confirmed:
             self.evidence_confirmed.append(memory_id)
             if len(self.evidence_confirmed) > self._max_evidence:
-                self.evidence_confirmed = self.evidence_confirmed[-self._max_evidence:]
+                self.evidence_confirmed = self.evidence_confirmed[-self._max_evidence :]
         elif evidence_type == "inferred" and memory_id not in self.evidence_inferred:
             self.evidence_inferred.append(memory_id)
             if len(self.evidence_inferred) > self._max_evidence:
-                self.evidence_inferred = self.evidence_inferred[-self._max_evidence:]
+                self.evidence_inferred = self.evidence_inferred[-self._max_evidence :]
         elif evidence_type == "contested" and memory_id not in self.evidence_contested:
             self.evidence_contested.append(memory_id)
             if len(self.evidence_contested) > self._max_evidence:
-                self.evidence_contested = self.evidence_contested[-self._max_evidence:]
+                self.evidence_contested = self.evidence_contested[-self._max_evidence :]
 
     # ------------------------------------------------------------------
     # 从记忆更新画像（规则引擎）
     # ------------------------------------------------------------------
-    def update_from_memory(self, memory) -> List[PersonaChangeRecord]:
+    def update_from_memory(self, memory) -> list[PersonaChangeRecord]:
         """从一条 Memory 推导并更新画像字段，返回本次变更列表。
 
         注意：emotion 类型记忆不再在此处理，由 BusinessService 直接更新 EmotionalState。
         """
-        changes: List[PersonaChangeRecord] = []
+        changes: list[PersonaChangeRecord] = []
         mem_id = getattr(memory, "id", None)
         mem_type_raw = getattr(memory, "type", None)
-        mem_type = mem_type_raw.value if hasattr(mem_type_raw, "value") else str(mem_type_raw)
+        mem_type = (
+            mem_type_raw.value if hasattr(mem_type_raw, "value") else str(mem_type_raw)
+        )
         confidence = getattr(memory, "confidence", 0.5)
 
         if mem_type in (MemoryType.FACT.value, "fact"):
@@ -422,16 +439,17 @@ class UserPersona:
     def apply_extraction_result(
         self,
         result: "ExtractionResult",
-        source_memory_id: Optional[str] = None,
-        memory_type: Optional[str] = None,
+        source_memory_id: str | None = None,
+        memory_type: str | None = None,
         base_confidence: float = 0.5,
-    ) -> List[PersonaChangeRecord]:
+    ) -> list[PersonaChangeRecord]:
         """将 PersonaExtractor 的提取结果应用到画像。
 
         数据驱动实现 — 委托给 persona_extraction_applier 模块。
         """
         return _apply_extraction_result(
-            self, result,
+            self,
+            result,
             source_memory_id=source_memory_id,
             memory_type=memory_type,
             base_confidence=base_confidence,
@@ -439,16 +457,19 @@ class UserPersona:
 
     # --- 事实维度 ---
     def _update_facts(
-        self, memory, mem_id, confidence,
+        self,
+        memory,
+        mem_id,
+        confidence,
         keyword_maps=None,
-    ) -> List[PersonaChangeRecord]:
+    ) -> list[PersonaChangeRecord]:
         """基于关键词规则更新事实维度。
 
         关键词来源优先级：
         1. 外部传入的 ``keyword_maps``
         2. 内置默认值（保持既有行为）
         """
-        changes: List[PersonaChangeRecord] = []
+        changes: list[PersonaChangeRecord] = []
         content = getattr(memory, "content", "") or ""
         summary = getattr(memory, "summary", None)
         content_lower = content.lower()
@@ -462,8 +483,26 @@ class UserPersona:
             work_challenge_kws = getattr(keyword_maps, "work_challenge_keywords", [])
             lifestyles = getattr(keyword_maps, "lifestyles", {})
         else:
-            work_keywords = ["工作", "公司", "项目", "同事", "老板", "职业", "事业", "上班"]
-            life_keywords = ["喜欢", "爱好", "兴趣", "习惯", "运动", "娱乐", "爱吃", "讨厌"]
+            work_keywords = [
+                "工作",
+                "公司",
+                "项目",
+                "同事",
+                "老板",
+                "职业",
+                "事业",
+                "上班",
+            ]
+            life_keywords = [
+                "喜欢",
+                "爱好",
+                "兴趣",
+                "习惯",
+                "运动",
+                "娱乐",
+                "爱吃",
+                "讨厌",
+            ]
             interest_map = {
                 "编程": ["编程", "代码", "开发", "程序"],
                 "阅读": ["阅读", "读书", "看书", "书"],
@@ -487,9 +526,12 @@ class UserPersona:
 
         if any(kw in content_lower for kw in work_keywords) and summary:
             rec = self.apply_change(
-                "work_goals", summary,
-                source_memory_id=mem_id, memory_type="fact",
-                rule_id="fact_work_keyword", confidence=confidence,
+                "work_goals",
+                summary,
+                source_memory_id=mem_id,
+                memory_type="fact",
+                rule_id="fact_work_keyword",
+                confidence=confidence,
                 evidence_type="inferred",
             )
             if rec:
@@ -497,9 +539,12 @@ class UserPersona:
 
         if any(kw in content_lower for kw in life_keywords) and summary:
             rec = self.apply_change(
-                "habits", summary,
-                source_memory_id=mem_id, memory_type="fact",
-                rule_id="fact_life_keyword", confidence=confidence,
+                "habits",
+                summary,
+                source_memory_id=mem_id,
+                memory_type="fact",
+                rule_id="fact_life_keyword",
+                confidence=confidence,
                 evidence_type="inferred",
             )
             if rec:
@@ -512,24 +557,28 @@ class UserPersona:
                 new_w = min(1.0, old_w + 0.1)
                 if new_w != old_w:
                     self.interests[interest] = new_w
-                    changes.append(PersonaChangeRecord(
-                        timestamp=datetime.now().isoformat(),
-                        field_name=f"interests.{interest}",
-                        old_value=round(old_w, 2),
-                        new_value=round(new_w, 2),
-                        source_memory_id=mem_id,
-                        memory_type="fact",
-                        rule_id="interest_weight_increment",
-                        confidence=confidence,
-                        evidence_type="inferred",
-                    ))
+                    changes.append(
+                        PersonaChangeRecord(
+                            timestamp=datetime.now().isoformat(),
+                            field_name=f"interests.{interest}",
+                            old_value=round(old_w, 2),
+                            new_value=round(new_w, 2),
+                            source_memory_id=mem_id,
+                            memory_type="fact",
+                            rule_id="interest_weight_increment",
+                            confidence=confidence,
+                            evidence_type="inferred",
+                        )
+                    )
 
         # 工作风格推断
         for style, keywords in work_styles.items():
             if any(kw in content_lower for kw in keywords):
                 rec = self.apply_change(
-                    "work_style", style,
-                    source_memory_id=mem_id, memory_type="fact",
+                    "work_style",
+                    style,
+                    source_memory_id=mem_id,
+                    memory_type="fact",
                     rule_id="fact_work_style_keyword",
                     confidence=confidence * 0.8,
                     evidence_type="inferred",
@@ -541,8 +590,10 @@ class UserPersona:
         # 工作挑战
         if any(kw in content_lower for kw in work_challenge_kws) and summary:
             rec = self.apply_change(
-                "work_challenges", summary,
-                source_memory_id=mem_id, memory_type="fact",
+                "work_challenges",
+                summary,
+                source_memory_id=mem_id,
+                memory_type="fact",
                 rule_id="fact_work_challenge_keyword",
                 confidence=confidence,
                 evidence_type="inferred",
@@ -554,8 +605,10 @@ class UserPersona:
         for style, keywords in lifestyles.items():
             if any(kw in content_lower for kw in keywords):
                 rec = self.apply_change(
-                    "lifestyle", style,
-                    source_memory_id=mem_id, memory_type="fact",
+                    "lifestyle",
+                    style,
+                    source_memory_id=mem_id,
+                    memory_type="fact",
                     rule_id="fact_lifestyle_keyword",
                     confidence=confidence * 0.8,
                     evidence_type="inferred",
@@ -568,10 +621,13 @@ class UserPersona:
 
     # --- 关系维度 ---
     def _update_social(
-        self, memory, mem_id, confidence,
+        self,
+        memory,
+        mem_id,
+        confidence,
         keyword_maps=None,
-    ) -> List[PersonaChangeRecord]:
-        changes: List[PersonaChangeRecord] = []
+    ) -> list[PersonaChangeRecord]:
+        changes: list[PersonaChangeRecord] = []
         content = getattr(memory, "content", "") or ""
         summary = getattr(memory, "summary", "") or ""
         text = content + summary
@@ -594,9 +650,12 @@ class UserPersona:
 
         if any(kw in text for kw in trust_kws):
             rec = self.apply_change(
-                "trust_level", min(1.0, self.trust_level + 0.1),
-                source_memory_id=mem_id, memory_type="relationship",
-                rule_id="trust_keyword", confidence=confidence,
+                "trust_level",
+                min(1.0, self.trust_level + 0.1),
+                source_memory_id=mem_id,
+                memory_type="relationship",
+                rule_id="trust_keyword",
+                confidence=confidence,
                 evidence_type="inferred",
             )
             if rec:
@@ -604,9 +663,12 @@ class UserPersona:
 
         if any(kw in text for kw in intimacy_kws):
             rec = self.apply_change(
-                "intimacy_level", min(1.0, self.intimacy_level + 0.1),
-                source_memory_id=mem_id, memory_type="relationship",
-                rule_id="intimacy_keyword", confidence=confidence,
+                "intimacy_level",
+                min(1.0, self.intimacy_level + 0.1),
+                source_memory_id=mem_id,
+                memory_type="relationship",
+                rule_id="intimacy_keyword",
+                confidence=confidence,
                 evidence_type="inferred",
             )
             if rec:
@@ -616,9 +678,12 @@ class UserPersona:
         for style, keywords in style_map.items():
             if any(kw in text for kw in keywords):
                 rec = self.apply_change(
-                    "social_style", style,
-                    source_memory_id=mem_id, memory_type="relationship",
-                    rule_id="social_style_keyword", confidence=confidence * 0.8,
+                    "social_style",
+                    style,
+                    source_memory_id=mem_id,
+                    memory_type="relationship",
+                    rule_id="social_style_keyword",
+                    confidence=confidence * 0.8,
                     evidence_type="inferred",
                 )
                 if rec:
@@ -629,11 +694,13 @@ class UserPersona:
         for kw in boundary_kws:
             if kw in content:
                 idx = content.index(kw)
-                boundary_ctx = content[idx:idx + 20].strip()
+                boundary_ctx = content[idx : idx + 20].strip()
                 if boundary_ctx:
                     rec = self.apply_change(
-                        "social_boundaries", {kw: boundary_ctx},
-                        source_memory_id=mem_id, memory_type="relationship",
+                        "social_boundaries",
+                        {kw: boundary_ctx},
+                        source_memory_id=mem_id,
+                        memory_type="relationship",
                         rule_id="social_boundary_keyword",
                         confidence=confidence * 0.8,
                         evidence_type="inferred",
@@ -648,18 +715,20 @@ class UserPersona:
         self,
         content: str,
         field_name: str,
-        positive_keywords: List[str],
-        negative_keywords: List[str],
+        positive_keywords: list[str],
+        negative_keywords: list[str],
         positive_rule_id: str,
         negative_rule_id: str,
         step: float,
-        mem_id: Optional[str],
+        mem_id: str | None,
         confidence: float,
-    ) -> Optional[PersonaChangeRecord]:
+    ) -> PersonaChangeRecord | None:
         """根据正负关键词对连续数值维度做增减更新。"""
         old_val = float(getattr(self, field_name, 0.5))
 
-        if any(str(kw).lower() in content for kw in positive_keywords if kw is not None):
+        if any(
+            str(kw).lower() in content for kw in positive_keywords if kw is not None
+        ):
             new_val = round(min(1.0, old_val + step), 3)
             return self.apply_change(
                 field_name,
@@ -671,7 +740,9 @@ class UserPersona:
                 evidence_type="inferred",
             )
 
-        if any(str(kw).lower() in content for kw in negative_keywords if kw is not None):
+        if any(
+            str(kw).lower() in content for kw in negative_keywords if kw is not None
+        ):
             new_val = round(max(0.0, old_val - step), 3)
             return self.apply_change(
                 field_name,
@@ -689,12 +760,12 @@ class UserPersona:
         self,
         content: str,
         trait: str,
-        high_keywords: List[str],
-        low_keywords: List[str],
+        high_keywords: list[str],
+        low_keywords: list[str],
         step: float,
-        mem_id: Optional[str],
+        mem_id: str | None,
         confidence: float,
-    ) -> Optional[PersonaChangeRecord]:
+    ) -> PersonaChangeRecord | None:
         """根据关键词更新单个人格特质。"""
         field_name = f"personality_{trait}"
         old_val = float(getattr(self, field_name, 0.5))
@@ -726,10 +797,13 @@ class UserPersona:
         return None
 
     def _update_interaction(
-        self, memory, mem_id, confidence,
+        self,
+        memory,
+        mem_id,
+        confidence,
         keyword_maps=None,
-    ) -> List[PersonaChangeRecord]:
-        changes: List[PersonaChangeRecord] = []
+    ) -> list[PersonaChangeRecord]:
+        changes: list[PersonaChangeRecord] = []
         content = (getattr(memory, "content", "") or "").lower()
 
         # 关键词配置
@@ -793,9 +867,12 @@ class UserPersona:
         for style, keywords in reply_style.items():
             if any(kw in content for kw in keywords):
                 rec = self.apply_change(
-                    "preferred_reply_style", style,
-                    source_memory_id=mem_id, memory_type="interaction",
-                    rule_id=f"reply_style_{style}", confidence=confidence,
+                    "preferred_reply_style",
+                    style,
+                    source_memory_id=mem_id,
+                    memory_type="interaction",
+                    rule_id=f"reply_style_{style}",
+                    confidence=confidence,
                     evidence_type="inferred",
                 )
                 if rec:
@@ -808,18 +885,24 @@ class UserPersona:
 
         if any(kw in content for kw in formal_kws):
             rec = self.apply_change(
-                "communication_formality", min(1.0, self.communication_formality + 0.1),
-                source_memory_id=mem_id, memory_type="interaction",
-                rule_id="formality_increase", confidence=confidence,
+                "communication_formality",
+                min(1.0, self.communication_formality + 0.1),
+                source_memory_id=mem_id,
+                memory_type="interaction",
+                rule_id="formality_increase",
+                confidence=confidence,
                 evidence_type="inferred",
             )
             if rec:
                 changes.append(rec)
         elif any(kw in content for kw in casual_kws):
             rec = self.apply_change(
-                "communication_formality", max(0.0, self.communication_formality - 0.1),
-                source_memory_id=mem_id, memory_type="interaction",
-                rule_id="formality_decrease", confidence=confidence,
+                "communication_formality",
+                max(0.0, self.communication_formality - 0.1),
+                source_memory_id=mem_id,
+                memory_type="interaction",
+                rule_id="formality_decrease",
+                confidence=confidence,
                 evidence_type="inferred",
             )
             if rec:

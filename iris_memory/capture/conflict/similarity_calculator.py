@@ -6,37 +6,40 @@
 
 import re
 from difflib import SequenceMatcher
-from typing import Set
 
 
 def sanitize_for_log(text: str, max_length: int = 50) -> str:
     """对文本进行脱敏处理后用于日志记录
-    
+
     Args:
         text: 原始文本
         max_length: 最大长度
-        
+
     Returns:
         str: 脱敏后的文本
     """
     if not text:
         return "[empty]"
-    
+
     # 敏感模式替换
     sanitized = text
-    
+
     # 手机号（11位数字）
-    sanitized = re.sub(r'1[3-9]\d{9}', '[PHONE]', sanitized)
+    sanitized = re.sub(r"1[3-9]\d{9}", "[PHONE]", sanitized)
     # 身份证号
-    sanitized = re.sub(r'\d{17}[\dXx]', '[ID_CARD]', sanitized)
+    sanitized = re.sub(r"\d{17}[\dXx]", "[ID_CARD]", sanitized)
     # 银行卡号（16-19位数字）
-    sanitized = re.sub(r'\d{16,19}', '[BANK_CARD]', sanitized)
+    sanitized = re.sub(r"\d{16,19}", "[BANK_CARD]", sanitized)
     # 密码相关
-    sanitized = re.sub(r'密码[:：是]\S+', '密码:[MASKED]', sanitized)
-    sanitized = re.sub(r'password[:：]\S+', 'password:[MASKED]', sanitized, flags=re.IGNORECASE)
+    sanitized = re.sub(r"密码[:：是]\S+", "密码:[MASKED]", sanitized)
+    sanitized = re.sub(
+        r"password[:：]\S+", "password:[MASKED]", sanitized, flags=re.IGNORECASE
+    )
     # 邮箱
-    sanitized = re.sub(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}', '[EMAIL]', sanitized)
-    
+    sanitized = re.sub(
+        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}", "[EMAIL]", sanitized
+    )
+
     # 截断
     if len(sanitized) > max_length:
         return sanitized[:max_length] + "..."
@@ -45,26 +48,96 @@ def sanitize_for_log(text: str, max_length: int = 50) -> str:
 
 class SimilarityCalculator:
     """文本相似度计算器
-    
+
     提供多种相似度计算算法：
     - 快速字符级相似度（Jaccard）
     - 精确多算法融合相似度（N-gram + Sequence + LCS）
     - 内容相似度（N-gram）
     - 共同主题检测
     """
-    
+
     # 停用词集合
     STOPWORDS = {
-        '的', '了', '在', '是', '我', '你', '他', '她', '它', '我们', '你们',
-        '他们', '这', '那', '这些', '那些', '和', '与', '或', '就', '都', '而',
-        '及', '与', '或', '但是', '然而', 'the', 'a', 'an', 'is', 'are', 'was',
-        'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
-        'will', 'would', 'could', 'should', 'may', 'might', 'must', 'shall',
-        'can', 'need', 'dare', 'ought', 'used', 'to', 'of', 'in', 'for', 'on',
-        'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during', 'before',
-        'after', 'above', 'below', 'between', 'under', 'again', 'further', 'then'
+        "的",
+        "了",
+        "在",
+        "是",
+        "我",
+        "你",
+        "他",
+        "她",
+        "它",
+        "我们",
+        "你们",
+        "他们",
+        "这",
+        "那",
+        "这些",
+        "那些",
+        "和",
+        "与",
+        "或",
+        "就",
+        "都",
+        "而",
+        "及",
+        "与",
+        "或",
+        "但是",
+        "然而",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "can",
+        "need",
+        "dare",
+        "ought",
+        "used",
+        "to",
+        "of",
+        "in",
+        "for",
+        "on",
+        "with",
+        "at",
+        "by",
+        "from",
+        "as",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "between",
+        "under",
+        "again",
+        "further",
+        "then",
     }
-    
+
     def calculate_quick_similarity(self, text1: str, text2: str) -> float:
         """快速相似度计算（用于预筛选）
 
@@ -203,8 +276,16 @@ class SimilarityCalculator:
             bool: 是否有共同主题
         """
         # 提取关键词（长度大于1的词）
-        words1 = set(w for w in re.findall(r'\w+', text1) if len(w) > 1 and w not in self.STOPWORDS)
-        words2 = set(w for w in re.findall(r'\w+', text2) if len(w) > 1 and w not in self.STOPWORDS)
+        words1 = set(
+            w
+            for w in re.findall(r"\w+", text1)
+            if len(w) > 1 and w not in self.STOPWORDS
+        )
+        words2 = set(
+            w
+            for w in re.findall(r"\w+", text2)
+            if len(w) > 1 and w not in self.STOPWORDS
+        )
 
         if not words1 or not words2:
             return False
@@ -213,17 +294,17 @@ class SimilarityCalculator:
         common_words = words1 & words2
         return len(common_words) >= 2
 
-    def _get_ngrams(self, text: str, n: int = 2) -> Set[str]:
+    def _get_ngrams(self, text: str, n: int = 2) -> set[str]:
         """获取文本的N-gram集合
-        
+
         Args:
             text: 文本
             n: gram大小
-            
+
         Returns:
             Set[str]: N-gram集合
         """
-        return set(text[i:i+n] for i in range(len(text) - n + 1))
+        return set(text[i : i + n] for i in range(len(text) - n + 1))
 
     def _longest_common_substring_length(self, s1: str, s2: str) -> int:
         """计算最长公共子串长度（动态规划）
@@ -248,8 +329,8 @@ class SimilarityCalculator:
 
         for i in range(1, m + 1):
             for j in range(1, n + 1):
-                if s1[i-1] == s2[j-1]:
-                    curr[j] = prev[j-1] + 1
+                if s1[i - 1] == s2[j - 1]:
+                    curr[j] = prev[j - 1] + 1
                     max_length = max(max_length, curr[j])
                 else:
                     curr[j] = 0

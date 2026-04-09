@@ -7,18 +7,18 @@ from .image_analyzer import ImageAnalyzer
 from .image_cache import (
     ImageAnalysisLevel,
     ImageAnalysisResult,
-    ImageInfo,
-    ImageCacheManager,
     ImageBudgetManager,
-    SimilarImageDetector
+    ImageCacheManager,
+    ImageInfo,
+    SimilarImageDetector,
 )
 
 __all__ = [
-    'ImageAnalyzer',
-    'ImageAnalysisLevel',
-    'ImageAnalysisResult',
-    'ImageInfo',
-    'ImageCacheManager',
-    'ImageBudgetManager',
-    'SimilarImageDetector'
+    "ImageAnalyzer",
+    "ImageAnalysisLevel",
+    "ImageAnalysisResult",
+    "ImageInfo",
+    "ImageCacheManager",
+    "ImageBudgetManager",
+    "SimilarImageDetector",
 ]

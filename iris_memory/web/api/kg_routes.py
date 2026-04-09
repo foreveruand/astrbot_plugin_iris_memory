@@ -11,10 +11,11 @@ from iris_memory.web.response import error_response, success_response
 
 if TYPE_CHECKING:
     from quart import Quart
+
     from iris_memory.web.container import WebContainer
 
 
-def register_kg_routes(app: "Quart", container: "WebContainer") -> None:
+def register_kg_routes(app: Quart, container: WebContainer) -> None:
 
     @app.route("/api/v1/kg/nodes", methods=["GET"])
     async def api_list_kg_nodes():
@@ -25,7 +26,9 @@ def register_kg_routes(app: "Quart", container: "WebContainer") -> None:
             group_id=request.args.get("group_id"),
             node_type=request.args.get("node_type"),
             page=safe_int(request.args.get("page"), 1, min_val=1),
-            page_size=safe_int(request.args.get("page_size"), 20, min_val=1, max_val=100),
+            page_size=safe_int(
+                request.args.get("page_size"), 20, min_val=1, max_val=100
+            ),
         )
         return success_response(data)
 
@@ -38,7 +41,9 @@ def register_kg_routes(app: "Quart", container: "WebContainer") -> None:
             relation_type=request.args.get("relation_type"),
             node_id=request.args.get("node_id"),
             page=safe_int(request.args.get("page"), 1, min_val=1),
-            page_size=safe_int(request.args.get("page_size"), 20, min_val=1, max_val=100),
+            page_size=safe_int(
+                request.args.get("page_size"), 20, min_val=1, max_val=100
+            ),
         )
         return success_response(data)
 

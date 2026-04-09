@@ -6,12 +6,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 from iris_memory.knowledge_graph.kg_models import KGEdge, KGNode
 
 
-def memory_to_web_dict(memory: Any) -> Dict[str, Any]:
+def memory_to_web_dict(memory: Any) -> dict[str, Any]:
     """将 Memory 对象转换为前端展示字典"""
     return {
         "id": getattr(memory, "id", ""),
@@ -31,14 +31,18 @@ def memory_to_web_dict(memory: Any) -> Dict[str, Any]:
 
 
 def memory_detail_from_chroma(
-    res: Dict[str, Any],
+    res: dict[str, Any],
     index: int,
     *,
     full: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """从 ChromaDB 结果构建记忆字典"""
-    meta = res["metadatas"][index] if res.get("metadatas") and index < len(res["metadatas"]) else {}
-    item: Dict[str, Any] = {
+    meta = (
+        res["metadatas"][index]
+        if res.get("metadatas") and index < len(res["metadatas"])
+        else {}
+    )
+    item: dict[str, Any] = {
         "id": res["ids"][index],
         "content": res["documents"][index] if res.get("documents") else "",
         "user_id": meta.get("user_id", ""),
@@ -53,16 +57,18 @@ def memory_detail_from_chroma(
         "summary": meta.get("summary", ""),
     }
     if full:
-        item.update({
-            "keywords": meta.get("keywords", ""),
-            "quality_level": meta.get("quality_level", ""),
-            "access_count": meta.get("access_count", 0),
-            "rif_score": meta.get("rif_score", 0),
-        })
+        item.update(
+            {
+                "keywords": meta.get("keywords", ""),
+                "quality_level": meta.get("quality_level", ""),
+                "access_count": meta.get("access_count", 0),
+                "rif_score": meta.get("rif_score", 0),
+            }
+        )
     return item
 
 
-def node_to_web_dict(node: KGNode) -> Dict[str, Any]:
+def node_to_web_dict(node: KGNode) -> dict[str, Any]:
     """节点转前端展示字典"""
     return {
         "id": node.id,
@@ -78,7 +84,7 @@ def node_to_web_dict(node: KGNode) -> Dict[str, Any]:
     }
 
 
-def node_to_graph_dict(node: KGNode) -> Dict[str, Any]:
+def node_to_graph_dict(node: KGNode) -> dict[str, Any]:
     """节点转图谱可视化字典"""
     return {
         "id": node.id,
@@ -91,8 +97,8 @@ def node_to_graph_dict(node: KGNode) -> Dict[str, Any]:
 
 def edge_to_web_dict(
     edge: KGEdge,
-    node_names: Dict[str, str] | None = None,
-) -> Dict[str, Any]:
+    node_names: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """边转前端展示字典"""
     names = node_names or {}
     return {
@@ -101,7 +107,9 @@ def edge_to_web_dict(
         "target_id": edge.target_id,
         "source_name": names.get(edge.source_id, edge.source_id),
         "target_name": names.get(edge.target_id, edge.target_id),
-        "relation_type": edge.relation_type.value if hasattr(edge.relation_type, "value") else str(edge.relation_type),
+        "relation_type": edge.relation_type.value
+        if hasattr(edge.relation_type, "value")
+        else str(edge.relation_type),
         "description": edge.description,
         "weight": edge.weight,
         "confidence": edge.confidence,
@@ -110,12 +118,14 @@ def edge_to_web_dict(
     }
 
 
-def edge_to_graph_dict(edge: KGEdge) -> Dict[str, Any]:
+def edge_to_graph_dict(edge: KGEdge) -> dict[str, Any]:
     """边转图谱可视化字典"""
     return {
         "source": edge.source_id,
         "target": edge.target_id,
-        "label": edge.relation_type.value if hasattr(edge.relation_type, "value") else str(edge.relation_type),
+        "label": edge.relation_type.value
+        if hasattr(edge.relation_type, "value")
+        else str(edge.relation_type),
         "weight": edge.weight,
     }
 

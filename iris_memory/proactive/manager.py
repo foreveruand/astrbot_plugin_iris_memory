@@ -9,9 +9,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone, timedelta
+from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from iris_memory.config import get_store
 from iris_memory.proactive.followup_planner import (
@@ -32,9 +33,9 @@ from iris_memory.proactive.reply_sender import ProactiveReplySender
 from iris_memory.proactive.signal_generator import SignalGenerator
 from iris_memory.proactive.signal_queue import SignalQueue
 from iris_memory.proactive.storage.expectation_store import ExpectationStore
-from iris_memory.utils.llm_helper import call_llm, parse_llm_json
-from iris_memory.utils.logger import get_logger
 from iris_memory.utils.bounded_dict import BoundedDict
+from iris_memory.utils.llm_helper import call_llm
+from iris_memory.utils.logger import get_logger
 
 logger = get_logger("proactive.manager")
 
@@ -59,30 +60,30 @@ class ProactiveManager:
     def __init__(
         self,
         plugin_data_path: Path,
-        llm_provider: Optional[Any] = None,
+        llm_provider: Any | None = None,
         enabled: bool = True,
         group_whitelist_mode: bool = False,
         proactive_mode: str = "rule",
         # 以下为 v2 兼容参数（已废弃，仅保留接口兼容性）
-        chroma_manager: Optional[Any] = None,
-        embedding_manager: Optional[Any] = None,
-        shared_state: Optional[Any] = None,
+        chroma_manager: Any | None = None,
+        embedding_manager: Any | None = None,
+        shared_state: Any | None = None,
         personality: str = "balanced",
-        quiet_hours: Optional[List[int]] = None,
+        quiet_hours: list[int] | None = None,
         max_history: int = 10,
         max_text_tokens: int = 150,
-        config: Optional[Any] = None,  # 已废弃，保留用于兼容旧测试
+        config: Any | None = None,  # 已废弃，保留用于兼容旧测试
     ) -> None:
         self._plugin_data_path = plugin_data_path
         self._llm_provider = llm_provider
-        self._astrbot_context: Optional[Any] = None
-        self._llm_provider_id: Optional[str] = None
+        self._astrbot_context: Any | None = None
+        self._llm_provider_id: str | None = None
 
         # 配置直接从全局 get_store() 获取
         self._cfg = get_store()
 
         # 白名单状态（持久化到 KV 存储）
-        self._group_whitelist: List[str] = list(
+        self._group_whitelist: list[str] = list(
             self._cfg.get("proactive_reply.group_whitelist", [])
         )
         self._group_whitelist_mode: bool = self._cfg.get(
@@ -90,20 +91,20 @@ class ProactiveManager:
         )
 
         # 核心组件（延迟初始化）
-        self._signal_queue: Optional[SignalQueue] = None
-        self._signal_generator: Optional[SignalGenerator] = None
-        self._group_scheduler: Optional[GroupScheduler] = None
-        self._followup_planner: Optional[FollowUpPlanner] = None
-        self._expectation_store: Optional[ExpectationStore] = None
+        self._signal_queue: SignalQueue | None = None
+        self._signal_generator: SignalGenerator | None = None
+        self._group_scheduler: GroupScheduler | None = None
+        self._followup_planner: FollowUpPlanner | None = None
+        self._expectation_store: ExpectationStore | None = None
 
         self._initialized = False
         self._init_lock = asyncio.Lock()
 
         # 主动回复发送器（由服务层注入）
-        self._reply_sender: Optional[ProactiveReplySender] = None
+        self._reply_sender: ProactiveReplySender | None = None
 
         # 群组 UMO 映射（group_id -> unified_msg_origin）
-        self._group_umo_map: Dict[str, str] = {}
+        self._group_umo_map: dict[str, str] = {}
 
         # 日统计（简单内存计数）
         self._daily_reply_count: int = 0
@@ -111,10 +112,12 @@ class ProactiveManager:
         self._per_user_daily: BoundedDict[str, int] = BoundedDict(max_size=10000)
 
         # 冷却时间控制（group_id -> 最后回复时间戳）
-        self._last_reply_time: Dict[str, float] = {}
+        self._last_reply_time: dict[str, float] = {}
 
         # 群组最近用户活动时间（用于智能静音豁免，group_id -> datetime）
-        self._group_last_activity: BoundedDict[str, datetime] = BoundedDict(max_size=2000)
+        self._group_last_activity: BoundedDict[str, datetime] = BoundedDict(
+            max_size=2000
+        )
 
         # 回复协调器：集中管理正常回复与主动回复的竞态关系
         self._reply_coordinator = ReplyCoordinator()
@@ -125,7 +128,7 @@ class ProactiveManager:
 
         # CooldownModule 状态检查回调（group_id -> 是否处于冷却中）
         # 由服务层注入，检查用户通过 /冷却 命令激活的冷却状态
-        self._cooldown_checker: Optional[Callable[[str], bool]] = None
+        self._cooldown_checker: Callable[[str], bool] | None = None
 
     # ── 属性 ──────────────────────────────────────────────────
 
@@ -171,7 +174,7 @@ class ProactiveManager:
     def set_context(
         self,
         astrbot_context: Any,
-        llm_provider_id: Optional[str] = None,
+        llm_provider_id: str | None = None,
     ) -> None:
         """设置 AstrBot 上下文（用于 LLM 确认等内部调用）
 
@@ -182,7 +185,7 @@ class ProactiveManager:
         self._astrbot_context = astrbot_context
         self._llm_provider_id = llm_provider_id
 
-    def get_group_umo(self, group_id: str) -> Optional[str]:
+    def get_group_umo(self, group_id: str) -> str | None:
         """获取群组的 unified_msg_origin
 
         Args:
@@ -219,9 +222,7 @@ class ProactiveManager:
             self._group_scheduler.set_reply_callback(self._handle_signal_reply)
             proactive_mode = self._cfg.get("proactive_reply.proactive_mode", "rule")
             if self._llm_provider and proactive_mode == "hybrid":
-                self._group_scheduler.set_llm_confirm_callback(
-                    self._handle_llm_confirm
-                )
+                self._group_scheduler.set_llm_confirm_callback(self._handle_llm_confirm)
 
             # 5. FollowUpPlanner
             self._followup_planner = FollowUpPlanner(
@@ -242,13 +243,13 @@ class ProactiveManager:
 
     async def process_message(
         self,
-        messages: List[Dict[str, Any]],
+        messages: list[dict[str, Any]],
         user_id: str,
         session_key: str,
         session_type: str = "group",
-        group_id: Optional[str] = None,
-        extra: Optional[Dict[str, Any]] = None,
-    ) -> Optional[Dict[str, Any]]:
+        group_id: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
         """处理消息，生成信号入队
 
         v3 不再同步返回回复决定，而是信号入队 + 定时聚合。
@@ -353,7 +354,7 @@ class ProactiveManager:
     def clear_pending_tasks_for_session(
         self,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
     ) -> None:
         """清除会话的待处理任务
 
@@ -419,10 +420,10 @@ class ProactiveManager:
     def notify_bot_reply(
         self,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         user_message: str,
         bot_reply: str,
-        umo: Optional[str] = None,
+        umo: str | None = None,
     ) -> None:
         """Bot 回复后通知，创建 FollowUp 跟进期待
 
@@ -444,13 +445,15 @@ class ProactiveManager:
             f"followup_after_all={followup_after_all}, "
             f"followup_enabled={followup_enabled}"
         )
-        
+
         if not self._initialized:
             logger.debug("notify_bot_reply: not initialized, skipping")
             return
 
         if not self._get_cfg("followup_after_all_replies", False):
-            logger.debug("notify_bot_reply: followup_after_all_replies disabled, skipping")
+            logger.debug(
+                "notify_bot_reply: followup_after_all_replies disabled, skipping"
+            )
             return
 
         if not self._get_cfg("followup_enabled", True):
@@ -464,7 +467,9 @@ class ProactiveManager:
 
         # 白名单过滤
         if not self.is_group_allowed(group_id):
-            logger.debug(f"notify_bot_reply: group {group_id} not in whitelist, skipping")
+            logger.debug(
+                f"notify_bot_reply: group {group_id} not in whitelist, skipping"
+            )
             return
 
         if not self._followup_planner:
@@ -505,9 +510,7 @@ class ProactiveManager:
         if new_exp and carried_messages:
             new_exp.aggregated_messages = carried_messages
             short_window = self._get_cfg("followup_short_window_seconds", 10)
-            self._followup_planner.restart_short_window_timer(
-                group_id, short_window
-            )
+            self._followup_planner.restart_short_window_timer(group_id, short_window)
 
         logger.debug(
             f"FollowUp expectation created after bot reply: "
@@ -537,9 +540,7 @@ class ProactiveManager:
 
         # 检查冷却时间
         if not self._check_rate_limit(decision.group_id):
-            logger.debug(
-                f"Rate limit: group {decision.group_id} in cooldown"
-            )
+            logger.debug(f"Rate limit: group {decision.group_id} in cooldown")
             return
 
         # 检查 CooldownModule（用户通过 /冷却 命令激活的冷却状态）
@@ -552,9 +553,7 @@ class ProactiveManager:
 
         # 检查每日限额（锁外快速拒绝）
         if not self._check_daily_limit(decision.target_user_id):
-            logger.debug(
-                f"Daily limit reached for user {decision.target_user_id}"
-            )
+            logger.debug(f"Daily limit reached for user {decision.target_user_id}")
             return
 
         # 通过协调器守卫发送：获取群锁 + 二次校验正常回复状态 + FollowUp 检查
@@ -585,9 +584,7 @@ class ProactiveManager:
             bot_reply = await self._send_proactive_reply(reply_result)
 
             if not bot_reply:
-                logger.debug(
-                    f"Signal reply not sent for group {decision.group_id}"
-                )
+                logger.debug(f"Signal reply not sent for group {decision.group_id}")
                 return
 
             # 更新冷却时间
@@ -702,7 +699,7 @@ class ProactiveManager:
     async def _send_proactive_reply(
         self,
         reply_result: ProactiveReplyResult,
-    ) -> Optional[str]:
+    ) -> str | None:
         """通过 ReplySender 发送主动回复
 
         经过记忆上下文注入、LLM 生成、平台发送的完整流程。
@@ -730,9 +727,9 @@ class ProactiveManager:
     async def send_direct_message(
         self,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         text: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """发送预格式化文本消息（不经过 LLM 生成）
 
@@ -764,9 +761,7 @@ class ProactiveManager:
 
         try:
             await self._reply_sender.send_text(umo, text)
-            logger.debug(
-                f"Direct message sent: user={user_id}, group={group_id}"
-            )
+            logger.debug(f"Direct message sent: user={user_id}, group={group_id}")
             return True
         except Exception as e:
             logger.error(f"Failed to send direct message: {e}")
@@ -775,9 +770,9 @@ class ProactiveManager:
     async def send_review_prompt(
         self,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         prompt: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """发送记忆回顾提示（不经过 LLM 生成）
 
@@ -802,8 +797,8 @@ class ProactiveManager:
     async def _handle_llm_confirm(
         self,
         group_id: str,
-        signals: List[Signal],
-        recent_messages: List[Dict[str, Any]],
+        signals: list[Signal],
+        recent_messages: list[dict[str, Any]],
     ) -> bool:
         """处理 GroupScheduler 的 LLM 确认请求
 
@@ -818,12 +813,11 @@ class ProactiveManager:
                 for m in recent_messages[-5:]
             )
             signal_info = ", ".join(
-                f"{s.signal_type.value}(w={s.weight:.2f})"
-                for s in signals[:5]
+                f"{s.signal_type.value}(w={s.weight:.2f})" for s in signals[:5]
             )
 
             # 提取信号元数据中的匹配规则
-            matched_rules: List[str] = []
+            matched_rules: list[str] = []
             for s in signals:
                 rules = s.metadata.get("matched_rules", [])
                 matched_rules.extend(rules)
@@ -861,7 +855,7 @@ class ProactiveManager:
 
     async def _handle_followup_llm_decide(
         self, expectation: FollowUpExpectation
-    ) -> Optional[FollowUpDecision]:
+    ) -> FollowUpDecision | None:
         """处理 FollowUpPlanner 的 LLM 判断请求"""
         try:
             prompt = build_followup_prompt(expectation)
@@ -949,6 +943,7 @@ class ProactiveManager:
             return True
 
         import time
+
         elapsed = time.time() - last_time
         if elapsed < cooldown:
             logger.debug(
@@ -962,6 +957,7 @@ class ProactiveManager:
     def _update_last_reply_time(self, group_id: str) -> None:
         """更新最后回复时间"""
         import time
+
         self._last_reply_time[group_id] = time.time()
 
     def _check_daily_limit(self, user_id: str) -> bool:
@@ -991,7 +987,7 @@ class ProactiveManager:
             self._per_user_daily.clear()
             self._daily_reply_date = today
 
-    def _is_quiet_hours(self, group_id: Optional[str] = None) -> bool:
+    def _is_quiet_hours(self, group_id: str | None = None) -> bool:
         """检查是否在静音时段
 
         使用配置的时区偏移（默认 UTC+8 北京时间）来判断当前小时，
@@ -1004,7 +1000,9 @@ class ProactiveManager:
         if not quiet or len(quiet) < 2:
             return False
 
-        tz = timezone(timedelta(hours=self._cfg.get("proactive_reply.timezone_offset", 8)))
+        tz = timezone(
+            timedelta(hours=self._cfg.get("proactive_reply.timezone_offset", 8))
+        )
         hour = datetime.now(tz).hour
         start, end = quiet[0], quiet[1]
 
@@ -1018,7 +1016,9 @@ class ProactiveManager:
             return False
 
         # 智能静音：若群组近期有用户活动，豁免静音时段
-        exempt_minutes = self._cfg.get("proactive_reply.quiet_hours_activity_exempt_minutes", 20)
+        exempt_minutes = self._cfg.get(
+            "proactive_reply.quiet_hours_activity_exempt_minutes", 20
+        )
         if exempt_minutes > 0 and group_id and group_id in self._group_last_activity:
             last_activity = self._group_last_activity[group_id]
             elapsed = (datetime.now() - last_activity).total_seconds() / 60
@@ -1034,12 +1034,12 @@ class ProactiveManager:
     # ── 白名单管理（v2 兼容）──────────────────────────────────
 
     @property
-    def group_whitelist(self) -> List[str]:
+    def group_whitelist(self) -> list[str]:
         """已加入白名单的群组 ID 列表"""
         return self._group_whitelist
 
     @group_whitelist.setter
-    def group_whitelist(self, value: List[str]) -> None:
+    def group_whitelist(self, value: list[str]) -> None:
         self._group_whitelist = list(value) if value else []
 
     @property
@@ -1051,7 +1051,7 @@ class ProactiveManager:
     def group_whitelist_mode(self, value: bool) -> None:
         self._group_whitelist_mode = bool(value)
 
-    def is_group_allowed(self, group_id: Optional[str]) -> bool:
+    def is_group_allowed(self, group_id: str | None) -> bool:
         """判断群组是否允许主动回复"""
         if not group_id:
             return True
@@ -1079,11 +1079,11 @@ class ProactiveManager:
         """判断群组是否在白名单中"""
         return group_id in self._group_whitelist
 
-    def get_whitelist(self) -> List[str]:
+    def get_whitelist(self) -> list[str]:
         """获取当前白名单列表"""
         return list(self._group_whitelist)
 
-    def serialize_whitelist(self) -> Dict[str, Any]:
+    def serialize_whitelist(self) -> dict[str, Any]:
         """序列化白名单状态"""
         return {
             "group_whitelist": self._group_whitelist,
@@ -1115,14 +1115,14 @@ class ProactiveManager:
     def _build_session_key(
         self,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
     ) -> str:
         """构建会话键"""
         if group_id:
             return f"{user_id}:{group_id}"
         return f"{user_id}:private"
 
-    async def get_stats(self, days: int = 7) -> Dict[str, Any]:
+    async def get_stats(self, days: int = 7) -> dict[str, Any]:
         """获取统计数据"""
         return {
             "enabled": self._get_cfg("enable", False),
@@ -1134,12 +1134,12 @@ class ProactiveManager:
                 self._signal_queue.total_signals if self._signal_queue else 0
             ),
             "active_groups": (
-                self._group_scheduler.active_group_count
-                if self._group_scheduler else 0
+                self._group_scheduler.active_group_count if self._group_scheduler else 0
             ),
             "active_expectations": (
                 self._followup_planner.active_expectation_count
-                if self._followup_planner else 0
+                if self._followup_planner
+                else 0
             ),
         }
 

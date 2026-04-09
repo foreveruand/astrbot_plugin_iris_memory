@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+from iris_memory.utils.logger import get_logger
 from iris_memory.web.audit import audit_log
 from iris_memory.web.dto.converters import memory_detail_from_chroma
-from iris_memory.utils.logger import get_logger
 
 logger = get_logger("web.memory_svc")
 
@@ -21,13 +21,13 @@ class MemoryWebService:
     async def search_memories_web(
         self,
         query: str = "",
-        user_id: Optional[str] = None,
-        group_id: Optional[str] = None,
-        storage_layer: Optional[str] = None,
-        memory_type: Optional[str] = None,
+        user_id: str | None = None,
+        group_id: str | None = None,
+        storage_layer: str | None = None,
+        memory_type: str | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
 
@@ -58,7 +58,7 @@ class MemoryWebService:
             page_size=page_size,
         )
 
-    async def get_memory_detail(self, memory_id: str) -> Optional[Dict[str, Any]]:
+    async def get_memory_detail(self, memory_id: str) -> dict[str, Any] | None:
         try:
             chroma = self._service.chroma_manager
             if not chroma or not chroma.is_ready:
@@ -77,20 +77,20 @@ class MemoryWebService:
     async def update_memory_by_id(
         self,
         memory_id: str,
-        updates: Dict[str, Any],
-    ) -> Tuple[bool, str]:
+        updates: dict[str, Any],
+    ) -> tuple[bool, str]:
         success, msg = await self._repo.update(memory_id, updates)
         if success:
             audit_log("update_memory", f"id={memory_id} fields={list(updates.keys())}")
         return success, msg
 
-    async def delete_memory_by_id(self, memory_id: str) -> Tuple[bool, str]:
+    async def delete_memory_by_id(self, memory_id: str) -> tuple[bool, str]:
         success, msg = await self._repo.delete(memory_id)
         if success:
             audit_log("delete_memory", f"id={memory_id}")
         return success, msg
 
-    async def batch_delete_memories(self, memory_ids: List[str]) -> Dict[str, Any]:
+    async def batch_delete_memories(self, memory_ids: list[str]) -> dict[str, Any]:
         result = await self._repo.batch_delete(memory_ids)
         audit_log(
             "batch_delete_memories",

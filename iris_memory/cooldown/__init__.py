@@ -5,7 +5,7 @@
 支持用户手动触发和 LLM 工具调用两种方式。
 """
 
-from iris_memory.cooldown.cooldown_state import CooldownState
 from iris_memory.cooldown.cooldown_manager import CooldownManager
+from iris_memory.cooldown.cooldown_state import CooldownState
 
 __all__ = ["CooldownState", "CooldownManager"]

@@ -11,9 +11,7 @@
 
 from __future__ import annotations
 
-import json
-import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from iris_memory.knowledge_graph.kg_models import (
     KGEdge,
@@ -23,14 +21,30 @@ from iris_memory.knowledge_graph.kg_models import (
     KGTriple,
 )
 from iris_memory.knowledge_graph.kg_patterns import (
-    TRIPLE_EXTRACTION_PROMPT as _TRIPLE_EXTRACTION_PROMPT,
     BATCH_TRIPLE_EXTRACTION_PROMPT as _BATCH_TRIPLE_EXTRACTION_PROMPT,
-    RULE_TEXT_MAX_LENGTH,
-    DEFAULT_DAILY_LIMIT as _DEFAULT_DAILY_LIMIT,
-    RELATIONSHIP_SIGNAL_KEYWORDS as _RELATIONSHIP_SIGNAL_KEYWORDS,
-    QUICK_FILTER_KEYWORDS as _QUICK_FILTER_KEYWORDS,
+)
+from iris_memory.knowledge_graph.kg_patterns import (
     CN_RELATION_PATTERNS as _CN_RELATION_PATTERNS,
+)
+from iris_memory.knowledge_graph.kg_patterns import (
+    DEFAULT_DAILY_LIMIT as _DEFAULT_DAILY_LIMIT,
+)
+from iris_memory.knowledge_graph.kg_patterns import (
     EN_RELATION_PATTERNS as _EN_RELATION_PATTERNS,
+)
+from iris_memory.knowledge_graph.kg_patterns import (
+    QUICK_FILTER_KEYWORDS as _QUICK_FILTER_KEYWORDS,
+)
+from iris_memory.knowledge_graph.kg_patterns import (
+    RELATIONSHIP_SIGNAL_KEYWORDS as _RELATIONSHIP_SIGNAL_KEYWORDS,
+)
+from iris_memory.knowledge_graph.kg_patterns import (
+    RULE_TEXT_MAX_LENGTH,
+)
+from iris_memory.knowledge_graph.kg_patterns import (
+    TRIPLE_EXTRACTION_PROMPT as _TRIPLE_EXTRACTION_PROMPT,
+)
+from iris_memory.knowledge_graph.kg_patterns import (
     guess_node_type as _guess_node_type,
 )
 from iris_memory.knowledge_graph.kg_storage import KGStorage
@@ -56,7 +70,7 @@ class KGExtractor:
         storage: KGStorage,
         mode: str = "rule",
         astrbot_context: Any = None,
-        provider_id: Optional[str] = None,
+        provider_id: str | None = None,
         daily_limit: int = _DEFAULT_DAILY_LIMIT,
     ) -> None:
         self.storage = storage
@@ -64,14 +78,14 @@ class KGExtractor:
         self._astrbot_context = astrbot_context
         self._provider_id = provider_id
         self._provider = None
-        self._resolved_provider_id: Optional[str] = None
+        self._resolved_provider_id: str | None = None
         self._provider_initialized = False
 
         # 每日 LLM 调用限制
         self._limiter = DailyCallLimiter(daily_limit)
 
         # Hybrid 决策统计
-        self._stats: Dict[str, int] = {
+        self._stats: dict[str, int] = {
             "rule_extractions": 0,
             "llm_extractions": 0,
             "llm_skipped_sufficient": 0,
@@ -89,12 +103,12 @@ class KGExtractor:
         self,
         text: str,
         user_id: str,
-        group_id: Optional[str] = None,
-        memory_id: Optional[str] = None,
-        sender_name: Optional[str] = None,
-        existing_entities: Optional[List[str]] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[KGTriple]:
+        group_id: str | None = None,
+        memory_id: str | None = None,
+        sender_name: str | None = None,
+        existing_entities: list[str] | None = None,
+        persona_id: str | None = None,
+    ) -> list[KGTriple]:
         """从文本中提取三元组并存入图谱
 
         Args:
@@ -112,7 +126,7 @@ class KGExtractor:
         if not text or len(text.strip()) < 4:
             return []
 
-        triples: List[KGTriple] = []
+        triples: list[KGTriple] = []
 
         if self.mode in ("rule", "hybrid"):
             rule_triples = self._extract_by_rules(text, sender_name)
@@ -132,9 +146,7 @@ class KGExtractor:
             should_call, reason = self._should_call_llm_hybrid(text, triples)
             if should_call:
                 if self._limiter.is_within_limit():
-                    llm_triples = await self._extract_by_llm(
-                        text, user_id, sender_name
-                    )
+                    llm_triples = await self._extract_by_llm(text, user_id, sender_name)
                     if llm_triples:
                         self._limiter.increment()
                         self._stats["llm_extractions"] += 1
@@ -176,8 +188,8 @@ class KGExtractor:
     def _should_call_llm_hybrid(
         self,
         text: str,
-        rule_triples: List[KGTriple],
-    ) -> Tuple[bool, str]:
+        rule_triples: list[KGTriple],
+    ) -> tuple[bool, str]:
         """判断 hybrid 模式下是否需要调用 LLM
 
         决策逻辑：
@@ -234,7 +246,7 @@ class KGExtractor:
             return True
         return False
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取 Hybrid 决策统计"""
         return {
             **self._stats,
@@ -255,10 +267,10 @@ class KGExtractor:
     def _extract_by_rules(
         self,
         text: str,
-        sender_name: Optional[str] = None,
-    ) -> List[KGTriple]:
+        sender_name: str | None = None,
+    ) -> list[KGTriple]:
         """基于预编译正则模式提取三元组
-        
+
         优化策略：
         1. 文本长度阈值：超长文本跳过规则提取
         2. 关键词预过滤：快速检测文本是否可能包含关系表述
@@ -271,12 +283,12 @@ class KGExtractor:
                 f"skipping rule extraction"
             )
             return []
-        
+
         # 快速关键词预过滤
         if not any(kw in text for kw in _QUICK_FILTER_KEYWORDS):
             return []
-        
-        triples: List[KGTriple] = []
+
+        triples: list[KGTriple] = []
         seen: set = set()
 
         all_patterns = _CN_RELATION_PATTERNS + _EN_RELATION_PATTERNS
@@ -312,7 +324,7 @@ class KGExtractor:
 
         return triples
 
-    def _resolve_pronoun(self, text: str, sender_name: Optional[str]) -> str:
+    def _resolve_pronoun(self, text: str, sender_name: str | None) -> str:
         """将代词替换为发送者名称"""
         pronouns_cn = {"我", "本人", "自己", "俺", "吾"}
         pronouns_en = {"i", "me", "myself"}
@@ -325,10 +337,10 @@ class KGExtractor:
         self,
         text: str,
         sender_name: str,
-        entities: List[str],
-    ) -> List[KGTriple]:
+        entities: list[str],
+    ) -> list[KGTriple]:
         """从已提取实体构建隐含关系"""
-        triples: List[KGTriple] = []
+        triples: list[KGTriple] = []
 
         for entity in entities:
             if entity == sender_name:
@@ -356,8 +368,8 @@ class KGExtractor:
         self,
         text: str,
         user_id: str,
-        sender_name: Optional[str],
-    ) -> List[KGTriple]:
+        sender_name: str | None,
+    ) -> list[KGTriple]:
         """使用 LLM 提取三元组"""
         if not self._astrbot_context:
             return []
@@ -373,6 +385,7 @@ class KGExtractor:
             )
 
             from iris_memory.utils.llm_helper import call_llm, parse_llm_json
+
             result = await call_llm(
                 self._astrbot_context,
                 self._provider,
@@ -388,7 +401,7 @@ class KGExtractor:
             if not data or "triples" not in data:
                 return []
 
-            triples: List[KGTriple] = []
+            triples: list[KGTriple] = []
             for item in data["triples"][:5]:
                 triple = self._parse_single_triple(item, text)
                 if triple:
@@ -412,6 +425,7 @@ class KGExtractor:
 
         try:
             from iris_memory.utils.llm_helper import resolve_llm_provider
+
             provider, resolved_provider_id = resolve_llm_provider(
                 self._astrbot_context,
                 self._provider_id or "",
@@ -436,9 +450,9 @@ class KGExtractor:
         self,
         triple: KGTriple,
         user_id: str,
-        group_id: Optional[str],
-        memory_id: Optional[str],
-        persona_id: Optional[str] = None,
+        group_id: str | None,
+        memory_id: str | None,
+        persona_id: str | None = None,
     ) -> None:
         """将三元组写入 KGStorage"""
         _persona = persona_id or "default"
@@ -486,12 +500,12 @@ class KGExtractor:
 
     def _merge_triples(
         self,
-        rule_triples: List[KGTriple],
-        llm_triples: List[KGTriple],
-    ) -> List[KGTriple]:
+        rule_triples: list[KGTriple],
+        llm_triples: list[KGTriple],
+    ) -> list[KGTriple]:
         """合并规则和 LLM 提取的三元组（去重）"""
         seen: set = set()
-        merged: List[KGTriple] = []
+        merged: list[KGTriple] = []
 
         for t in rule_triples:
             key = (t.subject.lower(), t.relation_type.value, t.object.lower())
@@ -512,8 +526,8 @@ class KGExtractor:
 
     async def batch_extract_by_llm(
         self,
-        items: List[Dict[str, Any]],
-    ) -> Dict[int, List[KGTriple]]:
+        items: list[dict[str, Any]],
+    ) -> dict[int, list[KGTriple]]:
         """批量提取：将多条消息合并为 1 次 LLM 调用
 
         Args:
@@ -530,7 +544,7 @@ class KGExtractor:
                 return {}
 
             # 构建多消息 prompt
-            messages_parts: List[str] = []
+            messages_parts: list[str] = []
             for i, item in enumerate(items):
                 sender = item.get("sender_name") or "未知"
                 user_id = item.get("user_id", "")
@@ -567,10 +581,10 @@ class KGExtractor:
     def _parse_batch_llm_response(
         self,
         data: Any,
-        items: List[Dict[str, Any]],
-    ) -> Dict[int, List[KGTriple]]:
+        items: list[dict[str, Any]],
+    ) -> dict[int, list[KGTriple]]:
         """解析批量 LLM 响应为 {index: [KGTriple]} 映射"""
-        result_map: Dict[int, List[KGTriple]] = {}
+        result_map: dict[int, list[KGTriple]] = {}
 
         if data is None:
             return result_map
@@ -602,7 +616,7 @@ class KGExtractor:
                 continue
 
             text = items[msg_idx].get("text", "")
-            parsed: List[KGTriple] = []
+            parsed: list[KGTriple] = []
 
             for item_data in raw_triples[:5]:
                 triple = self._parse_single_triple(item_data, text)
@@ -617,8 +631,8 @@ class KGExtractor:
 
     @staticmethod
     def _parse_single_triple(
-        item_data: Dict[str, Any], source_text: str
-    ) -> Optional[KGTriple]:
+        item_data: dict[str, Any], source_text: str
+    ) -> KGTriple | None:
         """从单个 JSON dict 解析出一个 KGTriple"""
         if not isinstance(item_data, dict):
             return None

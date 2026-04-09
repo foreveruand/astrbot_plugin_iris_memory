@@ -6,14 +6,18 @@ from typing import TYPE_CHECKING
 
 from quart import request
 
-from iris_memory.web.auth import AuthMiddleware, check_login_rate_limit, record_login_attempt
-from iris_memory.web.response import error_response, json_response, success_response
+from iris_memory.web.auth import (
+    AuthMiddleware,
+    check_login_rate_limit,
+    record_login_attempt,
+)
+from iris_memory.web.response import error_response, success_response
 
 if TYPE_CHECKING:
     from quart import Quart
 
 
-def register_auth_routes(app: "Quart") -> None:
+def register_auth_routes(app: Quart) -> None:
     """注册认证相关路由，auth_middleware 从 app.config 中获取"""
 
     @app.route("/api/v1/auth/login", methods=["POST"])
@@ -49,7 +53,9 @@ def register_auth_routes(app: "Quart") -> None:
             return success_response({"authenticated": True, "auth_required": False})
 
         authenticated = auth.check_auth(request)
-        return success_response({
-            "authenticated": authenticated,
-            "auth_required": True,
-        })
+        return success_response(
+            {
+                "authenticated": authenticated,
+                "auth_required": True,
+            }
+        )

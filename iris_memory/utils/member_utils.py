@@ -8,7 +8,7 @@ Member identity helpers.
 未注册时退回到纯函数逻辑。
 """
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from iris_memory.utils.member_identity_service import MemberIdentityService
@@ -22,16 +22,18 @@ def set_identity_service(service: Optional["MemberIdentityService"]) -> None:
     由 MemoryService.initialize() 调用。
     """
     from iris_memory.core.service_container import ServiceContainer
+
     ServiceContainer.instance().register("identity_service", service)
 
 
 def get_identity_service() -> Optional["MemberIdentityService"]:
     """获取已注册的 MemberIdentityService 实例"""
     from iris_memory.core.service_container import ServiceContainer
+
     return ServiceContainer.instance().get("identity_service")
 
 
-def short_member_id(user_id: Optional[str], length: int = 6) -> str:
+def short_member_id(user_id: str | None, length: int = 6) -> str:
     """Build a short, stable suffix for member IDs."""
     if not user_id:
         return ""
@@ -47,9 +49,9 @@ def short_member_id(user_id: Optional[str], length: int = 6) -> str:
 
 
 def format_member_tag(
-    sender_name: Optional[str],
-    user_id: Optional[str],
-    group_id: Optional[str] = None,
+    sender_name: str | None,
+    user_id: str | None,
+    group_id: str | None = None,
 ) -> str:
     """Format a human-friendly member tag with a stable ID suffix.
 

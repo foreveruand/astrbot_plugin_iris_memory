@@ -8,11 +8,11 @@ Chroma 查询模块
 from __future__ import annotations
 
 import asyncio
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from iris_memory.utils.logger import get_logger
 from iris_memory.core.memory_scope import MemoryScope
 from iris_memory.core.types import StorageLayer
+from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from iris_memory.storage.chroma_manager import ChromaManager
@@ -22,19 +22,19 @@ logger = get_logger("chroma_queries")
 
 class ChromaQueries:
     """Chroma 查询操作组件
-    
+
     职责：
     1. 向量相似度检索
     2. 多范围查询（群聊/私聊/全局）
     3. 结果去重和排序
     4. 结果转换为Memory对象
-    
+
     通过组合模式持有 ChromaManager 引用，而非 Mixin 继承。
     """
 
     def __init__(self, manager: ChromaManager) -> None:
         """初始化查询组件
-        
+
         Args:
             manager: ChromaManager 实例引用
         """
@@ -44,18 +44,18 @@ class ChromaQueries:
         self,
         query_text: str,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         top_k: int = 10,
-        storage_layer: Optional[StorageLayer] = None,
-        persona_id: Optional[str] = None
-    ) -> List:
+        storage_layer: StorageLayer | None = None,
+        persona_id: str | None = None,
+    ) -> list:
         """查询相关记忆（支持多层级记忆 + 人格隔离）
 
         查询策略：
         1. 私聊场景（group_id=None）：
            - 查询所有用户私有记忆（scope=USER_PRIVATE）
            - 查询用户的全局记忆（scope=GLOBAL）
-        
+
         2. 群聊场景（group_id有值）：
            - 查询该群组的共享记忆（scope=GROUP_SHARED）
            - 查询该用户在该群组的个人记忆（scope=GROUP_PRIVATE AND user_id=当前用户）
@@ -74,10 +74,12 @@ class ChromaQueries:
         """
         try:
             self._manager._ensure_ready()
-            
+
             query_embedding = await self._manager._generate_embedding(query_text)
             if query_embedding is None:
-                logger.error("Failed to generate query embedding, returning empty results")
+                logger.error(
+                    "Failed to generate query embedding, returning empty results"
+                )
                 return []
 
             all_results = []
@@ -94,42 +96,52 @@ class ChromaQueries:
             seen_ids = set()
             unique_results = []
             for result in all_results:
-                if result['id'] not in seen_ids:
-                    seen_ids.add(result['id'])
+                if result["id"] not in seen_ids:
+                    seen_ids.add(result["id"])
                     unique_results.append(result)
 
             if unique_results:
-                unique_results.sort(key=lambda x: x['distance'] if x['distance'] is not None else float('inf'))
+                unique_results.sort(
+                    key=lambda x: (
+                        x["distance"] if x["distance"] is not None else float("inf")
+                    )
+                )
                 unique_results = unique_results[:top_k]
 
             memories = []
             for memory_data in unique_results:
-                memory_data_without_distance = {k: v for k, v in memory_data.items() if k != 'distance'}
+                memory_data_without_distance = {
+                    k: v for k, v in memory_data.items() if k != "distance"
+                }
                 memory = self._manager._result_to_memory(memory_data_without_distance)
                 memories.append(memory)
-            
+
             logger.debug(
                 f"Query: user={user_id} group={group_id or 'private'} "
                 f"top_k={top_k} total={len(all_results)} unique={len(unique_results)} "
                 f"returned={len(memories)}"
             )
 
-            logger.debug(f"Queried {len(memories)} memories for user={user_id}, group={group_id}, query='{query_text[:30]}...'")
+            logger.debug(
+                f"Queried {len(memories)} memories for user={user_id}, group={group_id}, query='{query_text[:30]}...'"
+            )
             return memories
 
         except Exception as e:
-            logger.error(f"Failed to query memories: user={user_id}, error={e}", exc_info=True)
+            logger.error(
+                f"Failed to query memories: user={user_id}, error={e}", exc_info=True
+            )
             return []
 
     async def _query_group_mode(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         user_id: str,
         group_id: str,
         top_k: int,
-        storage_layer: Optional[StorageLayer],
-        persona_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        storage_layer: StorageLayer | None,
+        persona_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """群聊场景查询（三个 scope 并行查询）"""
         where_shared = {"group_id": group_id, "scope": MemoryScope.GROUP_SHARED.value}
         if storage_layer:
@@ -137,7 +149,11 @@ class ChromaQueries:
         if persona_id:
             where_shared["persona_id"] = persona_id
 
-        where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
+        where_private = {
+            "user_id": user_id,
+            "group_id": group_id,
+            "scope": MemoryScope.GROUP_PRIVATE.value,
+        }
         if storage_layer:
             where_private["storage_layer"] = storage_layer.value
         if persona_id:
@@ -177,7 +193,7 @@ class ChromaQueries:
             shared_task, private_task, global_task
         )
 
-        all_results: List[Dict[str, Any]] = []
+        all_results: list[dict[str, Any]] = []
         all_results.extend(self._extract_query_results(results_shared))
         all_results.extend(self._extract_query_results(results_private))
         all_results.extend(self._extract_query_results(results_global))
@@ -186,14 +202,17 @@ class ChromaQueries:
 
     async def _query_private_mode(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         user_id: str,
         top_k: int,
-        storage_layer: Optional[StorageLayer],
-        persona_id: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        storage_layer: StorageLayer | None,
+        persona_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         """私聊场景查询（两个 scope 并行查询）"""
-        where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
+        where_user_private = {
+            "user_id": user_id,
+            "scope": MemoryScope.USER_PRIVATE.value,
+        }
         if storage_layer:
             where_user_private["storage_layer"] = storage_layer.value
         if persona_id:
@@ -222,67 +241,93 @@ class ChromaQueries:
             include=include,
         )
 
-        results_private, results_global = await asyncio.gather(private_task, global_task)
+        results_private, results_global = await asyncio.gather(
+            private_task, global_task
+        )
 
-        all_results: List[Dict[str, Any]] = []
+        all_results: list[dict[str, Any]] = []
         all_results.extend(self._extract_query_results(results_private))
         all_results.extend(self._extract_query_results(results_global))
 
         return all_results
 
-    def _extract_query_results(self, results: Dict) -> List[Dict[str, Any]]:
+    def _extract_query_results(self, results: dict) -> list[dict[str, Any]]:
         """从Chroma查询结果中提取数据"""
         extracted = []
-        ids = results.get('ids')
+        ids = results.get("ids")
         if ids is not None and len(ids) > 0 and ids[0] is not None and len(ids[0]) > 0:
             ids_list = ids[0]
-            documents = results.get('documents')
-            embeddings = results.get('embeddings')
-            metadatas = results.get('metadatas')
-            distances = results.get('distances')
-            
+            documents = results.get("documents")
+            embeddings = results.get("embeddings")
+            metadatas = results.get("metadatas")
+            distances = results.get("distances")
+
             for i in range(len(ids_list)):
-                item = {'id': ids_list[i]}
-                
-                if documents is not None and len(documents) > 0 and documents[0] is not None and len(documents[0]) > i:
-                    item['content'] = documents[0][i]
+                item = {"id": ids_list[i]}
+
+                if (
+                    documents is not None
+                    and len(documents) > 0
+                    and documents[0] is not None
+                    and len(documents[0]) > i
+                ):
+                    item["content"] = documents[0][i]
                 else:
-                    item['content'] = ''
-                
-                if embeddings is not None and len(embeddings) > 0 and embeddings[0] is not None and len(embeddings[0]) > i:
-                    item['embedding'] = embeddings[0][i]
+                    item["content"] = ""
+
+                if (
+                    embeddings is not None
+                    and len(embeddings) > 0
+                    and embeddings[0] is not None
+                    and len(embeddings[0]) > i
+                ):
+                    item["embedding"] = embeddings[0][i]
                 else:
-                    item['embedding'] = None
-                
-                if metadatas is not None and len(metadatas) > 0 and metadatas[0] is not None and len(metadatas[0]) > i:
-                    item['metadata'] = metadatas[0][i]
+                    item["embedding"] = None
+
+                if (
+                    metadatas is not None
+                    and len(metadatas) > 0
+                    and metadatas[0] is not None
+                    and len(metadatas[0]) > i
+                ):
+                    item["metadata"] = metadatas[0][i]
                 else:
-                    item['metadata'] = {}
-                
-                if distances is not None and len(distances) > 0 and distances[0] is not None and len(distances[0]) > i:
-                    item['distance'] = distances[0][i]
+                    item["metadata"] = {}
+
+                if (
+                    distances is not None
+                    and len(distances) > 0
+                    and distances[0] is not None
+                    and len(distances[0]) > i
+                ):
+                    item["distance"] = distances[0][i]
                 else:
-                    item['distance'] = None
-                
+                    item["distance"] = None
+
                 extracted.append(item)
         return extracted
 
     async def get_all_memories(
         self,
         user_id: str,
-        group_id: Optional[str] = None,
-        storage_layer: Optional[StorageLayer] = None,
-        persona_id: Optional[str] = None
-    ) -> List:
+        group_id: str | None = None,
+        storage_layer: StorageLayer | None = None,
+        persona_id: str | None = None,
+    ) -> list:
         """获取用户的所有记忆（支持多层级记忆 + 人格过滤）"""
         try:
             self._manager._ensure_ready()
             all_memories = []
 
             if group_id:
-                all_memories = await self._get_all_group_memories(user_id, group_id, storage_layer, persona_id)
+                all_memories = await self._get_all_group_memories(
+                    user_id, group_id, storage_layer, persona_id
+                )
             else:
-                all_memories = await self._get_all_private_memories(user_id, storage_layer, persona_id)
+                all_memories = await self._get_all_private_memories(
+                    user_id, storage_layer, persona_id
+                )
 
             seen_ids = set()
             unique_memories = []
@@ -301,9 +346,9 @@ class ChromaQueries:
         self,
         user_id: str,
         group_id: str,
-        storage_layer: Optional[StorageLayer],
-        persona_id: Optional[str] = None
-    ) -> List:
+        storage_layer: StorageLayer | None,
+        persona_id: str | None = None,
+    ) -> list:
         """获取群聊场景的所有记忆"""
         all_memories = []
 
@@ -315,11 +360,15 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_shared)
+            where=self._manager._build_where_clause(where_shared),
         )
         all_memories.extend(self._results_to_memories(results))
 
-        where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
+        where_private = {
+            "user_id": user_id,
+            "group_id": group_id,
+            "scope": MemoryScope.GROUP_PRIVATE.value,
+        }
         if storage_layer:
             where_private["storage_layer"] = storage_layer.value
         if persona_id:
@@ -327,7 +376,7 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_private)
+            where=self._manager._build_where_clause(where_private),
         )
         all_memories.extend(self._results_to_memories(results))
 
@@ -339,7 +388,7 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_global)
+            where=self._manager._build_where_clause(where_global),
         )
         all_memories.extend(self._results_to_memories(results))
 
@@ -348,13 +397,16 @@ class ChromaQueries:
     async def _get_all_private_memories(
         self,
         user_id: str,
-        storage_layer: Optional[StorageLayer],
-        persona_id: Optional[str] = None
-    ) -> List:
+        storage_layer: StorageLayer | None,
+        persona_id: str | None = None,
+    ) -> list:
         """获取私聊场景的所有记忆"""
         all_memories = []
 
-        where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
+        where_user_private = {
+            "user_id": user_id,
+            "scope": MemoryScope.USER_PRIVATE.value,
+        }
         if storage_layer:
             where_user_private["storage_layer"] = storage_layer.value
         if persona_id:
@@ -362,7 +414,7 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_user_private)
+            where=self._manager._build_where_clause(where_user_private),
         )
         all_memories.extend(self._results_to_memories(results))
 
@@ -374,16 +426,16 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_global)
+            where=self._manager._build_where_clause(where_global),
         )
         all_memories.extend(self._results_to_memories(results))
 
         return all_memories
 
-    def _results_to_memories(self, results: Dict) -> List:
+    def _results_to_memories(self, results: dict) -> list:
         """将Chroma get结果转换为Memory对象列表"""
         memories = []
-        ids = results.get('ids')
+        ids = results.get("ids")
         if ids is not None and len(ids) > 0:
             for i in range(len(ids)):
                 memory_data = self._manager._extract_memory_data(results, i)
@@ -394,9 +446,9 @@ class ChromaQueries:
     async def count_memories(
         self,
         user_id: str,
-        group_id: Optional[str] = None,
-        storage_layer: Optional[StorageLayer] = None,
-        persona_id: Optional[str] = None
+        group_id: str | None = None,
+        storage_layer: StorageLayer | None = None,
+        persona_id: str | None = None,
     ) -> int:
         """统计记忆数量（支持多层级记忆 + 人格过滤）"""
         try:
@@ -404,9 +456,13 @@ class ChromaQueries:
             all_ids = set()
 
             if group_id:
-                all_ids = await self._count_group_memories(user_id, group_id, storage_layer, persona_id)
+                all_ids = await self._count_group_memories(
+                    user_id, group_id, storage_layer, persona_id
+                )
             else:
-                all_ids = await self._count_private_memories(user_id, storage_layer, persona_id)
+                all_ids = await self._count_private_memories(
+                    user_id, storage_layer, persona_id
+                )
 
             return len(all_ids)
 
@@ -418,8 +474,8 @@ class ChromaQueries:
         self,
         user_id: str,
         group_id: str,
-        storage_layer: Optional[StorageLayer],
-        persona_id: Optional[str] = None
+        storage_layer: StorageLayer | None,
+        persona_id: str | None = None,
     ) -> set:
         """统计群聊场景的记忆数量"""
         all_ids = set()
@@ -432,13 +488,17 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_shared)
+            where=self._manager._build_where_clause(where_shared),
         )
-        ids = results.get('ids')
+        ids = results.get("ids")
         if ids is not None and len(ids) > 0:
             all_ids.update(ids)
 
-        where_private = {"user_id": user_id, "group_id": group_id, "scope": MemoryScope.GROUP_PRIVATE.value}
+        where_private = {
+            "user_id": user_id,
+            "group_id": group_id,
+            "scope": MemoryScope.GROUP_PRIVATE.value,
+        }
         if storage_layer:
             where_private["storage_layer"] = storage_layer.value
         if persona_id:
@@ -446,9 +506,9 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_private)
+            where=self._manager._build_where_clause(where_private),
         )
-        ids = results.get('ids')
+        ids = results.get("ids")
         if ids is not None and len(ids) > 0:
             all_ids.update(ids)
 
@@ -460,9 +520,9 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_global)
+            where=self._manager._build_where_clause(where_global),
         )
-        ids = results.get('ids')
+        ids = results.get("ids")
         if ids is not None and len(ids) > 0:
             all_ids.update(ids)
 
@@ -471,13 +531,16 @@ class ChromaQueries:
     async def _count_private_memories(
         self,
         user_id: str,
-        storage_layer: Optional[StorageLayer],
-        persona_id: Optional[str] = None
+        storage_layer: StorageLayer | None,
+        persona_id: str | None = None,
     ) -> set:
         """统计私聊场景的记忆数量"""
         all_ids = set()
 
-        where_user_private = {"user_id": user_id, "scope": MemoryScope.USER_PRIVATE.value}
+        where_user_private = {
+            "user_id": user_id,
+            "scope": MemoryScope.USER_PRIVATE.value,
+        }
         if storage_layer:
             where_user_private["storage_layer"] = storage_layer.value
         if persona_id:
@@ -485,9 +548,9 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_user_private)
+            where=self._manager._build_where_clause(where_user_private),
         )
-        ids = results.get('ids')
+        ids = results.get("ids")
         if ids is not None and len(ids) > 0:
             all_ids.update(ids)
 
@@ -499,19 +562,17 @@ class ChromaQueries:
 
         results = await asyncio.to_thread(
             self._manager.collection.get,
-            where=self._manager._build_where_clause(where_global)
+            where=self._manager._build_where_clause(where_global),
         )
-        ids = results.get('ids')
+        ids = results.get("ids")
         if ids is not None and len(ids) > 0:
             all_ids.update(ids)
 
         return all_ids
 
     async def get_memories_by_storage_layer(
-        self,
-        storage_layer: StorageLayer,
-        limit: int = 1000
-    ) -> List:
+        self, storage_layer: StorageLayer, limit: int = 1000
+    ) -> list:
         """获取指定存储层的所有记忆"""
         try:
             self._manager._ensure_ready()
@@ -520,11 +581,11 @@ class ChromaQueries:
             results = await asyncio.to_thread(
                 self._manager.collection.get,
                 where=self._manager._build_where_clause(where),
-                include=["embeddings", "documents", "metadatas"]
+                include=["embeddings", "documents", "metadatas"],
             )
 
             memories = []
-            ids = results.get('ids')
+            ids = results.get("ids")
             if ids is not None and len(ids) > 0:
                 for i in range(min(len(ids), limit)):
                     memory_data = self._manager._extract_memory_data(results, i)
@@ -540,7 +601,7 @@ class ChromaQueries:
             logger.error(f"Failed to get memories by storage layer: {e}")
             return []
 
-    async def get_active_user_ids(self) -> List[str]:
+    async def get_active_user_ids(self) -> list[str]:
         """获取所有有记忆记录的用户ID列表
 
         Returns:
@@ -549,16 +610,15 @@ class ChromaQueries:
         try:
             self._manager._ensure_ready()
             results = await asyncio.to_thread(
-                self._manager.collection.get,
-                include=["metadatas"]
+                self._manager.collection.get, include=["metadatas"]
             )
 
             user_ids = set()
-            metadatas = results.get('metadatas')
+            metadatas = results.get("metadatas")
             if metadatas is not None:
                 for metadata in metadatas:
                     if isinstance(metadata, dict):
-                        user_id = metadata.get('user_id')
+                        user_id = metadata.get("user_id")
                         if user_id:
                             user_ids.add(user_id)
 

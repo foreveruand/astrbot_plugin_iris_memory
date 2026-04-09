@@ -3,9 +3,10 @@
 
 RetrievalEngine 内部已经聚合了 Reranker 和 RetrievalRouter。
 """
+
 from __future__ import annotations
 
-from typing import Optional, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -19,10 +20,10 @@ class RetrievalModule:
     """检索模块"""
 
     def __init__(self) -> None:
-        self._retrieval_engine: Optional[MemoryRetrievalEngine] = None
+        self._retrieval_engine: MemoryRetrievalEngine | None = None
 
     @property
-    def retrieval_engine(self) -> Optional[MemoryRetrievalEngine]:
+    def retrieval_engine(self) -> MemoryRetrievalEngine | None:
         return self._retrieval_engine
 
     def initialize(
@@ -59,10 +60,16 @@ class RetrievalModule:
             self._retrieval_engine.set_config(
                 {
                     "max_context_memories": cfg.get("memory.max_context_memories", 10),
-                    "enable_time_aware": get_store().get("llm_integration.enable_time_aware"),
-                    "enable_emotion_aware": get_store().get("llm_integration.enable_emotion_aware"),
+                    "enable_time_aware": get_store().get(
+                        "llm_integration.enable_time_aware"
+                    ),
+                    "enable_emotion_aware": get_store().get(
+                        "llm_integration.enable_emotion_aware"
+                    ),
                     "enable_token_budget": cfg.get("basic.enable_inject", True),
                     "token_budget": cfg.get("llm_integration.token_budget", 512),
-                    "coordination_strategy": get_store().get("llm_integration.coordination_strategy"),
+                    "coordination_strategy": get_store().get(
+                        "llm_integration.coordination_strategy"
+                    ),
                 }
             )

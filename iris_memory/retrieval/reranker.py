@@ -3,12 +3,15 @@
 对检索结果进行重排序
 """
 
-from typing import List, Optional
-from datetime import datetime, timedelta
 
-from iris_memory.models.memory import Memory
-from iris_memory.core.types import StorageLayer, QualityLevel, EmotionType, MemoryType, RerankContext
 from iris_memory.core.constants import NEGATIVE_EMOTIONS_CORE
+from iris_memory.core.types import (
+    MemoryType,
+    QualityLevel,
+    RerankContext,
+    StorageLayer,
+)
+from iris_memory.models.memory import Memory
 
 
 class Reranker:
@@ -48,48 +51,45 @@ class Reranker:
             QualityLevel.HIGH_CONFIDENCE: 1.3,
             QualityLevel.MODERATE: 1.0,
             QualityLevel.LOW_CONFIDENCE: 0.7,
-            QualityLevel.UNCERTAIN: 0.4
+            QualityLevel.UNCERTAIN: 0.4,
         }
 
         # 配置
         self.enable_vector_score = enable_vector_score
-    
+
     def rerank(
         self,
-        memories: List[Memory],
-        query: Optional[str] = None,
-        context: Optional[RerankContext] = None
-    ) -> List[Memory]:
+        memories: list[Memory],
+        query: str | None = None,
+        context: RerankContext | None = None,
+    ) -> list[Memory]:
         """重排序记忆列表
-        
+
         Args:
             memories: 记忆列表
             query: 查询文本（可选）
             context: 上下文信息（可选）
-            
+
         Returns:
             List[Memory]: 重排序后的记忆列表
         """
         if not memories:
             return []
-        
+
         # 为每个记忆计算综合得分
         scored_memories = []
         for memory in memories:
             score = self._calculate_rerank_score(memory, query, context)
             scored_memories.append((memory, score))
-        
+
         # 按得分降序排序
         scored_memories.sort(key=lambda x: x[1], reverse=True)
-        
+
         # 返回排序后的记忆列表
         return [memory for memory, score in scored_memories]
-    
+
     def _calculate_rerank_score(
-        self,
-        memory: Memory,
-        query: Optional[str],
-        context: Optional[RerankContext]
+        self, memory: Memory, query: str | None, context: RerankContext | None
     ) -> float:
         """计算重排序得分
 
@@ -128,9 +128,9 @@ class Reranker:
 
         # 6. 向量相似度得分（如果有）
         vector_score = 0.0
-        if self.enable_vector_score and hasattr(memory, 'vector_similarity'):
+        if self.enable_vector_score and hasattr(memory, "vector_similarity"):
             vector_score = memory.vector_similarity
-        elif self.enable_vector_score and hasattr(memory, 'similarity'):
+        elif self.enable_vector_score and hasattr(memory, "similarity"):
             vector_score = memory.similarity
 
         # 7. 发送者匹配得分
@@ -142,13 +142,13 @@ class Reranker:
         # 综合得分（注意：RIF已包含时近性40%，time_score仅作微调补充）
         # 9维综合重排序（含图中心性维度）
         comprehensive_score = (
-            0.22 * quality_score +
-            0.22 * rif_score +
-            0.05 * time_score +
-            0.10 * sender_score +
-            0.04 * activity_score +
-            0.09 * access_score +
-            0.05 * emotion_score
+            0.22 * quality_score
+            + 0.22 * rif_score
+            + 0.05 * time_score
+            + 0.10 * sender_score
+            + 0.04 * activity_score
+            + 0.09 * access_score
+            + 0.05 * emotion_score
         )
 
         # 如果有向量相似度，加入计算
@@ -156,7 +156,7 @@ class Reranker:
             comprehensive_score += 0.15 * vector_score
 
         # 图中心性得分（第9维）
-        graph_score = getattr(memory, 'graph_centrality', 0.0)
+        graph_score = getattr(memory, "graph_centrality", 0.0)
         if graph_score <= 0:
             graph_score = 0.5  # 无图数据时取中间值
         comprehensive_score += 0.08 * graph_score
@@ -173,9 +173,7 @@ class Reranker:
         return comprehensive_score
 
     def _calculate_sender_score(
-        self,
-        memory: Memory,
-        context: Optional[RerankContext]
+        self, memory: Memory, context: RerankContext | None
     ) -> float:
         """计算发送者匹配得分
 
@@ -192,7 +190,7 @@ class Reranker:
         if not context:
             return 0.5
 
-        current_user_id = context.get('current_user_id')
+        current_user_id = context.get("current_user_id")
         if not current_user_id:
             return 0.5
 
@@ -202,9 +200,7 @@ class Reranker:
         return 0.3
 
     def _calculate_activity_score(
-        self,
-        memory: Memory,
-        context: Optional[dict]
+        self, memory: Memory, context: dict | None
     ) -> float:
         """计算记忆来源成员的活跃度得分
 
@@ -221,12 +217,12 @@ class Reranker:
         if not context:
             return 0.5
 
-        identity_service = context.get('member_identity_service')
+        identity_service = context.get("member_identity_service")
         if not identity_service:
             return 0.5
 
         return identity_service.get_activity_score(memory.user_id)
-    
+
     def _calculate_time_score(self, memory: Memory) -> float:
         """计算时间得分
 
@@ -239,11 +235,9 @@ class Reranker:
             float: 时间得分（0-1）
         """
         return memory.calculate_time_score(use_created_time=False)
-    
+
     def _calculate_emotion_score(
-        self,
-        memory: Memory,
-        context: Optional[RerankContext]
+        self, memory: Memory, context: RerankContext | None
     ) -> float:
         """计算情感一致性得分
 
@@ -258,17 +252,17 @@ class Reranker:
         Returns:
             float: 情感一致性得分（0-1）
         """
-        if not context or 'emotional_state' not in context:
+        if not context or "emotional_state" not in context:
             return 0.5  # 默认中等得分
 
-        emotional_state = context['emotional_state']
+        emotional_state = context["emotional_state"]
 
         # 如果记忆不是情感类型，返回中等得分
         if memory.type != MemoryType.EMOTION:
             return 0.5
 
         # 获取当前情感和记忆情感
-        if not hasattr(emotional_state, 'current'):
+        if not hasattr(emotional_state, "current"):
             return 0.5
 
         current_emotion = emotional_state.current.primary
@@ -277,11 +271,21 @@ class Reranker:
         # 特殊规则：如果当前情感是负面，避免高强度正面记忆
         if current_emotion in NEGATIVE_EMOTIONS_CORE:
             if memory.emotional_weight > 0.8:
-                if memory_emotion in ["joy", "excitement", "calm", "contentment", "amusement"]:
+                if memory_emotion in [
+                    "joy",
+                    "excitement",
+                    "calm",
+                    "contentment",
+                    "amusement",
+                ]:
                     return 0.0  # 负面情感时，高强度正面记忆相关性为0
 
         # 三级评分系统
-        current_emotion_str = current_emotion.value if hasattr(current_emotion, 'value') else str(current_emotion)
+        current_emotion_str = (
+            current_emotion.value
+            if hasattr(current_emotion, "value")
+            else str(current_emotion)
+        )
 
         if current_emotion_str == memory_emotion:
             return 1.0  # 完全一致
@@ -289,14 +293,14 @@ class Reranker:
             return 0.7  # 相似情感
         else:
             return 0.3  # 不一致的情感
-    
+
     def _is_similar_emotion(self, emotion1: str, emotion2: str) -> bool:
         """判断两个情感是否相似
-        
+
         Args:
             emotion1: 情感1
             emotion2: 情感2
-            
+
         Returns:
             bool: 是否相似
         """
@@ -306,54 +310,47 @@ class Reranker:
             {"sadness", "fear", "anxiety"},  # 负面低能量情感
             {"anger", "disgust"},  # 负面高能量情感
         ]
-        
+
         for group in similar_groups:
             if emotion1 in group and emotion2 in group:
                 return True
-        
+
         return False
-    
+
     def filter_by_quality(
-        self,
-        memories: List[Memory],
-        min_quality: QualityLevel = QualityLevel.MODERATE
-    ) -> List[Memory]:
+        self, memories: list[Memory], min_quality: QualityLevel = QualityLevel.MODERATE
+    ) -> list[Memory]:
         """按质量等级过滤
-        
+
         Args:
             memories: 记忆列表
             min_quality: 最小质量等级
-            
+
         Returns:
             List[Memory]: 过滤后的记忆列表
         """
-        return [
-            m for m in memories
-            if m.quality_level.value >= min_quality.value
-        ]
-    
+        return [m for m in memories if m.quality_level.value >= min_quality.value]
+
     def filter_by_storage_layer(
-        self,
-        memories: List[Memory],
-        storage_layer: StorageLayer
-    ) -> List[Memory]:
+        self, memories: list[Memory], storage_layer: StorageLayer
+    ) -> list[Memory]:
         """按存储层过滤
-        
+
         Args:
             memories: 记忆列表
             storage_layer: 存储层
-            
+
         Returns:
             List[Memory]: 过滤后的记忆列表
         """
         return [m for m in memories if m.storage_layer == storage_layer]
-    
-    def group_by_type(self, memories: List[Memory]) -> dict:
+
+    def group_by_type(self, memories: list[Memory]) -> dict:
         """按类型分组
-        
+
         Args:
             memories: 记忆列表
-            
+
         Returns:
             dict: 分组后的记忆字典
             {
@@ -368,35 +365,40 @@ class Reranker:
             if memory_type not in grouped:
                 grouped[memory_type] = []
             grouped[memory_type].append(memory)
-        
+
         return grouped
-    
-    def deduplicate(self, memories: List[Memory], similarity_threshold: float = 0.9) -> List[Memory]:
+
+    def deduplicate(
+        self, memories: list[Memory], similarity_threshold: float = 0.9
+    ) -> list[Memory]:
         """去重
-        
+
         Args:
             memories: 记忆列表
             similarity_threshold: 相似度阈值
-            
+
         Returns:
             List[Memory]: 去重后的记忆列表
         """
         seen = []
         unique = []
-        
+
         for memory in memories:
             is_duplicate = False
             for seen_memory in seen:
-                if self._calculate_similarity(memory.content, seen_memory.content) > similarity_threshold:
+                if (
+                    self._calculate_similarity(memory.content, seen_memory.content)
+                    > similarity_threshold
+                ):
                     is_duplicate = True
                     break
-            
+
             if not is_duplicate:
                 seen.append(memory)
                 unique.append(memory)
-        
+
         return unique
-    
+
     def _calculate_similarity(self, text1: str, text2: str) -> float:
         """计算文本相似度（字符级 bigram Jaccard）
 
@@ -405,23 +407,24 @@ class Reranker:
         Args:
             text1: 文本1
             text2: 文本2
-            
+
         Returns:
             float: 相似度（0-1）
         """
+
         def _char_bigrams(text: str) -> set:
             t = text.lower()
             if len(t) < 2:
                 return {t} if t else set()
-            return {t[i:i+2] for i in range(len(t) - 1)}
+            return {t[i : i + 2] for i in range(len(t) - 1)}
 
         set1 = _char_bigrams(text1)
         set2 = _char_bigrams(text2)
-        
+
         intersection = len(set1 & set2)
         union = len(set1 | set2)
-        
+
         if union == 0:
             return 0.0
-        
+
         return intersection / union

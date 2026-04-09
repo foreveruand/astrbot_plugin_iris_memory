@@ -3,20 +3,20 @@
 支持 AstrBot API、本地模型、降级策略无缝切换
 """
 
-from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
 from .astrbot_provider import AstrBotProvider
-from .local_provider import LocalProvider
+from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
 from .fallback_provider import FallbackProvider
+from .local_provider import LocalProvider
 from .manager import EmbeddingManager, EmbeddingSource, EmbeddingStrategy
 
 __all__ = [
-    'EmbeddingProvider',
-    'EmbeddingRequest',
-    'EmbeddingResponse',
-    'AstrBotProvider',
-    'LocalProvider',
-    'FallbackProvider',
-    'EmbeddingManager',
-    'EmbeddingSource',
-    'EmbeddingStrategy',
+    "EmbeddingProvider",
+    "EmbeddingRequest",
+    "EmbeddingResponse",
+    "AstrBotProvider",
+    "LocalProvider",
+    "FallbackProvider",
+    "EmbeddingManager",
+    "EmbeddingSource",
+    "EmbeddingStrategy",
 ]

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -37,7 +37,7 @@ class ChromaInitializer:
     通过引用 ChromaManager 实例来读写其属性。
     """
 
-    def __init__(self, mgr: "ChromaManager") -> None:
+    def __init__(self, mgr: ChromaManager) -> None:
         self._mgr = mgr
 
     async def initialize(self) -> None:
@@ -66,7 +66,9 @@ class ChromaInitializer:
 
         existing_collection = self._get_or_check_collection()
         detected_dimension = await self._detect_and_init_embedding(existing_collection)
-        backup_data = self._handle_dimension_conflict(existing_collection, detected_dimension)
+        backup_data = self._handle_dimension_conflict(
+            existing_collection, detected_dimension
+        )
         self._create_or_use_collection(existing_collection)
 
         if backup_data and mgr.reimport_on_dimension_conflict:
@@ -78,8 +80,8 @@ class ChromaInitializer:
                 f"您可以在备份集合中找到这些记忆。"
             )
 
-        from iris_memory.storage.chroma_queries import ChromaQueries
         from iris_memory.storage.chroma_operations import ChromaOperations
+        from iris_memory.storage.chroma_queries import ChromaQueries
 
         mgr._queries = ChromaQueries(mgr)
         mgr._operations = ChromaOperations(mgr)
@@ -117,13 +119,17 @@ class ChromaInitializer:
                 raise
         return existing_collection
 
-    async def _detect_and_init_embedding(self, existing_collection: Any) -> Optional[int]:
+    async def _detect_and_init_embedding(
+        self, existing_collection: Any
+    ) -> int | None:
         """检测并初始化嵌入"""
         mgr = self._mgr
-        detected_dimension: Optional[int] = None
+        detected_dimension: int | None = None
 
         if mgr.auto_detect_dimension and existing_collection:
-            logger.debug("Auto-detecting embedding dimension from existing collection...")
+            logger.debug(
+                "Auto-detecting embedding dimension from existing collection..."
+            )
             detected_dimension = await mgr.embedding_manager.detect_existing_dimension(
                 existing_collection
             )
@@ -150,22 +156,24 @@ class ChromaInitializer:
 
     # ── 维度冲突 ──
 
-    def _get_dimension_from_metadata(self, collection: Any) -> Optional[int]:
+    def _get_dimension_from_metadata(self, collection: Any) -> int | None:
         """从集合元数据中获取嵌入维度"""
         try:
             metadata = collection.metadata
             if metadata and "embedding_dimension" in metadata:
                 dimension = metadata["embedding_dimension"]
                 if isinstance(dimension, int):
-                    logger.debug(f"Got embedding dimension from collection metadata: {dimension}")
+                    logger.debug(
+                        f"Got embedding dimension from collection metadata: {dimension}"
+                    )
                     return dimension
         except Exception as e:
             logger.debug(f"Failed to get dimension from collection metadata: {e}")
         return None
 
     def _handle_dimension_conflict(
-        self, existing_collection: Any, detected_dimension: Optional[int]
-    ) -> Optional[Dict[str, Any]]:
+        self, existing_collection: Any, detected_dimension: int | None
+    ) -> dict[str, Any] | None:
         """处理维度冲突"""
         mgr = self._mgr
 
@@ -174,10 +182,14 @@ class ChromaInitializer:
 
         collection_dimension = detected_dimension
         if collection_dimension is None:
-            collection_dimension = self._get_dimension_from_metadata(existing_collection)
+            collection_dimension = self._get_dimension_from_metadata(
+                existing_collection
+            )
 
         if collection_dimension is None:
-            logger.debug("Could not determine existing collection dimension, skipping conflict check")
+            logger.debug(
+                "Could not determine existing collection dimension, skipping conflict check"
+            )
             return None
 
         actual_dimension = mgr.embedding_manager.get_dimension()
@@ -208,8 +220,8 @@ class ChromaInitializer:
                     )
                     return None
                 logger.warning(
-                    f"In-memory backup failed but file-level backup succeeded. "
-                    f"Proceeding with collection deletion."
+                    "In-memory backup failed but file-level backup succeeded. "
+                    "Proceeding with collection deletion."
                 )
 
         mgr.client.delete_collection(name=mgr.collection_name)
@@ -224,14 +236,16 @@ class ChromaInitializer:
 
     def _backup_collection_data(
         self, existing_collection: Any, old_count: int
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """备份集合数据供后续重新导入"""
         try:
             all_data = existing_collection.get(include=["documents", "metadatas"])
             if not all_data or not all_data.get("ids"):
                 logger.debug("No data in old collection to backup.")
                 return None
-            logger.info(f"Backed up {old_count} memories for re-import with new embeddings.")
+            logger.info(
+                f"Backed up {old_count} memories for re-import with new embeddings."
+            )
             return {
                 "ids": all_data.get("ids", []),
                 "documents": all_data.get("documents", []),
@@ -249,7 +263,7 @@ class ChromaInitializer:
         backup_name = f"{mgr.collection_name}_backup_{int(time.time())}"
         chroma_backup_ok = False
         json_backup_ok = False
-        all_data: Optional[Dict[str, Any]] = None
+        all_data: dict[str, Any] | None = None
 
         try:
             all_data = existing_collection.get(
@@ -267,7 +281,7 @@ class ChromaInitializer:
 
             for i in range(0, len(ids), batch_size):
                 end = min(i + batch_size, len(ids))
-                batch_kwargs: Dict[str, Any] = {"ids": ids[i:end]}
+                batch_kwargs: dict[str, Any] = {"ids": ids[i:end]}
                 if all_data.get("documents"):
                     batch_kwargs["documents"] = all_data["documents"][i:end]
                 if all_data.get("metadatas"):
@@ -321,11 +335,9 @@ class ChromaInitializer:
     def _create_or_use_collection(self, existing_collection: Any) -> None:
         """创建或使用现有集合"""
         mgr = self._mgr
-        if (
-            existing_collection
-            and mgr.collection_name
-            in [c.name for c in mgr.client.list_collections()]
-        ):
+        if existing_collection and mgr.collection_name in [
+            c.name for c in mgr.client.list_collections()
+        ]:
             mgr.collection = mgr.client.get_collection(name=mgr.collection_name)
             logger.debug(f"Using existing collection: {mgr.collection_name}")
         else:
@@ -342,7 +354,7 @@ class ChromaInitializer:
 
     # ── 重新导入 ──
 
-    async def _reimport_memories(self, backup_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _reimport_memories(self, backup_data: dict[str, Any]) -> dict[str, Any]:
         """使用新的嵌入模型重新导入备份的记忆数据"""
         mgr = self._mgr
         ids = backup_data.get("ids", [])
@@ -351,15 +363,20 @@ class ChromaInitializer:
 
         if not ids:
             logger.warning("No memories to re-import.")
-            return {"success_count": 0, "failed_count": 0, "failed_ids": [], "failed_details": []}
+            return {
+                "success_count": 0,
+                "failed_count": 0,
+                "failed_ids": [],
+                "failed_details": [],
+            }
 
         total = len(ids)
         logger.info(f"Starting to re-import {total} memories with new embeddings...")
 
         success_count = 0
         failed_count = 0
-        failed_ids: List[str] = []
-        failed_details: List[Dict[str, Any]] = []
+        failed_ids: list[str] = []
+        failed_details: list[dict[str, Any]] = []
         batch_size = 50
 
         for i in range(0, total, batch_size):
@@ -367,10 +384,10 @@ class ChromaInitializer:
             batch_docs = documents[i : i + batch_size] if documents else []
             batch_metas = metadatas[i : i + batch_size] if metadatas else []
 
-            batch_embeddings: List[Any] = []
-            batch_valid_ids: List[str] = []
-            batch_valid_docs: List[str] = []
-            batch_valid_metas: List[Dict[str, Any]] = []
+            batch_embeddings: list[Any] = []
+            batch_valid_ids: list[str] = []
+            batch_valid_docs: list[str] = []
+            batch_valid_metas: list[dict[str, Any]] = []
 
             for j, doc in enumerate(batch_docs):
                 mem_id = batch_ids[j]
@@ -395,14 +412,25 @@ class ChromaInitializer:
                         failed_count += 1
                         failed_ids.append(mem_id)
                         failed_details.append(
-                            {"id": mem_id, "reason": "embedding_generation_failed", "stage": "embedding"}
+                            {
+                                "id": mem_id,
+                                "reason": "embedding_generation_failed",
+                                "stage": "embedding",
+                            }
                         )
-                        logger.warning(f"Failed to generate embedding for memory {mem_id}")
+                        logger.warning(
+                            f"Failed to generate embedding for memory {mem_id}"
+                        )
                 except Exception as e:
                     failed_count += 1
                     failed_ids.append(mem_id)
                     failed_details.append(
-                        {"id": mem_id, "reason": str(e), "stage": "embedding", "error_type": type(e).__name__}
+                        {
+                            "id": mem_id,
+                            "reason": str(e),
+                            "stage": "embedding",
+                            "error_type": type(e).__name__,
+                        }
                     )
                     logger.error(f"Error generating embedding for memory {mem_id}: {e}")
 
@@ -420,7 +448,12 @@ class ChromaInitializer:
                     failed_ids.extend(batch_valid_ids)
                     for mid in batch_valid_ids:
                         failed_details.append(
-                            {"id": mid, "reason": str(e), "stage": "import", "error_type": type(e).__name__}
+                            {
+                                "id": mid,
+                                "reason": str(e),
+                                "stage": "import",
+                                "error_type": type(e).__name__,
+                            }
                         )
                     logger.error(f"Failed to import batch: {e}")
 

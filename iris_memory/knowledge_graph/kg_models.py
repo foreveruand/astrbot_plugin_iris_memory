@@ -10,23 +10,25 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class KGNodeType(str, Enum):
     """知识图谱节点类型"""
+
     PERSON = "person"
     LOCATION = "location"
     ORGANIZATION = "organization"
-    OBJECT = "object"            # 物品/事物
-    EVENT = "event"              # 事件
-    CONCEPT = "concept"          # 抽象概念（兴趣/技能/习惯等）
-    TIME = "time"                # 时间节点
+    OBJECT = "object"  # 物品/事物
+    EVENT = "event"  # 事件
+    CONCEPT = "concept"  # 抽象概念（兴趣/技能/习惯等）
+    TIME = "time"  # 时间节点
     UNKNOWN = "unknown"
 
 
 class KGRelationType(str, Enum):
     """知识图谱关系类型"""
+
     # 人际关系
     FRIEND_OF = "friend_of"
     COLLEAGUE_OF = "colleague_of"
@@ -45,10 +47,10 @@ class KGRelationType(str, Enum):
     # 行为/状态关系
     LIKES = "likes"
     DISLIKES = "dislikes"
-    DOES = "does"                # 做某事（习惯/行为）
-    IS = "is"                    # 是（属性描述）
-    HAS = "has"                  # 拥有（属性/物品）
-    WANTS = "wants"              # 想要
+    DOES = "does"  # 做某事（习惯/行为）
+    IS = "is"  # 是（属性描述）
+    HAS = "has"  # 拥有（属性/物品）
+    WANTS = "wants"  # 想要
 
     # 事件关系
     PARTICIPATED_IN = "participated_in"
@@ -62,23 +64,25 @@ class KGRelationType(str, Enum):
 @dataclass
 class KGNode:
     """知识图谱节点"""
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    name: str = ""                           # 规范化名称
-    display_name: str = ""                   # 显示名称（原始文本）
+    name: str = ""  # 规范化名称
+    display_name: str = ""  # 显示名称（原始文本）
     node_type: KGNodeType = KGNodeType.UNKNOWN
-    user_id: str = ""                        # 来源用户
-    group_id: Optional[str] = None           # 来源群组
-    persona_id: str = "default"              # 关联的Bot人格ID，默认"default"
-    aliases: List[str] = field(default_factory=list)  # 别名列表
-    properties: Dict[str, Any] = field(default_factory=dict)
-    mention_count: int = 1                   # 提及次数
+    user_id: str = ""  # 来源用户
+    group_id: str | None = None  # 来源群组
+    persona_id: str = "default"  # 关联的Bot人格ID，默认"default"
+    aliases: list[str] = field(default_factory=list)  # 别名列表
+    properties: dict[str, Any] = field(default_factory=dict)
+    mention_count: int = 1  # 提及次数
     confidence: float = 0.5
     created_time: datetime = field(default_factory=datetime.now)
     updated_time: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """序列化为字典"""
         import json
+
         return {
             "id": self.id,
             "name": self.name,
@@ -96,9 +100,10 @@ class KGNode:
         }
 
     @classmethod
-    def from_row(cls, row: Dict[str, Any]) -> "KGNode":
+    def from_row(cls, row: dict[str, Any]) -> KGNode:
         """从数据库行恢复"""
         import json
+
         return cls(
             id=row["id"],
             name=row["name"],
@@ -111,35 +116,41 @@ class KGNode:
             properties=json.loads(row.get("properties", "{}")),
             mention_count=row.get("mention_count", 1),
             confidence=row.get("confidence", 0.5),
-            created_time=datetime.fromisoformat(row["created_time"]) if isinstance(row.get("created_time"), str) else row.get("created_time", datetime.now()),
-            updated_time=datetime.fromisoformat(row["updated_time"]) if isinstance(row.get("updated_time"), str) else row.get("updated_time", datetime.now()),
+            created_time=datetime.fromisoformat(row["created_time"])
+            if isinstance(row.get("created_time"), str)
+            else row.get("created_time", datetime.now()),
+            updated_time=datetime.fromisoformat(row["updated_time"])
+            if isinstance(row.get("updated_time"), str)
+            else row.get("updated_time", datetime.now()),
         )
 
 
 @dataclass
 class KGEdge:
     """知识图谱边（关系）
-    
+
     边的 persona_id 归属规则：与源节点一致
     """
+
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    source_id: str = ""                      # 源节点 ID
-    target_id: str = ""                      # 目标节点 ID
+    source_id: str = ""  # 源节点 ID
+    target_id: str = ""  # 目标节点 ID
     relation_type: KGRelationType = KGRelationType.RELATED_TO
-    relation_label: str = ""                 # 自由文本关系标签（补充 relation_type）
-    memory_id: Optional[str] = None          # 来源记忆 ID
+    relation_label: str = ""  # 自由文本关系标签（补充 relation_type）
+    memory_id: str | None = None  # 来源记忆 ID
     user_id: str = ""
-    group_id: Optional[str] = None
-    persona_id: str = "default"              # 关联的Bot人格ID，与源节点一致
+    group_id: str | None = None
+    persona_id: str = "default"  # 关联的Bot人格ID，与源节点一致
     confidence: float = 0.5
-    weight: float = 1.0                      # 边权重（频率/重要性）
-    properties: Dict[str, Any] = field(default_factory=dict)
+    weight: float = 1.0  # 边权重（频率/重要性）
+    properties: dict[str, Any] = field(default_factory=dict)
     created_time: datetime = field(default_factory=datetime.now)
     updated_time: datetime = field(default_factory=datetime.now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """序列化为字典"""
         import json
+
         return {
             "id": self.id,
             "source_id": self.source_id,
@@ -158,9 +169,10 @@ class KGEdge:
         }
 
     @classmethod
-    def from_row(cls, row: Dict[str, Any]) -> "KGEdge":
+    def from_row(cls, row: dict[str, Any]) -> KGEdge:
         """从数据库行恢复"""
         import json
+
         return cls(
             id=row["id"],
             source_id=row["source_id"],
@@ -174,8 +186,12 @@ class KGEdge:
             confidence=row.get("confidence", 0.5),
             weight=row.get("weight", 1.0),
             properties=json.loads(row.get("properties", "{}")),
-            created_time=datetime.fromisoformat(row["created_time"]) if isinstance(row.get("created_time"), str) else row.get("created_time", datetime.now()),
-            updated_time=datetime.fromisoformat(row["updated_time"]) if isinstance(row.get("updated_time"), str) else row.get("updated_time", datetime.now()),
+            created_time=datetime.fromisoformat(row["created_time"])
+            if isinstance(row.get("created_time"), str)
+            else row.get("created_time", datetime.now()),
+            updated_time=datetime.fromisoformat(row["updated_time"])
+            if isinstance(row.get("updated_time"), str)
+            else row.get("updated_time", datetime.now()),
         )
 
 
@@ -185,14 +201,15 @@ class KGTriple:
 
     用于从文本中提取的原始关系（尚未映射到图节点/边）
     """
-    subject: str = ""                        # 主语文本
-    predicate: str = ""                      # 谓语/关系文本
-    object: str = ""                         # 宾语文本
+
+    subject: str = ""  # 主语文本
+    predicate: str = ""  # 谓语/关系文本
+    object: str = ""  # 宾语文本
     subject_type: KGNodeType = KGNodeType.UNKNOWN
     object_type: KGNodeType = KGNodeType.UNKNOWN
     relation_type: KGRelationType = KGRelationType.RELATED_TO
     confidence: float = 0.5
-    source_text: str = ""                    # 原始文本
+    source_text: str = ""  # 原始文本
 
     def __repr__(self) -> str:
         return f"({self.subject} --[{self.predicate}]--> {self.object})"
@@ -201,8 +218,9 @@ class KGTriple:
 @dataclass
 class KGPath:
     """多跳推理路径"""
-    nodes: List[KGNode] = field(default_factory=list)
-    edges: List[KGEdge] = field(default_factory=list)
+
+    nodes: list[KGNode] = field(default_factory=list)
+    edges: list[KGEdge] = field(default_factory=list)
     total_confidence: float = 0.0
     hop_count: int = 0
 

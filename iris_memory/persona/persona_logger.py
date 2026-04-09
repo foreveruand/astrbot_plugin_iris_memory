@@ -12,7 +12,7 @@
     persona_log.persist(user_id)
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -25,14 +25,10 @@ class PersonaLogger:
     # ------------------------------------------------------------------
     # 更新 lifecycle
     # ------------------------------------------------------------------
-    def update_start(self, user_id: str, memory_id: Optional[str] = None) -> None:
-        _logger.debug(
-            f"PERSONA.UPDATE.START user={user_id} mem={memory_id}"
-        )
+    def update_start(self, user_id: str, memory_id: str | None = None) -> None:
+        _logger.debug(f"PERSONA.UPDATE.START user={user_id} mem={memory_id}")
 
-    def update_applied(
-        self, user_id: str, changes: List[Dict[str, Any]]
-    ) -> None:
+    def update_applied(self, user_id: str, changes: list[dict[str, Any]]) -> None:
         if not changes:
             _logger.debug(f"PERSONA.UPDATE.NOOP user={user_id} (no changes)")
             return
@@ -47,14 +43,10 @@ class PersonaLogger:
             )
 
     def update_skipped(self, user_id: str, reason: str) -> None:
-        _logger.debug(
-            f"PERSONA.UPDATE.SKIP user={user_id} reason={reason}"
-        )
+        _logger.debug(f"PERSONA.UPDATE.SKIP user={user_id} reason={reason}")
 
     def update_error(self, user_id: str, error: Exception) -> None:
-        _logger.warning(
-            f"PERSONA.UPDATE.ERROR user={user_id} error={error}"
-        )
+        _logger.warning(f"PERSONA.UPDATE.ERROR user={user_id} error={error}")
 
     # ------------------------------------------------------------------
     # 持久化 lifecycle
@@ -63,14 +55,10 @@ class PersonaLogger:
         _logger.debug(f"PERSONA.PERSIST.START user={user_id}")
 
     def persist_ok(self, user_id: str, update_count: int) -> None:
-        _logger.debug(
-            f"PERSONA.PERSIST.OK user={user_id} updates={update_count}"
-        )
+        _logger.debug(f"PERSONA.PERSIST.OK user={user_id} updates={update_count}")
 
     def persist_error(self, user_id: str, error: Exception) -> None:
-        _logger.warning(
-            f"PERSONA.PERSIST.ERROR user={user_id} error={error}"
-        )
+        _logger.warning(f"PERSONA.PERSIST.ERROR user={user_id} error={error}")
 
     # ------------------------------------------------------------------
     # 恢复 lifecycle
@@ -85,32 +73,28 @@ class PersonaLogger:
     def restore_summary(self, total: int, success: int, failed: int) -> None:
         """批量恢复完成的汇总日志"""
         if failed:
-            _logger.info(f"PERSONA.RESTORE.DONE total={total} ok={success} fail={failed}")
+            _logger.info(
+                f"PERSONA.RESTORE.DONE total={total} ok={success} fail={failed}"
+            )
         else:
             _logger.debug(f"PERSONA.RESTORE.DONE total={total} ok={success}")
 
     def restore_error(self, user_id: str, error: Exception) -> None:
-        _logger.warning(
-            f"PERSONA.RESTORE.ERROR user={user_id} error={error}"
-        )
+        _logger.warning(f"PERSONA.RESTORE.ERROR user={user_id} error={error}")
 
     # ------------------------------------------------------------------
     # 注入 lifecycle
     # ------------------------------------------------------------------
-    def inject_view(self, user_id: str, view: Dict[str, Any]) -> None:
-        _logger.debug(
-            f"PERSONA.INJECT user={user_id} keys={list(view.keys())}"
-        )
+    def inject_view(self, user_id: str, view: dict[str, Any]) -> None:
+        _logger.debug(f"PERSONA.INJECT user={user_id} keys={list(view.keys())}")
 
     def inject_skip(self, user_id: str, reason: str) -> None:
-        _logger.debug(
-            f"PERSONA.INJECT.SKIP user={user_id} reason={reason}"
-        )
+        _logger.debug(f"PERSONA.INJECT.SKIP user={user_id} reason={reason}")
 
     # ------------------------------------------------------------------
     # 画像快照（数据级）
     # ------------------------------------------------------------------
-    def snapshot(self, user_id: str, persona_dict: Dict[str, Any]) -> None:
+    def snapshot(self, user_id: str, persona_dict: dict[str, Any]) -> None:
         """输出一次画像完整快照（仅在 DEBUG 级别）"""
         _logger.debug(
             f"PERSONA.SNAPSHOT user={user_id} "
@@ -125,6 +109,7 @@ class PersonaLogger:
 # ------------------------------------------------------------------
 # 内部工具
 # ------------------------------------------------------------------
+
 
 def _trunc(value: Any, max_len: int = 60) -> str:
     s = str(value)

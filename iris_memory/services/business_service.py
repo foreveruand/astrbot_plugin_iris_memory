@@ -13,22 +13,25 @@
 
 import asyncio
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Tuple, TYPE_CHECKING
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
-from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import (
-    SessionScope, NumericDefaults, LogTemplates, UNLIMITED_BUDGET
+    UNLIMITED_BUDGET,
+    LogTemplates,
+    NumericDefaults,
+    SessionScope,
 )
 from iris_memory.services.context_builder import ContextBuilder
+from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
-    from iris_memory.services.modules.storage_module import StorageModule
     from iris_memory.services.modules.analysis_module import AnalysisModule
-    from iris_memory.services.modules.llm_enhanced_module import LLMEnhancedModule
     from iris_memory.services.modules.capture_module import CaptureModule
-    from iris_memory.services.modules.retrieval_module import RetrievalModule
     from iris_memory.services.modules.kg_module import KnowledgeGraphModule
+    from iris_memory.services.modules.llm_enhanced_module import LLMEnhancedModule
+    from iris_memory.services.modules.retrieval_module import RetrievalModule
+    from iris_memory.services.modules.storage_module import StorageModule
 
 
 @dataclass
@@ -44,6 +47,7 @@ class BusinessServiceDeps:
         kg: 知识图谱模块
         optional_services: 可选服务组（image_analyzer, member_identity, activity_tracker）
     """
+
     shared_state: "SharedState"
     cfg: Any
     storage: "StorageModule"
@@ -55,10 +59,12 @@ class BusinessServiceDeps:
     image_analyzer: Any = None
     member_identity: Any = None
     activity_tracker: Any = None
+
+
 from iris_memory.core.types import StorageLayer
-from iris_memory.utils.command_utils import MessageFilter
 from iris_memory.persona.persona_logger import persona_log
 from iris_memory.services.shared_state import SharedState
+from iris_memory.utils.command_utils import MessageFilter
 
 logger = get_logger("memory_service.business")
 
@@ -122,12 +128,12 @@ class BusinessService:
         self,
         message: str,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         is_user_requested: bool = False,
-        context: Optional[Dict[str, Any]] = None,
-        sender_name: Optional[str] = None,
-        persona_id: Optional[str] = None,
-    ) -> Optional[Any]:
+        context: dict[str, Any] | None = None,
+        sender_name: str | None = None,
+        persona_id: str | None = None,
+    ) -> Any | None:
         """捕获并存储记忆
 
         画像提取和知识图谱处理作为后台任务异步执行，
@@ -153,9 +159,7 @@ class BusinessService:
             await self._store_memory_by_layer(memory)
 
             # 画像提取 + KG 处理作为后台任务，不阻塞主流程
-            asyncio.create_task(
-                self._post_capture_background(memory, user_id)
-            )
+            asyncio.create_task(self._post_capture_background(memory, user_id))
 
             return memory
 
@@ -213,7 +217,11 @@ class BusinessService:
             content = getattr(memory, "content", "") or ""
             summary = getattr(memory, "summary", None)
             mem_type_raw = getattr(memory, "type", None)
-            mem_type = mem_type_raw.value if hasattr(mem_type_raw, "value") else str(mem_type_raw)
+            mem_type = (
+                mem_type_raw.value
+                if hasattr(mem_type_raw, "value")
+                else str(mem_type_raw)
+            )
             confidence = getattr(memory, "confidence", 0.5)
             group_id = getattr(memory, "group_id", None)
             sender_name = getattr(memory, "sender_name", None)
@@ -224,9 +232,11 @@ class BusinessService:
 
             if mem_type in ("emotion",):
                 emotional_state = self._state.get_or_create_emotional_state(user_id)
-                changes.extend(self._update_emotional_state_from_memory(
-                    emotional_state, memory, mem_id, confidence
-                ))
+                changes.extend(
+                    self._update_emotional_state_from_memory(
+                        emotional_state, memory, mem_id, confidence
+                    )
+                )
 
             persona_batch = self._analysis.persona_batch_processor
             if persona_batch and mem_type not in ("emotion",):
@@ -251,18 +261,19 @@ class BusinessService:
                         persona.hourly_distribution[created.hour] += 1.0
                     if changes:
                         persona_log.update_applied(
-                            user_id,
-                            [c.to_dict() for c in changes]
+                            user_id, [c.to_dict() for c in changes]
                         )
                     return
                 except Exception as e:
                     logger.warning(
-                        f"Persona batch enqueue failed, "
-                        f"falling back to immediate: {e}"
+                        f"Persona batch enqueue failed, falling back to immediate: {e}"
                     )
 
             persona_extractor = self._analysis.persona_extractor
-            if persona_extractor and self._cfg.get("persona.extraction_mode", "rule") != "rule":
+            if (
+                persona_extractor
+                and self._cfg.get("persona.extraction_mode", "rule") != "rule"
+            ):
                 result = await persona_extractor.extract(
                     content=content,
                     summary=summary,
@@ -285,10 +296,7 @@ class BusinessService:
                 persona.hourly_distribution[created.hour] += 1.0
 
             if changes:
-                persona_log.update_applied(
-                    user_id,
-                    [c.to_dict() for c in changes]
-                )
+                persona_log.update_applied(user_id, [c.to_dict() for c in changes])
                 logger.debug(
                     f"Persona updated for user={user_id}: "
                     f"{len(changes)} change(s) from memory={mem_id}"
@@ -304,9 +312,9 @@ class BusinessService:
         self,
         emotional_state: Any,
         memory: Any,
-        mem_id: Optional[str],
+        mem_id: str | None,
         confidence: float,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """从 Memory 更新 EmotionalState
 
         EmotionalState 是情感数据的唯一数据源。
@@ -324,7 +332,7 @@ class BusinessService:
         from iris_memory.core.types import EmotionType
         from iris_memory.models.persona_change import PersonaChangeRecord
 
-        changes: List[PersonaChangeRecord] = []
+        changes: list[PersonaChangeRecord] = []
         subtype = getattr(memory, "subtype", None)
         weight = getattr(memory, "emotional_weight", 0.0)
 
@@ -343,21 +351,23 @@ class BusinessService:
             confidence=confidence,
         )
 
-        changes.append(PersonaChangeRecord(
-            timestamp=datetime.now().isoformat(),
-            field_name="emotional_state",
-            old_value=None,
-            new_value={
-                "primary": subtype,
-                "intensity": weight,
-                "confidence": confidence,
-            },
-            source_memory_id=mem_id,
-            memory_type="emotion",
-            rule_id="emotional_state_update",
-            confidence=confidence,
-            evidence_type="confirmed",
-        ))
+        changes.append(
+            PersonaChangeRecord(
+                timestamp=datetime.now().isoformat(),
+                field_name="emotional_state",
+                old_value=None,
+                new_value={
+                    "primary": subtype,
+                    "intensity": weight,
+                    "confidence": confidence,
+                },
+                source_memory_id=mem_id,
+                memory_type="emotion",
+                rule_id="emotional_state_update",
+                confidence=confidence,
+                evidence_type="confirmed",
+            )
+        )
 
         return changes
 
@@ -367,10 +377,10 @@ class BusinessService:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         top_k: int = NumericDefaults.TOP_K_SEARCH,
-        persona_id: Optional[str] = None,
-    ) -> List[Any]:
+        persona_id: str | None = None,
+    ) -> list[Any]:
         """搜索记忆"""
         if not self._retrieval.retrieval_engine:
             return []
@@ -395,14 +405,16 @@ class BusinessService:
 
     # ── 记忆删除 ──
 
-    async def clear_memories(self, user_id: str, group_id: Optional[str]) -> bool:
+    async def clear_memories(self, user_id: str, group_id: str | None) -> bool:
         """清除用户记忆"""
         try:
             if self._storage.chroma_manager:
                 await self._storage.chroma_manager.delete_session(user_id, group_id)
 
             if self._storage.session_manager:
-                await self._storage.session_manager.clear_working_memory(user_id, group_id)
+                await self._storage.session_manager.clear_working_memory(
+                    user_id, group_id
+                )
 
             if self._kg and self._kg.enabled:
                 await self._kg.delete_user_data(user_id, group_id)
@@ -413,7 +425,7 @@ class BusinessService:
             logger.warning(f"Failed to clear memories: {e}")
             return False
 
-    async def delete_private_memories(self, user_id: str) -> Tuple[bool, int]:
+    async def delete_private_memories(self, user_id: str) -> tuple[bool, int]:
         """删除用户私聊记忆"""
         try:
             if not self._storage.chroma_manager:
@@ -437,11 +449,8 @@ class BusinessService:
             return False, 0
 
     async def delete_group_memories(
-        self,
-        group_id: str,
-        scope_filter: Optional[str],
-        user_id: Optional[str] = None
-    ) -> Tuple[bool, int]:
+        self, group_id: str, scope_filter: str | None, user_id: str | None = None
+    ) -> tuple[bool, int]:
         """删除群聊记忆"""
         try:
             if not self._storage.chroma_manager:
@@ -453,7 +462,9 @@ class BusinessService:
 
             if user_id and scope_filter != SessionScope.GROUP_SHARED:
                 if self._storage.session_manager:
-                    await self._storage.session_manager.clear_working_memory(user_id, group_id)
+                    await self._storage.session_manager.clear_working_memory(
+                        user_id, group_id
+                    )
 
             # 同步删除图谱关联数据
             if self._kg and self._kg.enabled:
@@ -469,7 +480,7 @@ class BusinessService:
             logger.warning(f"Failed to delete group memories: {e}")
             return False, 0
 
-    async def delete_all_memories(self) -> Tuple[bool, int]:
+    async def delete_all_memories(self) -> tuple[bool, int]:
         """删除所有记忆"""
         try:
             if not self._storage.chroma_manager:
@@ -479,6 +490,7 @@ class BusinessService:
 
             if self._storage.session_manager:
                 from iris_memory.storage.session_manager import SessionManager
+
                 self._storage._session_manager = SessionManager(
                     max_working_memory=self._cfg.get("memory.max_working_memory", 10),
                     max_sessions=self._cfg.get("session.max_sessions", 100),
@@ -498,35 +510,36 @@ class BusinessService:
     # ── 统计 ──
 
     async def get_memory_stats(
-        self,
-        user_id: str,
-        group_id: Optional[str]
-    ) -> Dict[str, Any]:
+        self, user_id: str, group_id: str | None
+    ) -> dict[str, Any]:
         """获取记忆统计"""
-        stats: Dict[str, Any] = {
+        stats: dict[str, Any] = {
             "working_count": 0,
             "episodic_count": 0,
             "image_analyzed": 0,
-            "cache_hits": 0
+            "cache_hits": 0,
         }
 
         try:
             if self._storage.session_manager:
-                working_memories = await self._storage.session_manager.get_working_memory(
-                    user_id, group_id
+                working_memories = (
+                    await self._storage.session_manager.get_working_memory(
+                        user_id, group_id
+                    )
                 )
                 stats["working_count"] = len(working_memories)
 
             if self._storage.chroma_manager:
-                stats["episodic_count"] = await self._storage.chroma_manager.count_memories(
-                    user_id=user_id,
-                    group_id=group_id
+                stats[
+                    "episodic_count"
+                ] = await self._storage.chroma_manager.count_memories(
+                    user_id=user_id, group_id=group_id
                 )
 
             if self._image_analyzer:
                 image_stats = self._image_analyzer.get_statistics()
-                stats["image_analyzed"] = image_stats.get('total_analyzed', 0)
-                stats["cache_hits"] = image_stats.get('cache_hits', 0)
+                stats["image_analyzed"] = image_stats.get("total_analyzed", 0)
+                stats["cache_hits"] = image_stats.get("cache_hits", 0)
 
             if self._kg and self._kg.enabled:
                 try:
@@ -548,11 +561,11 @@ class BusinessService:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         image_context: str = "",
-        sender_name: Optional[str] = None,
-        reply_context: Optional[str] = None,
-        persona_id: Optional[str] = None,
+        sender_name: str | None = None,
+        reply_context: str | None = None,
+        persona_id: str | None = None,
     ) -> str:
         """准备 LLM 上下文（委托给 ContextBuilder）"""
         return await self._context_builder.build(
@@ -569,20 +582,22 @@ class BusinessService:
 
     async def analyze_images(
         self,
-        message_chain: List[Any],
+        message_chain: list[Any],
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         context_text: str,
         umo: str,
-        session_id: str
-    ) -> Tuple[str, str]:
+        session_id: str,
+    ) -> tuple[str, str]:
         """分析图片"""
         if not self._image_analyzer:
             return "", ""
 
         try:
             daily_budget = self._cfg.get("image_analysis.daily_budget", 100)
-            effective_daily_budget = daily_budget if daily_budget > 0 else UNLIMITED_BUDGET
+            effective_daily_budget = (
+                daily_budget if daily_budget > 0 else UNLIMITED_BUDGET
+            )
 
             image_results = await self._image_analyzer.analyze_message_images(
                 message_chain=message_chain,
@@ -611,11 +626,11 @@ class BusinessService:
         self,
         message: str,
         user_id: str,
-        group_id: Optional[str],
-        context: Dict[str, Any],
+        group_id: str | None,
+        context: dict[str, Any],
         umo: str,
         image_description: str = "",
-        persona_id: Optional[str] = None,
+        persona_id: str | None = None,
     ) -> None:
         """处理消息批次"""
         batch_processor = self._capture.batch_processor
@@ -643,7 +658,11 @@ class BusinessService:
             if classification.layer.value == "immediate":
                 sender_name = context.get("sender_name")
                 await self._handle_immediate_memory(
-                    full_message, user_id, group_id, classification, sender_name,
+                    full_message,
+                    user_id,
+                    group_id,
+                    classification,
+                    sender_name,
                     persona_id=persona_id,
                 )
             else:
@@ -665,10 +684,10 @@ class BusinessService:
         self,
         message: str,
         user_id: str,
-        group_id: Optional[str],
+        group_id: str | None,
         classification: Any,
-        sender_name: Optional[str] = None,
-        persona_id: Optional[str] = None,
+        sender_name: str | None = None,
+        persona_id: str | None = None,
     ) -> None:
         """处理立即层级的记忆"""
         memory = await self.capture_and_store_memory(
@@ -677,28 +696,30 @@ class BusinessService:
             group_id=group_id,
             context={
                 "classification": classification.metadata,
-                "source": classification.source
+                "source": classification.source,
             },
             sender_name=sender_name,
             persona_id=persona_id,
         )
 
         if memory:
-            logger.debug(LogTemplates.IMMEDIATE_MEMORY_CAPTURED.format(memory_id=memory.id))
+            logger.debug(
+                LogTemplates.IMMEDIATE_MEMORY_CAPTURED.format(memory_id=memory.id)
+            )
 
     # ── 聊天记录 ──
 
     async def record_chat_message(
         self,
         sender_id: str,
-        sender_name: Optional[str],
+        sender_name: str | None,
         content: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         is_bot: bool = False,
-        session_user_id: Optional[str] = None,
-        reply_sender_name: Optional[str] = None,
-        reply_sender_id: Optional[str] = None,
-        reply_content: Optional[str] = None,
+        session_user_id: str | None = None,
+        reply_sender_name: str | None = None,
+        reply_sender_id: str | None = None,
+        reply_content: str | None = None,
     ) -> None:
         """记录一条聊天消息到缓冲区
 
@@ -733,12 +754,12 @@ class BusinessService:
 
     # ── 会话管理 ──
 
-    def update_session_activity(self, user_id: str, group_id: Optional[str]) -> None:
+    def update_session_activity(self, user_id: str, group_id: str | None) -> None:
         """更新会话活动"""
         if self._storage.session_manager:
             self._storage.session_manager.update_session_activity(user_id, group_id)
 
-    async def activate_session(self, user_id: str, group_id: Optional[str]) -> None:
+    async def activate_session(self, user_id: str, group_id: str | None) -> None:
         """激活会话"""
         if self._storage.lifecycle_manager:
             await self._storage.lifecycle_manager.activate_session(user_id, group_id)
@@ -756,7 +777,7 @@ class BusinessService:
     # ── 向后兼容代理（逻辑已移至 ContextBuilder） ──
 
     async def _build_chat_history_context(
-        self, user_id: str, group_id: Optional[str]
+        self, user_id: str, group_id: str | None
     ) -> str:
         """Backward-compat delegate → ContextBuilder._build_chat_history"""
         return await self._context_builder._build_chat_history(user_id, group_id)

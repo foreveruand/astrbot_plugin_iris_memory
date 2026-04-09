@@ -4,12 +4,11 @@
 高置信核心信息绕过逐级升级，直达 SEMANTIC 层。
 """
 
-import re
-from typing import ClassVar, List, Optional
+from typing import ClassVar
 
 from iris_memory.core.types import MemoryType, QualityLevel, StorageLayer
 from iris_memory.models.memory import Memory
-from iris_memory.models.protection import ProtectionFlag, ProtectionRules
+from iris_memory.models.protection import ProtectionFlag
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("fast_track")
@@ -25,15 +24,27 @@ class FastTrackEvaluator:
     4. 有 CORE_IDENTITY 保护标记 + confidence >= 0.85
     """
 
-    IDENTITY_KEYWORDS: ClassVar[List[str]] = [
-        "名字", "姓名", "叫", "姓", "生日", "出生", "年龄", "岁",
-        "性别", "身份证", "电话", "手机号",
+    IDENTITY_KEYWORDS: ClassVar[list[str]] = [
+        "名字",
+        "姓名",
+        "叫",
+        "姓",
+        "生日",
+        "出生",
+        "年龄",
+        "岁",
+        "性别",
+        "身份证",
+        "电话",
+        "手机号",
     ]
 
     def __init__(self, confidence_threshold: float = 0.9):
         self._confidence_threshold = confidence_threshold
 
-    def evaluate(self, memory: Memory, is_user_requested: bool) -> Optional[StorageLayer]:
+    def evaluate(
+        self, memory: Memory, is_user_requested: bool
+    ) -> StorageLayer | None:
         """快速通道评估
 
         Returns:
@@ -46,18 +57,24 @@ class FastTrackEvaluator:
             and self._contains_identity_keyword(memory.content)
         ):
             memory.add_protection(ProtectionFlag.CORE_IDENTITY)
-            logger.debug(f"Fast-track: core identity → SEMANTIC (memory {memory.id[:8]})")
+            logger.debug(
+                f"Fast-track: core identity → SEMANTIC (memory {memory.id[:8]})"
+            )
             return StorageLayer.SEMANTIC
 
         # 条件 2: 用户请求 + 高置信
         if is_user_requested and memory.confidence >= 0.85:
             memory.add_protection(ProtectionFlag.USER_PINNED)
-            logger.debug(f"Fast-track: user requested → SEMANTIC (memory {memory.id[:8]})")
+            logger.debug(
+                f"Fast-track: user requested → SEMANTIC (memory {memory.id[:8]})"
+            )
             return StorageLayer.SEMANTIC
 
         # 条件 3: 已确认信息
         if memory.quality_level == QualityLevel.CONFIRMED:
-            logger.debug(f"Fast-track: CONFIRMED quality → SEMANTIC (memory {memory.id[:8]})")
+            logger.debug(
+                f"Fast-track: CONFIRMED quality → SEMANTIC (memory {memory.id[:8]})"
+            )
             return StorageLayer.SEMANTIC
 
         # 条件 4: 已有核心身份标记
@@ -65,7 +82,9 @@ class FastTrackEvaluator:
             memory.has_protection(ProtectionFlag.CORE_IDENTITY)
             and memory.confidence >= 0.85
         ):
-            logger.debug(f"Fast-track: existing CORE_IDENTITY flag → SEMANTIC (memory {memory.id[:8]})")
+            logger.debug(
+                f"Fast-track: existing CORE_IDENTITY flag → SEMANTIC (memory {memory.id[:8]})"
+            )
             return StorageLayer.SEMANTIC
 
         return None

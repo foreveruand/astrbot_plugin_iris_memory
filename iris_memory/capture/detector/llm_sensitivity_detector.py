@@ -4,16 +4,17 @@ LLM增强敏感度检测器
 
 基于 LLMEnhancedDetector 模板方法模式
 """
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
 
-from iris_memory.core.types import SensitivityLevel
+from dataclasses import dataclass, field
+from typing import Any
+
 from iris_memory.capture.detector.sensitivity_detector import SensitivityDetector
 from iris_memory.core.detection.base_result import BaseDetectionResult
 from iris_memory.core.detection.llm_enhanced_base import (
     DetectionMode,
     LLMEnhancedDetector,
 )
+from iris_memory.core.types import SensitivityLevel
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("llm_sensitivity_detector")
@@ -63,33 +64,46 @@ _SENSITIVITY_LEVEL_MAP = {
 
 # 潜在敏感关键词
 _POTENTIAL_SENSITIVE_KEYWORDS = [
-    "密码", "账号", "银行卡", "信用卡", "身份证",
-    "住址", "地址", "工资", "收入", "病历", "诊断",
-    "password", "account", "credit card", "address"
+    "密码",
+    "账号",
+    "银行卡",
+    "信用卡",
+    "身份证",
+    "住址",
+    "地址",
+    "工资",
+    "收入",
+    "病历",
+    "诊断",
+    "password",
+    "account",
+    "credit card",
+    "address",
 ]
 
 
 @dataclass
 class SensitivityDetectionResult(BaseDetectionResult):
     """敏感度检测结果"""
+
     level: SensitivityLevel = SensitivityLevel.PUBLIC
-    entities: List[str] = field(default_factory=list)
-    implicit_info: List[str] = field(default_factory=list)
+    entities: list[str] = field(default_factory=list)
+    implicit_info: list[str] = field(default_factory=list)
 
 
 class LLMSensitivityDetector(LLMEnhancedDetector[SensitivityDetectionResult]):
     """LLM增强敏感度检测器
-    
+
     支持三种模式：
     - rule: 仅使用规则检测（快速）
     - llm: 仅使用LLM检测（准确）
     - hybrid: 规则预筛 + LLM确认（推荐）
     """
-    
+
     def __init__(
         self,
         astrbot_context=None,
-        provider_id: Optional[str] = None,
+        provider_id: str | None = None,
         mode: DetectionMode = DetectionMode.HYBRID,
         confidence_threshold: float = 0.7,
         daily_limit: int = 0,
@@ -103,11 +117,11 @@ class LLMSensitivityDetector(LLMEnhancedDetector[SensitivityDetectionResult]):
         )
         self._confidence_threshold = confidence_threshold
         self._rule_detector = SensitivityDetector()
-    
+
     def _should_skip_input(self, text: str = "", **kwargs) -> bool:
         """空文本时跳过"""
         return not text
-    
+
     def _get_empty_result(self) -> SensitivityDetectionResult:
         """空输入默认结果"""
         return SensitivityDetectionResult(
@@ -115,11 +129,9 @@ class LLMSensitivityDetector(LLMEnhancedDetector[SensitivityDetectionResult]):
             source="rule",
             reason="空文本",
         )
-    
+
     def _rule_detect(
-        self,
-        text: str,
-        context: Optional[Dict[str, Any]] = None
+        self, text: str, context: dict[str, Any] | None = None
     ) -> SensitivityDetectionResult:
         """规则检测"""
         level, entities = self._rule_detector.detect_sensitivity(text, context)
@@ -130,21 +142,19 @@ class LLMSensitivityDetector(LLMEnhancedDetector[SensitivityDetectionResult]):
             reason="规则匹配",
             source="rule",
         )
-    
+
     def _build_prompt(self, text: str, **kwargs) -> str:
         """构建LLM提示词"""
         return SENSITIVITY_DETECTION_PROMPT.format(text=text[:500])
-    
-    def _parse_llm_result(self, data: Dict[str, Any]) -> SensitivityDetectionResult:
+
+    def _parse_llm_result(self, data: dict[str, Any]) -> SensitivityDetectionResult:
         """解析LLM结果"""
         level_str = data.get("level", "PUBLIC").upper()
         return SensitivityDetectionResult(
             level=BaseDetectionResult.map_enum(
                 level_str, _SENSITIVITY_LEVEL_MAP, SensitivityLevel.PUBLIC
             ),
-            entities=BaseDetectionResult.ensure_list(
-                data.get("detected_entities", [])
-            ),
+            entities=BaseDetectionResult.ensure_list(data.get("detected_entities", [])),
             confidence=BaseDetectionResult.parse_confidence(data),
             reason=data.get("reason", "LLM判断"),
             implicit_info=BaseDetectionResult.ensure_list(
@@ -152,41 +162,39 @@ class LLMSensitivityDetector(LLMEnhancedDetector[SensitivityDetectionResult]):
             ),
             source="llm",
         )
-    
+
     async def _hybrid_detect(
-        self,
-        text: str,
-        context: Optional[Dict[str, Any]] = None
+        self, text: str, context: dict[str, Any] | None = None
     ) -> SensitivityDetectionResult:
         """混合检测：规则预筛 + LLM确认"""
         rule_result = self._rule_detect(text, context)
-        
+
         # 公开级别且无敏感关键词 → 直接返回
         if rule_result.level == SensitivityLevel.PUBLIC:
             if not self._has_potential_sensitive_keywords(text):
                 return rule_result
-        
+
         # 敏感或私人级别 → LLM确认
         if rule_result.level.value >= SensitivityLevel.PRIVATE.value:
             llm_result = await self._llm_detect(text, context=context)
             if llm_result.confidence >= self._confidence_threshold:
                 llm_result.source = "hybrid"
                 return llm_result
-        
+
         rule_result.source = "hybrid"
         return rule_result
-    
+
     def _has_potential_sensitive_keywords(self, text: str) -> bool:
         """检查是否有潜在的敏感关键词"""
         text_lower = text.lower()
         return any(kw in text_lower for kw in _POTENTIAL_SENSITIVE_KEYWORDS)
-    
+
     # ===== 便捷方法 =====
-    
+
     def should_filter(self, result: SensitivityDetectionResult) -> bool:
         """判断是否应该过滤"""
         return result.level == SensitivityLevel.CRITICAL
-    
+
     def get_encryption_required(self, result: SensitivityDetectionResult) -> bool:
         """判断是否需要加密"""
         return result.level.value >= SensitivityLevel.PRIVATE.value

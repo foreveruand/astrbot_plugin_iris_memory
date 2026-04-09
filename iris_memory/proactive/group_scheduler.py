@@ -8,8 +8,8 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Set
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from iris_memory.config import get_store
 from iris_memory.proactive.models import AggregatedDecision, Signal
@@ -23,7 +23,7 @@ ReplyCallback = Callable[[AggregatedDecision], Coroutine[Any, Any, None]]
 
 # LLM 确认回调类型：接收群信号和上下文，返回是否应回复
 LLMConfirmCallback = Callable[
-    [str, List[Signal], List[Dict[str, Any]]],
+    [str, list[Signal], list[dict[str, Any]]],
     Coroutine[Any, Any, bool],
 ]
 
@@ -46,8 +46,8 @@ class GroupScheduler:
     def __init__(
         self,
         signal_queue: SignalQueue,
-        on_reply: Optional[ReplyCallback] = None,
-        on_llm_confirm: Optional[LLMConfirmCallback] = None,
+        on_reply: ReplyCallback | None = None,
+        on_llm_confirm: LLMConfirmCallback | None = None,
     ) -> None:
         self._cfg = get_store()
         self._signal_queue = signal_queue
@@ -55,9 +55,9 @@ class GroupScheduler:
         self._on_llm_confirm = on_llm_confirm
 
         # group_id -> asyncio.Task
-        self._timers: Dict[str, asyncio.Task] = {}
+        self._timers: dict[str, asyncio.Task] = {}
         # group_id -> 最后一次有消息活动的事件循环时间
-        self._active_groups: Set[str] = set()
+        self._active_groups: set[str] = set()
         self._closed = False
 
     def set_reply_callback(self, callback: ReplyCallback) -> None:
@@ -95,8 +95,12 @@ class GroupScheduler:
         Args:
             group_id: 群组 ID
         """
-        check_interval = self._cfg.get("proactive_reply.signal_check_interval_seconds", 30)
-        silence_timeout = self._cfg.get("proactive_reply.signal_silence_timeout_seconds", 600)
+        check_interval = self._cfg.get(
+            "proactive_reply.signal_check_interval_seconds", 30
+        )
+        silence_timeout = self._cfg.get(
+            "proactive_reply.signal_silence_timeout_seconds", 600
+        )
 
         try:
             while not self._closed:
@@ -118,7 +122,9 @@ class GroupScheduler:
                     break
 
                 # 检查是否达到最小沉默时间
-                min_silence = self._cfg.get("proactive_reply.signal_min_silence_seconds", 60)
+                min_silence = self._cfg.get(
+                    "proactive_reply.signal_min_silence_seconds", 60
+                )
                 if silence < min_silence:
                     continue  # 群还在活跃，跳过
 
@@ -138,9 +144,7 @@ class GroupScheduler:
             self._active_groups.discard(group_id)
             self._timers.pop(group_id, None)
 
-    async def _aggregate_and_decide(
-        self, group_id: str, signals: List[Signal]
-    ) -> None:
+    async def _aggregate_and_decide(self, group_id: str, signals: list[Signal]) -> None:
         """聚合信号并做出决策
 
         Args:
@@ -155,15 +159,17 @@ class GroupScheduler:
         session_key = best_signal.session_key
 
         # 收集近期消息上下文（从信号 metadata 中提取）
-        recent_messages: List[Dict[str, Any]] = []
+        recent_messages: list[dict[str, Any]] = []
         for s in signals:
             preview = s.metadata.get("text_preview", "")
             if preview:
-                recent_messages.append({
-                    "sender_id": s.user_id,
-                    "content": preview,
-                    "timestamp": s.created_at.isoformat(),
-                })
+                recent_messages.append(
+                    {
+                        "sender_id": s.user_id,
+                        "content": preview,
+                        "timestamp": s.created_at.isoformat(),
+                    }
+                )
 
         weight_direct = self._cfg.get("proactive_reply.signal_weight_direct_reply", 0.8)
         weight_llm = self._cfg.get("proactive_reply.signal_weight_llm_confirm", 0.5)
@@ -184,10 +190,7 @@ class GroupScheduler:
             )
             await self._execute_reply(decision)
 
-        elif (
-            aggregated_weight >= weight_llm
-            and proactive_mode == "hybrid"
-        ):
+        elif aggregated_weight >= weight_llm and proactive_mode == "hybrid":
             # 中等权重 + hybrid 模式 → LLM 确认
             should_reply = await self._try_llm_confirm(
                 group_id, signals, recent_messages
@@ -200,9 +203,7 @@ class GroupScheduler:
                     target_user_id=target_user_id,
                     aggregated_weight=aggregated_weight,
                     signals=list(signals),
-                    reason=(
-                        f"聚合权重 {aggregated_weight:.2f} 经 LLM 确认后回复"
-                    ),
+                    reason=(f"聚合权重 {aggregated_weight:.2f} 经 LLM 确认后回复"),
                     recent_messages=recent_messages,
                     llm_confirmed=True,
                 )
@@ -225,8 +226,8 @@ class GroupScheduler:
     async def _try_llm_confirm(
         self,
         group_id: str,
-        signals: List[Signal],
-        recent_messages: List[Dict[str, Any]],
+        signals: list[Signal],
+        recent_messages: list[dict[str, Any]],
     ) -> bool:
         """尝试 LLM 确认
 
@@ -271,8 +272,7 @@ class GroupScheduler:
             )
         except Exception as e:
             logger.error(
-                f"Failed to execute proactive reply for "
-                f"group {decision.group_id}: {e}"
+                f"Failed to execute proactive reply for group {decision.group_id}: {e}"
             )
 
     def has_active_timer(self, group_id: str) -> bool:

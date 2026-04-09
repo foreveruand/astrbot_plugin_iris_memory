@@ -10,18 +10,19 @@
 """
 
 import asyncio
-from enum import Enum
-from typing import List, Dict, Any, Optional
-from collections import OrderedDict
 import hashlib
 import time
+from collections import OrderedDict
+from enum import Enum
+from typing import Any
 
-from .base import EmbeddingProvider, EmbeddingRequest, EmbeddingResponse
-from .astrbot_provider import AstrBotProvider
-from .local_provider import LocalProvider
-from .fallback_provider import FallbackProvider
-from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import CacheDefaults
+from iris_memory.utils.logger import get_logger
+
+from .astrbot_provider import AstrBotProvider
+from .base import EmbeddingProvider, EmbeddingRequest
+from .fallback_provider import FallbackProvider
+from .local_provider import LocalProvider
 
 # 模块logger
 logger = get_logger("embedding_manager")
@@ -29,9 +30,10 @@ logger = get_logger("embedding_manager")
 
 class EmbeddingSource(str, Enum):
     """嵌入源选择"""
-    AUTO = "auto"        # 自动选择（AstrBot 优先 → Local → Fallback）
+
+    AUTO = "auto"  # 自动选择（AstrBot 优先 → Local → Fallback）
     ASTRBOT = "astrbot"  # 仅使用 AstrBot embedding 服务
-    LOCAL = "local"      # 仅使用本地模型
+    LOCAL = "local"  # 仅使用本地模型
 
 
 # 向后兼容别名
@@ -47,7 +49,7 @@ class EmbeddingManager:
     支持 Embedding 缓存，减少重复计算。
     """
 
-    def __init__(self, config: Any, data_path: Optional[Any] = None):
+    def __init__(self, config: Any, data_path: Any | None = None):
         """初始化嵌入管理器
 
         Args:
@@ -58,22 +60,24 @@ class EmbeddingManager:
         self.data_path = data_path
 
         # 提供者实例
-        self.providers: Dict[str, EmbeddingProvider] = {}
-        self.current_provider: Optional[EmbeddingProvider] = None
+        self.providers: dict[str, EmbeddingProvider] = {}
+        self.current_provider: EmbeddingProvider | None = None
         self.current_source: EmbeddingSource = EmbeddingSource.AUTO
 
         # 统计信息
-        self.stats: Dict[str, Any] = {
+        self.stats: dict[str, Any] = {
             "total_requests": 0,
             "successful_requests": 0,
             "failed_requests": 0,
             "cache_hits": 0,
             "cache_misses": 0,
-            "provider_usage": {}
+            "provider_usage": {},
         }
 
         # Embedding 缓存（文本哈希 -> (向量, 过期时间)），使用 OrderedDict 实现 LRU
-        self._embedding_cache: OrderedDict[str, tuple[list[float], float]] = OrderedDict()
+        self._embedding_cache: OrderedDict[str, tuple[list[float], float]] = (
+            OrderedDict()
+        )
         self._cache_max_size = CacheDefaults.EMBEDDING_CACHE_MAX_SIZE
         self._cache_ttl: float = CacheDefaults.EMBEDDING_CACHE_TTL
         self._cache_enabled = True
@@ -96,7 +100,7 @@ class EmbeddingManager:
 
     # ========== 缓存管理 ==========
 
-    def _get_cache_key(self, text: str, dimension: Optional[int] = None) -> str:
+    def _get_cache_key(self, text: str, dimension: int | None = None) -> str:
         """生成缓存键
 
         Args:
@@ -107,9 +111,9 @@ class EmbeddingManager:
             str: 缓存键（SHA256哈希）
         """
         key_str = f"{text}:{dimension or self.get_dimension()}"
-        return hashlib.sha256(key_str.encode('utf-8')).hexdigest()
+        return hashlib.sha256(key_str.encode("utf-8")).hexdigest()
 
-    def _get_from_cache(self, cache_key: str) -> Optional[List[float]]:
+    def _get_from_cache(self, cache_key: str) -> list[float] | None:
         """从缓存获取 embedding（命中时移至末尾以实现 LRU，并检查 TTL）
 
         注意：调用方应在 _cache_lock 保护下调用此方法。
@@ -132,7 +136,7 @@ class EmbeddingManager:
             return embedding
         return None
 
-    def _add_to_cache(self, cache_key: str, embedding: List[float]):
+    def _add_to_cache(self, cache_key: str, embedding: list[float]):
         """添加 embedding 到缓存
 
         注意：调用方应在 _cache_lock 保护下调用此方法。
@@ -167,7 +171,7 @@ class EmbeddingManager:
         self._embedding_cache.clear()
         logger.debug("Embedding cache cleared")
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """获取缓存统计
 
         Returns:
@@ -180,9 +184,11 @@ class EmbeddingManager:
             "cache_hits": self.stats["cache_hits"],
             "cache_misses": self.stats["cache_misses"],
             "cache_hit_rate": (
-                self.stats["cache_hits"] / (self.stats["cache_hits"] + self.stats["cache_misses"])
-                if (self.stats["cache_hits"] + self.stats["cache_misses"]) > 0 else 0
-            )
+                self.stats["cache_hits"]
+                / (self.stats["cache_hits"] + self.stats["cache_misses"])
+                if (self.stats["cache_hits"] + self.stats["cache_misses"]) > 0
+                else 0
+            ),
         }
 
     # ========== 上下文管理 ==========
@@ -194,7 +200,7 @@ class EmbeddingManager:
             context: AstrBot 插件上下文
         """
         self.plugin_context = context
-        if not hasattr(self.config, '_plugin_context'):
+        if not hasattr(self.config, "_plugin_context"):
             self.config._plugin_context = context
 
     # ========== 初始化逻辑 ==========
@@ -203,6 +209,7 @@ class EmbeddingManager:
         logger.debug("Initializing embedding manager...")
 
         from iris_memory.config import get_store
+
         cfg = get_store()
         source_str = cfg.get("embedding.source", "auto").lower()
 
@@ -363,13 +370,17 @@ class EmbeddingManager:
         Returns:
             bool: 是否初始化成功
         """
-        logger.warning("Initializing fallback provider (pseudo-random vectors) as last resort")
+        logger.warning(
+            "Initializing fallback provider (pseudo-random vectors) as last resort"
+        )
         provider = FallbackProvider(self.config)
         if await provider.initialize():
             self.providers["fallback"] = provider
             self.current_provider = provider
             self.stats["provider_usage"]["fallback"] = 0
-            logger.debug(f"Fallback provider initialized (dimension={self.get_dimension()})")
+            logger.debug(
+                f"Fallback provider initialized (dimension={self.get_dimension()})"
+            )
             return True
 
         logger.error("Failed to initialize any embedding provider")
@@ -377,7 +388,7 @@ class EmbeddingManager:
 
     # ========== 嵌入生成 ==========
 
-    async def embed(self, text: str, dimension: Optional[int] = None) -> List[float]:
+    async def embed(self, text: str, dimension: int | None = None) -> list[float]:
         """生成嵌入向量（自动降级 + 缓存）
 
         Args:
@@ -420,11 +431,14 @@ class EmbeddingManager:
                 embedding_result = response.to_list()
 
                 self.stats["successful_requests"] += 1
-                self.stats["provider_usage"][provider_name] = \
+                self.stats["provider_usage"][provider_name] = (
                     self.stats["provider_usage"].get(provider_name, 0) + 1
+                )
 
             except Exception as e:
-                logger.warning(f"Current provider {provider_name} failed: {e}, trying fallback")
+                logger.warning(
+                    f"Current provider {provider_name} failed: {e}, trying fallback"
+                )
                 self.stats["failed_requests"] += 1
 
         # 3. 当前提供者失败，尝试降级
@@ -437,7 +451,9 @@ class EmbeddingManager:
 
         return embedding_result
 
-    async def _embed_with_fallback(self, text: str, dimension: Optional[int] = None) -> List[float]:
+    async def _embed_with_fallback(
+        self, text: str, dimension: int | None = None
+    ) -> list[float]:
         """使用降级策略生成嵌入
 
         按 astrbot → local → fallback 的顺序尝试所有可用提供者。
@@ -466,8 +482,9 @@ class EmbeddingManager:
                 logger.debug(f"Switched to provider: {provider_name}")
 
                 self.stats["successful_requests"] += 1
-                self.stats["provider_usage"][provider_name] = \
+                self.stats["provider_usage"][provider_name] = (
                     self.stats["provider_usage"].get(provider_name, 0) + 1
+                )
 
                 return response.to_list()
 
@@ -476,9 +493,12 @@ class EmbeddingManager:
                 continue
 
         from iris_memory.core.exceptions import EmbeddingError
+
         raise EmbeddingError("All embedding providers failed")
 
-    async def embed_batch(self, texts: List[str], dimension: Optional[int] = None) -> List[List[float]]:
+    async def embed_batch(
+        self, texts: list[str], dimension: int | None = None
+    ) -> list[list[float]]:
         """批量生成嵌入向量
 
         Args:
@@ -495,11 +515,15 @@ class EmbeddingManager:
                 results.append(await self.embed(text, dimension))
             return results
         try:
-            requests = [EmbeddingRequest(text=text, dimension=dimension) for text in texts]
+            requests = [
+                EmbeddingRequest(text=text, dimension=dimension) for text in texts
+            ]
             responses = await self.current_provider.embed_batch(requests)
             return [response.to_list() for response in responses]
         except Exception as e:
-            logger.warning(f"embed_batch failed with current provider: {e}, falling back to individual embed")
+            logger.warning(
+                f"embed_batch failed with current provider: {e}, falling back to individual embed"
+            )
             results = []
             for text in texts:
                 results.append(await self.embed(text, dimension))
@@ -516,6 +540,7 @@ class EmbeddingManager:
         if self.current_provider:
             return self.current_provider.dimension
         from iris_memory.config import get_store
+
         return get_store().get("embedding.local_dimension", 512)
 
     def get_model(self) -> str:
@@ -531,7 +556,7 @@ class EmbeddingManager:
                 return "unknown"
         return "unknown"
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """健康检查
 
         Returns:
@@ -539,9 +564,11 @@ class EmbeddingManager:
         """
         results = {
             "source": self.current_source.value,
-            "current_provider": self._get_provider_name(self.current_provider) if self.current_provider else "none",
+            "current_provider": self._get_provider_name(self.current_provider)
+            if self.current_provider
+            else "none",
             "providers": {},
-            "stats": self.stats
+            "stats": self.stats,
         }
 
         for name, provider in self.providers.items():
@@ -552,7 +579,7 @@ class EmbeddingManager:
 
         return results
 
-    async def detect_existing_dimension(self, collection) -> Optional[int]:
+    async def detect_existing_dimension(self, collection) -> int | None:
         """检测现有集合的嵌入维度
 
         Args:
@@ -564,8 +591,12 @@ class EmbeddingManager:
         try:
             results = collection.get(limit=1, include=["embeddings"])
 
-            embeddings = results.get('embeddings')
-            if embeddings is not None and len(embeddings) > 0 and embeddings[0] is not None:
+            embeddings = results.get("embeddings")
+            if (
+                embeddings is not None
+                and len(embeddings) > 0
+                and embeddings[0] is not None
+            ):
                 dimension = len(embeddings[0])
                 logger.debug(f"Detected existing collection dimension: {dimension}")
                 return dimension
@@ -584,7 +615,7 @@ class EmbeddingManager:
 
         for name, provider in list(self.providers.items()):
             try:
-                if hasattr(provider, 'close'):
+                if hasattr(provider, "close"):
                     await provider.close()
                     logger.debug(f"[Hot-Reload] Closed provider: {name}")
             except Exception as e:
@@ -598,7 +629,7 @@ class EmbeddingManager:
     # ========== 内部工具 ==========
 
     @staticmethod
-    def _get_provider_name(provider: Optional[EmbeddingProvider]) -> str:
+    def _get_provider_name(provider: EmbeddingProvider | None) -> str:
         """获取提供者的简短名称
 
         Args:

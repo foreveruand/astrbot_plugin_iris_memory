@@ -6,10 +6,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from iris_memory.core.types import MemoryType, StorageLayer
-from iris_memory.models.memory import Memory
+from iris_memory.core.types import StorageLayer
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("web.memory_repo")
@@ -25,11 +24,11 @@ class MemoryRepository:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
-        storage_layer: Optional[str] = None,
-        memory_type: Optional[str] = None,
+        group_id: str | None = None,
+        storage_layer: str | None = None,
+        memory_type: str | None = None,
         top_k: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """向量搜索记忆"""
         try:
             chroma = self._service.chroma_manager
@@ -56,7 +55,7 @@ class MemoryRepository:
             logger.warning(f"Memory search error: {e}")
             return []
 
-    async def get_by_id(self, memory_id: str) -> Optional[Dict[str, Any]]:
+    async def get_by_id(self, memory_id: str) -> dict[str, Any] | None:
         """根据 ID 获取记忆"""
         try:
             chroma = self._service.chroma_manager
@@ -76,28 +75,37 @@ class MemoryRepository:
 
     async def list_all(
         self,
-        user_id: Optional[str] = None,
-        group_id: Optional[str] = None,
-        storage_layer: Optional[str] = None,
-        memory_type: Optional[str] = None,
+        user_id: str | None = None,
+        group_id: str | None = None,
+        storage_layer: str | None = None,
+        memory_type: str | None = None,
         page: int = 1,
         page_size: int = 20,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """分页列出记忆"""
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
-        result: Dict[str, Any] = {"items": [], "total": 0, "page": page, "page_size": page_size}
+        result: dict[str, Any] = {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+        }
 
-        all_items: List[Dict[str, Any]] = []
+        all_items: list[dict[str, Any]] = []
 
         # 工作记忆（内存缓存）
         if not storage_layer or storage_layer == "working":
-            all_items.extend(self._collect_working_memories(user_id, group_id, memory_type))
+            all_items.extend(
+                self._collect_working_memories(user_id, group_id, memory_type)
+            )
 
         # 持久化记忆（ChromaDB）
         if not storage_layer or storage_layer != "working":
             all_items.extend(
-                await self._collect_persistent_memories(user_id, group_id, storage_layer, memory_type)
+                await self._collect_persistent_memories(
+                    user_id, group_id, storage_layer, memory_type
+                )
             )
 
         all_items.sort(key=lambda x: x.get("created_time", ""), reverse=True)
@@ -107,9 +115,16 @@ class MemoryRepository:
 
         return result
 
-    async def update(self, memory_id: str, updates: Dict[str, Any]) -> Tuple[bool, str]:
+    async def update(self, memory_id: str, updates: dict[str, Any]) -> tuple[bool, str]:
         """更新记忆"""
-        allowed_keys = {"content", "type", "storage_layer", "confidence", "importance_score", "summary"}
+        allowed_keys = {
+            "content",
+            "type",
+            "storage_layer",
+            "confidence",
+            "importance_score",
+            "summary",
+        }
         invalid_keys = set(updates.keys()) - allowed_keys
         if invalid_keys:
             return False, f"不允许更新的字段: {', '.join(invalid_keys)}"
@@ -138,7 +153,7 @@ class MemoryRepository:
             logger.error(f"Update memory error: {e}")
             return False, f"更新失败: {e}"
 
-    async def delete(self, memory_id: str) -> Tuple[bool, str]:
+    async def delete(self, memory_id: str) -> tuple[bool, str]:
         """删除记忆"""
         try:
             chroma = self._service.chroma_manager
@@ -157,9 +172,9 @@ class MemoryRepository:
             logger.error(f"Delete memory error: {e}")
             return False, f"删除失败: {e}"
 
-    async def batch_delete(self, memory_ids: List[str]) -> Dict[str, Any]:
+    async def batch_delete(self, memory_ids: list[str]) -> dict[str, Any]:
         """批量删除"""
-        result: Dict[str, Any] = {"success_count": 0, "fail_count": 0, "errors": []}
+        result: dict[str, Any] = {"success_count": 0, "fail_count": 0, "errors": []}
 
         try:
             chroma = self._service.chroma_manager
@@ -188,9 +203,9 @@ class MemoryRepository:
 
         return result
 
-    async def count_by_layer(self) -> Dict[str, int]:
+    async def count_by_layer(self) -> dict[str, int]:
         """按层级统计记忆数量"""
-        counts: Dict[str, int] = {"working": 0, "episodic": 0, "semantic": 0}
+        counts: dict[str, int] = {"working": 0, "episodic": 0, "semantic": 0}
 
         try:
             session_mgr = self._service.session_manager
@@ -213,9 +228,9 @@ class MemoryRepository:
 
         return counts
 
-    async def get_trend(self, days: int = 30) -> List[Dict[str, Any]]:
+    async def get_trend(self, days: int = 30) -> list[dict[str, Any]]:
         """获取创建趋势"""
-        trend: Dict[str, int] = {}
+        trend: dict[str, int] = {}
         now = datetime.now()
         for i in range(days):
             date_str = (now - timedelta(days=i)).strftime("%Y-%m-%d")
@@ -242,11 +257,11 @@ class MemoryRepository:
 
     def _collect_working_memories(
         self,
-        user_id: Optional[str],
-        group_id: Optional[str],
-        memory_type: Optional[str],
-    ) -> List[Dict[str, Any]]:
-        items: List[Dict[str, Any]] = []
+        user_id: str | None,
+        group_id: str | None,
+        memory_type: str | None,
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
         try:
             session_mgr = self._service.session_manager
             if not session_mgr or not hasattr(session_mgr, "working_memory_cache"):
@@ -274,19 +289,19 @@ class MemoryRepository:
 
     async def _collect_persistent_memories(
         self,
-        user_id: Optional[str],
-        group_id: Optional[str],
-        storage_layer: Optional[str],
-        memory_type: Optional[str],
-    ) -> List[Dict[str, Any]]:
-        items: List[Dict[str, Any]] = []
+        user_id: str | None,
+        group_id: str | None,
+        storage_layer: str | None,
+        memory_type: str | None,
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
         try:
             chroma = self._service.chroma_manager
             if not chroma or not chroma.is_ready:
                 return items
 
             collection = chroma.collection
-            where_clause: Dict[str, Any] = {}
+            where_clause: dict[str, Any] = {}
 
             if user_id:
                 where_clause["user_id"] = user_id
@@ -312,11 +327,13 @@ class MemoryRepository:
         return items
 
     @staticmethod
-    def _memory_to_dict(memory: Any) -> Dict[str, Any]:
+    def _memory_to_dict(memory: Any) -> dict[str, Any]:
         from iris_memory.web.dto.converters import memory_to_web_dict
+
         return memory_to_web_dict(memory)
 
     @staticmethod
-    def _dict_from_chroma(res: Dict[str, Any], index: int) -> Dict[str, Any]:
+    def _dict_from_chroma(res: dict[str, Any], index: int) -> dict[str, Any]:
         from iris_memory.web.dto.converters import memory_detail_from_chroma
+
         return memory_detail_from_chroma(res, index)

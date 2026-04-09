@@ -14,10 +14,13 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
-from iris_memory.config.schema import SCHEMA, AccessLevel
-from iris_memory.config.validators import inject_defaults, validate_dict, ConfigValidationError
+from iris_memory.config.schema import SCHEMA
+from iris_memory.config.validators import (
+    ConfigValidationError,
+    validate_dict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +34,18 @@ class ConfigLoader:
     def __init__(
         self,
         user_config: Any = None,
-        plugin_data_path: Optional[Path] = None,
+        plugin_data_path: Path | None = None,
     ):
         self._user_config = user_config
         self._plugin_data_path = plugin_data_path
 
     @property
-    def plugin_data_file(self) -> Optional[Path]:
+    def plugin_data_file(self) -> Path | None:
         if self._plugin_data_path is None:
             return None
         return self._plugin_data_path / PLUGIN_DATA_FILENAME
 
-    def load(self) -> Dict[str, Any]:
+    def load(self) -> dict[str, Any]:
         """执行完整加载链，返回合并后的配置字典
 
         Returns:
@@ -71,7 +74,7 @@ class ConfigLoader:
 
         return merged
 
-    def _extract_user_config(self) -> Dict[str, Any]:
+    def _extract_user_config(self) -> dict[str, Any]:
         """从 AstrBot 用户配置对象中提取扁平化的配置值
 
         遍历 Schema 中 AccessLevel.READONLY 的键，
@@ -80,14 +83,14 @@ class ConfigLoader:
         if self._user_config is None:
             return {}
 
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         for key, field in SCHEMA.items():
             value = self._get_nested(self._user_config, key)
             if value is not None:
                 result[key] = value
         return result
 
-    def _load_plugin_data(self) -> Dict[str, Any]:
+    def _load_plugin_data(self) -> dict[str, Any]:
         """从持久化 JSON 文件加载 Level 2 配置"""
         fp = self.plugin_data_file
         if fp is None or not fp.exists():
@@ -119,9 +122,9 @@ class ConfigLoader:
         return current
 
     @staticmethod
-    def _flatten(data: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
+    def _flatten(data: dict[str, Any], prefix: str = "") -> dict[str, Any]:
         """将嵌套字典展平为 ``section.key`` 格式"""
-        result: Dict[str, Any] = {}
+        result: dict[str, Any] = {}
         for k, v in data.items():
             full_key = f"{prefix}{k}" if not prefix else f"{prefix}.{k}"
             if isinstance(v, dict):

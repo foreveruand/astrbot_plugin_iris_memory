@@ -2,8 +2,8 @@
 
 from iris_memory.capture.conflict.conflict_resolver import ConflictResolver
 from iris_memory.capture.conflict.llm_conflict_resolver import (
-    LLMConflictResolver,
     ConflictDetectionResult,
+    LLMConflictResolver,
 )
 from iris_memory.capture.conflict.similarity_calculator import (
     SimilarityCalculator,
@@ -11,9 +11,9 @@ from iris_memory.capture.conflict.similarity_calculator import (
 )
 
 __all__ = [
-    'ConflictResolver',
-    'LLMConflictResolver',
-    'ConflictDetectionResult',
-    'SimilarityCalculator',
-    'sanitize_for_log',
+    "ConflictResolver",
+    "LLMConflictResolver",
+    "ConflictDetectionResult",
+    "SimilarityCalculator",
+    "sanitize_for_log",
 ]

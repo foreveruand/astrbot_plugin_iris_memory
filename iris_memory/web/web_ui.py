@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional
+from typing import Any
 
 from iris_memory.config import get_store
 from iris_memory.utils.logger import get_logger
@@ -19,7 +19,7 @@ class WebUIManager:
 
     def __init__(self, memory_service: Any) -> None:
         self._memory_service = memory_service
-        self._server: Optional[Any] = None
+        self._server: Any | None = None
         self._initialized: bool = False
 
     async def initialize(self) -> None:

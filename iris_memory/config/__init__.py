@@ -83,15 +83,15 @@ __all__ = [
 
 # ─── 全局 Store 管理 ──────────────────────────────────────
 
-_store: Optional[ConfigStore] = None
+_store: ConfigStore | None = None
 _store_lock = __import__("threading").Lock()
 
 
 def init_store(
     user_config: Any = None,
-    plugin_data_path: Optional[Path] = None,
+    plugin_data_path: Path | None = None,
     *,
-    cache_ttl: Optional[float] = None,
+    cache_ttl: float | None = None,
 ) -> ConfigStore:
     """初始化全局 ConfigStore（线程安全）
 

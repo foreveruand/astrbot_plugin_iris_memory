@@ -6,13 +6,13 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from astrbot.api.event import AstrMessageEvent
 
 
-def get_event_persona_id(event: "AstrMessageEvent") -> Optional[str]:
+def get_event_persona_id(event: AstrMessageEvent) -> str | None:
     """从事件中提取 persona_id
 
     兼容 AstrBot v4.5.7+ 的 event.persona 属性。

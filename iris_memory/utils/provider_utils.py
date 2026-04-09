@@ -5,10 +5,10 @@
 """
 
 from iris_memory.core.provider_utils import (  # noqa: F401
-    normalize_provider_id,
     extract_provider_id,
-    get_provider_by_id,
     get_default_provider,
+    get_provider_by_id,
+    normalize_provider_id,
 )
 
 __all__ = [

@@ -8,12 +8,9 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
-
 from iris_memory.knowledge_graph.kg_models import (
     KGEdge,
     KGNode,
-    KGPath,
 )
 from iris_memory.knowledge_graph.kg_reasoning import ReasoningResult
 from iris_memory.utils.logger import get_logger
@@ -36,7 +33,7 @@ class KGContextFormatter:
     def format_reasoning_result(
         self,
         result: ReasoningResult,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
     ) -> str:
         """将多跳推理结果格式化为 LLM 上下文
 
@@ -51,7 +48,9 @@ class KGContextFormatter:
             return ""
 
         lines = ["【知识关联】"]
-        lines.append("以下是你从记忆中推理出的实体关系，可以自然地在对话中体现，不要机械地列举：")
+        lines.append(
+            "以下是你从记忆中推理出的实体关系，可以自然地在对话中体现，不要机械地列举："
+        )
 
         facts = result.get_fact_summary()
         char_count = sum(len(l) for l in lines)
@@ -73,8 +72,8 @@ class KGContextFormatter:
     def format_entity_relations(
         self,
         entity_name: str,
-        relations: List[Tuple[KGEdge, KGNode]],
-        group_id: Optional[str] = None,
+        relations: list[tuple[KGEdge, KGNode]],
+        group_id: str | None = None,
     ) -> str:
         """将单一实体的直接关系格式化
 
@@ -121,16 +120,16 @@ class KGContextFormatter:
 
     def format_mixed(
         self,
-        reasoning_result: Optional[ReasoningResult] = None,
-        direct_relations: Optional[List[Tuple[KGEdge, KGNode]]] = None,
+        reasoning_result: ReasoningResult | None = None,
+        direct_relations: list[tuple[KGEdge, KGNode]] | None = None,
         entity_name: str = "",
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
     ) -> str:
         """混合格式化（多跳 + 直接关系）
 
         优先使用多跳推理结果，再补充直接关系。
         """
-        parts: List[str] = []
+        parts: list[str] = []
 
         if reasoning_result and reasoning_result.has_results:
             text = self.format_reasoning_result(reasoning_result, group_id)

@@ -4,16 +4,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from quart import request, Response
+from quart import Response, request
 
 from iris_memory.web.response import error_response, success_response
 
 if TYPE_CHECKING:
     from quart import Quart
+
     from iris_memory.web.container import WebContainer
 
 
-def register_io_routes(app: "Quart", container: "WebContainer") -> None:
+def register_io_routes(app: Quart, container: WebContainer) -> None:
 
     @app.route("/api/v1/io/export/memories", methods=["GET"])
     async def api_export_memories():

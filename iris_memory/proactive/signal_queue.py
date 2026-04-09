@@ -8,10 +8,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from iris_memory.config import get_store
-from iris_memory.proactive.models import Signal, SignalType
+from iris_memory.proactive.models import Signal
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("proactive.signal_queue")
@@ -33,9 +32,9 @@ class SignalQueue:
     def __init__(self) -> None:
         self._cfg = get_store()
         # group_id -> List[Signal]
-        self._queues: Dict[str, List[Signal]] = {}
+        self._queues: dict[str, list[Signal]] = {}
         # group_id -> 最近一条消息的时间戳
-        self._last_message_time: Dict[str, datetime] = {}
+        self._last_message_time: dict[str, datetime] = {}
 
     def enqueue(self, signal: Signal) -> bool:
         """信号入队
@@ -71,7 +70,7 @@ class SignalQueue:
         )
         return True
 
-    def get_signals(self, group_id: str) -> List[Signal]:
+    def get_signals(self, group_id: str) -> list[Signal]:
         """获取某群的有效信号（自动过滤过期信号）
 
         Args:
@@ -115,8 +114,7 @@ class SignalQueue:
         for group_id in list(self._queues.keys()):
             before = len(self._queues[group_id])
             self._queues[group_id] = [
-                s for s in self._queues[group_id]
-                if s.session_key != session_key
+                s for s in self._queues[group_id] if s.session_key != session_key
             ]
             removed += before - len(self._queues[group_id])
             if not self._queues[group_id]:
@@ -147,7 +145,7 @@ class SignalQueue:
         """更新群的最后消息时间"""
         self._last_message_time[group_id] = datetime.now()
 
-    def get_last_message_time(self, group_id: str) -> Optional[datetime]:
+    def get_last_message_time(self, group_id: str) -> datetime | None:
         """获取群的最后消息时间"""
         return self._last_message_time.get(group_id)
 
@@ -165,7 +163,7 @@ class SignalQueue:
             return float("inf")
         return (datetime.now() - last_time).total_seconds()
 
-    def get_active_groups(self) -> List[str]:
+    def get_active_groups(self) -> list[str]:
         """获取所有有信号的群组 ID"""
         return list(self._queues.keys())
 

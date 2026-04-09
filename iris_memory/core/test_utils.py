@@ -3,7 +3,7 @@
 
 使用示例：
     from iris_memory.core.test_utils import setup_test_config
-    
+
     # 在测试fixture中
     @pytest.fixture(autouse=True)
     def setup_config():
@@ -13,13 +13,13 @@
         })
 """
 
-from typing import Dict, Any
+from typing import Any
 from unittest.mock import Mock
 
 
-def setup_test_config(config_dict: Dict[str, Any] = None):
+def setup_test_config(config_dict: dict[str, Any] = None):
     """设置测试配置
-    
+
     Args:
         config_dict: 测试配置字典，格式如下：
             {

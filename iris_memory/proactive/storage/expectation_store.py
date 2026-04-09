@@ -6,8 +6,6 @@ FollowUpExpectation 存储
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 from iris_memory.proactive.models import FollowUpExpectation
 from iris_memory.utils.logger import get_logger
 
@@ -23,7 +21,7 @@ class ExpectationStore:
 
     def __init__(self) -> None:
         # group_id -> FollowUpExpectation
-        self._expectations: Dict[str, FollowUpExpectation] = {}
+        self._expectations: dict[str, FollowUpExpectation] = {}
 
     def put(self, expectation: FollowUpExpectation) -> None:
         """存储或覆盖期待
@@ -39,7 +37,7 @@ class ExpectationStore:
             )
         self._expectations[expectation.group_id] = expectation
 
-    def get(self, group_id: str) -> Optional[FollowUpExpectation]:
+    def get(self, group_id: str) -> FollowUpExpectation | None:
         """获取某群的活跃期待
 
         自动检查过期，如果已过期则移除并返回 None。
@@ -64,7 +62,7 @@ class ExpectationStore:
 
         return exp
 
-    def remove(self, group_id: str) -> Optional[FollowUpExpectation]:
+    def remove(self, group_id: str) -> FollowUpExpectation | None:
         """移除某群的期待
 
         Args:
@@ -84,7 +82,7 @@ class ExpectationStore:
         exp = self.get(group_id)
         return exp is not None
 
-    def get_all(self) -> List[FollowUpExpectation]:
+    def get_all(self) -> list[FollowUpExpectation]:
         """获取所有活跃期待"""
         # 先清理过期的
         expired_groups = [

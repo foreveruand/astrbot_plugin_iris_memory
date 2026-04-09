@@ -11,9 +11,9 @@
 
 import asyncio
 from collections import deque
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 from iris_memory.utils.member_utils import format_member_tag
@@ -24,23 +24,24 @@ logger = get_logger("chat_history_buffer")
 @dataclass
 class ChatMessage:
     """单条聊天消息"""
+
     sender_id: str
-    sender_name: Optional[str]
+    sender_name: str | None
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
-    group_id: Optional[str] = None
+    group_id: str | None = None
     is_bot: bool = False  # 是否为Bot自己的回复
     # 引用消息相关字段
-    reply_sender_name: Optional[str] = None    # 被引用消息的发送者昵称
-    reply_sender_id: Optional[str] = None      # 被引用消息的发送者ID
-    reply_content: Optional[str] = None        # 被引用消息的内容摘要
+    reply_sender_name: str | None = None  # 被引用消息的发送者昵称
+    reply_sender_id: str | None = None  # 被引用消息的发送者ID
+    reply_content: str | None = None  # 被引用消息的内容摘要
 
     @property
     def has_reply(self) -> bool:
         """是否包含引用消息"""
         return self.reply_content is not None or self.reply_sender_name is not None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = {
             "sender_id": self.sender_id,
             "sender_name": self.sender_name,
@@ -59,7 +60,7 @@ class ChatMessage:
         return d
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ChatMessage":
+    def from_dict(cls, data: dict[str, Any]) -> "ChatMessage":
         ts = data.get("timestamp")
         if isinstance(ts, str):
             ts = datetime.fromisoformat(ts)
@@ -98,10 +99,10 @@ class ChatHistoryBuffer:
         """
         self.max_messages = max_messages
         # session_key -> deque[ChatMessage]
-        self._buffers: Dict[str, deque] = {}
+        self._buffers: dict[str, deque] = {}
         self._lock = asyncio.Lock()
 
-    def _get_session_key(self, user_id: str, group_id: Optional[str]) -> str:
+    def _get_session_key(self, user_id: str, group_id: str | None) -> str:
         """生成会话键
 
         群聊：以group_id为维度（同一群的消息共享缓冲区）
@@ -114,14 +115,14 @@ class ChatHistoryBuffer:
     async def add_message(
         self,
         sender_id: str,
-        sender_name: Optional[str],
+        sender_name: str | None,
         content: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         is_bot: bool = False,
-        session_user_id: Optional[str] = None,
-        reply_sender_name: Optional[str] = None,
-        reply_sender_id: Optional[str] = None,
-        reply_content: Optional[str] = None,
+        session_user_id: str | None = None,
+        reply_sender_name: str | None = None,
+        reply_sender_id: str | None = None,
+        reply_content: str | None = None,
     ) -> None:
         """添加一条消息到缓冲区
 
@@ -162,9 +163,9 @@ class ChatHistoryBuffer:
     async def get_recent_messages(
         self,
         user_id: str,
-        group_id: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> List[ChatMessage]:
+        group_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[ChatMessage]:
         """获取最近的聊天消息
 
         Args:
@@ -190,8 +191,8 @@ class ChatHistoryBuffer:
 
     def format_for_llm(
         self,
-        messages: List[ChatMessage],
-        group_id: Optional[str] = None,
+        messages: list[ChatMessage],
+        group_id: str | None = None,
         bot_name: str = "Bot",
     ) -> str:
         """将聊天记录格式化为LLM可理解的上下文
@@ -258,7 +259,7 @@ class ChatHistoryBuffer:
             new_deque = deque(old, maxlen=self.max_messages)
             self._buffers[key] = new_deque
 
-    def clear_session(self, user_id: str, group_id: Optional[str] = None) -> None:
+    def clear_session(self, user_id: str, group_id: str | None = None) -> None:
         """清除指定会话的缓冲区"""
         session_key = self._get_session_key(user_id, group_id)
         self._buffers.pop(session_key, None)
@@ -267,7 +268,7 @@ class ChatHistoryBuffer:
         """清除所有缓冲区"""
         self._buffers.clear()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取缓冲区统计"""
         total_messages = sum(len(buf) for buf in self._buffers.values())
         return {
@@ -276,7 +277,7 @@ class ChatHistoryBuffer:
             "max_messages_per_session": self.max_messages,
         }
 
-    async def serialize(self) -> Dict[str, Any]:
+    async def serialize(self) -> dict[str, Any]:
         """序列化为可持久化的字典"""
         async with self._lock:
             return {
@@ -287,7 +288,7 @@ class ChatHistoryBuffer:
                 },
             }
 
-    async def deserialize(self, data: Dict[str, Any]) -> None:
+    async def deserialize(self, data: dict[str, Any]) -> None:
         """从字典反序列化"""
         async with self._lock:
             self.max_messages = data.get("max_messages", self.max_messages)
@@ -299,9 +300,9 @@ class ChatHistoryBuffer:
                     try:
                         buf.append(ChatMessage.from_dict(msg_data))
                     except Exception as e:
-                        logger.warning(f"Skipping malformed chat message during deserialization: {e}")
+                        logger.warning(
+                            f"Skipping malformed chat message during deserialization: {e}"
+                        )
                         continue
                 self._buffers[key] = buf
-            logger.debug(
-                f"Chat history deserialized: {len(self._buffers)} sessions"
-            )
+            logger.debug(f"Chat history deserialized: {len(self._buffers)} sessions")

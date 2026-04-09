@@ -26,7 +26,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import Any, Callable, Dict, List, Optional, Set
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +47,9 @@ class ConfigEventEmitter:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._key_handlers: Dict[str, List[ChangeHandler]] = {}
-        self._section_handlers: Dict[str, List[ChangeHandler]] = {}
-        self._global_handlers: List[ChangeHandler] = []
+        self._key_handlers: dict[str, list[ChangeHandler]] = {}
+        self._section_handlers: dict[str, list[ChangeHandler]] = {}
+        self._global_handlers: list[ChangeHandler] = []
 
     # ── 订阅 ──
 
@@ -128,11 +129,9 @@ class ConfigEventEmitter:
                         # 没有运行中的事件循环，忽略
                         pass
             except Exception:
-                logger.exception(
-                    "配置变更处理器异常: key=%s, handler=%s", key, h
-                )
+                logger.exception("配置变更处理器异常: key=%s, handler=%s", key, h)
 
-    def emit_batch(self, changes: Dict[str, tuple]) -> None:
+    def emit_batch(self, changes: dict[str, tuple]) -> None:
         """批量触发变更事件
 
         Args:

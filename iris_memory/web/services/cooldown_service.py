@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class CooldownWebService:
@@ -19,7 +19,7 @@ class CooldownWebService:
     def is_available(self) -> bool:
         return self._manager is not None
 
-    def get_all_status(self) -> Dict[str, Any]:
+    def get_all_status(self) -> dict[str, Any]:
         mgr = self._manager
         if not mgr:
             return {"available": False, "active_count": 0, "groups": []}
@@ -30,7 +30,7 @@ class CooldownWebService:
             "default_duration": mgr.default_duration,
         }
 
-    def get_status(self, group_id: str) -> Dict[str, Any]:
+    def get_status(self, group_id: str) -> dict[str, Any]:
         mgr = self._manager
         if not mgr:
             return {"active": False, "available": False}
@@ -51,17 +51,22 @@ class CooldownWebService:
     def activate(
         self,
         group_id: str,
-        duration_minutes: Optional[int] = None,
-        reason: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        duration_minutes: int | None = None,
+        reason: str | None = None,
+    ) -> dict[str, Any]:
         mgr = self._manager
         if not mgr:
             return {"success": False, "message": "冷却管理器未就绪"}
 
-        msg = mgr.activate(group_id, duration_minutes=duration_minutes, reason=reason, initiated_by="webui")
+        msg = mgr.activate(
+            group_id,
+            duration_minutes=duration_minutes,
+            reason=reason,
+            initiated_by="webui",
+        )
         return {"success": True, "message": msg}
 
-    def deactivate(self, group_id: str) -> Dict[str, Any]:
+    def deactivate(self, group_id: str) -> dict[str, Any]:
         mgr = self._manager
         if not mgr:
             return {"success": False, "message": "冷却管理器未就绪"}

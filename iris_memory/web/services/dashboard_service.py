@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -15,13 +15,15 @@ logger = get_logger("web.dashboard_svc")
 class DashboardService:
     """仪表盘业务服务"""
 
-    def __init__(self, memory_service: Any, memory_repo: Any, session_repo: Any) -> None:
+    def __init__(
+        self, memory_service: Any, memory_repo: Any, session_repo: Any
+    ) -> None:
         self._service = memory_service
         self._memory_repo = memory_repo
         self._session_repo = session_repo
 
-    async def get_dashboard_stats(self) -> Dict[str, Any]:
-        stats: Dict[str, Any] = {
+    async def get_dashboard_stats(self) -> dict[str, Any]:
+        stats: dict[str, Any] = {
             "system": await self._get_system_stats(),
             "memories": await self._get_memory_overview(),
             "knowledge_graph": await self._get_kg_overview(),
@@ -36,10 +38,10 @@ class DashboardService:
 
         return stats
 
-    async def get_memory_trend(self, days: int = 30) -> List[Dict[str, Any]]:
+    async def get_memory_trend(self, days: int = 30) -> list[dict[str, Any]]:
         return await self._memory_repo.get_trend(days)
 
-    async def _get_system_stats(self) -> Dict[str, Any]:
+    async def _get_system_stats(self) -> dict[str, Any]:
         result = await self._session_repo.get_session_stats()
         try:
             result["total_personas"] = len(self._service._user_personas)
@@ -47,8 +49,8 @@ class DashboardService:
             result["total_personas"] = 0
         return result
 
-    async def _get_memory_overview(self) -> Dict[str, Any]:
-        result: Dict[str, Any] = {
+    async def _get_memory_overview(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "total_count": 0,
             "by_layer": {"working": 0, "episodic": 0, "semantic": 0},
             "by_type": {},
@@ -65,8 +67,12 @@ class DashboardService:
                     for mem in memories or []:
                         mtype = getattr(mem, "type", None)
                         if mtype:
-                            mtype_val = mtype.value if hasattr(mtype, "value") else str(mtype)
-                            result["by_type"][mtype_val] = result["by_type"].get(mtype_val, 0) + 1
+                            mtype_val = (
+                                mtype.value if hasattr(mtype, "value") else str(mtype)
+                            )
+                            result["by_type"][mtype_val] = (
+                                result["by_type"].get(mtype_val, 0) + 1
+                            )
         except Exception as e:
             logger.debug(f"Working memory stats error: {e}")
 
@@ -100,8 +106,8 @@ class DashboardService:
 
         return result
 
-    async def _get_kg_overview(self) -> Dict[str, Any]:
-        result: Dict[str, Any] = {"nodes": 0, "edges": 0, "enabled": False}
+    async def _get_kg_overview(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"nodes": 0, "edges": 0, "enabled": False}
         try:
             kg = self._service.kg
             if kg and kg.enabled:

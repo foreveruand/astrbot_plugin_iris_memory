@@ -11,35 +11,37 @@
 - 依赖注入：通过构造函数接收所有依赖
 - 可测试：独立于 MemoryService 可单独测试
 """
+
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 from astrbot.api import AstrBotConfig
 from astrbot.api.star import Context
-
-from iris_memory.config import ConfigStore, get_store, init_store
-from iris_memory.core.constants import LogTemplates, UNLIMITED_BUDGET
-from iris_memory.services.modules.storage_module import StorageModule
+from iris_memory.config import ConfigStore, get_store
+from iris_memory.core.constants import UNLIMITED_BUDGET, LogTemplates
 from iris_memory.services.modules.analysis_module import AnalysisModule
-from iris_memory.services.modules.llm_enhanced_module import LLMEnhancedModule
 from iris_memory.services.modules.capture_module import CaptureModule
-from iris_memory.services.modules.retrieval_module import RetrievalModule
-from iris_memory.services.modules.proactive_module import ProactiveModule
-from iris_memory.services.modules.kg_module import KnowledgeGraphModule
 from iris_memory.services.modules.cooldown_module import CooldownModule
+from iris_memory.services.modules.kg_module import KnowledgeGraphModule
+from iris_memory.services.modules.llm_enhanced_module import LLMEnhancedModule
+from iris_memory.services.modules.proactive_module import ProactiveModule
+from iris_memory.services.modules.retrieval_module import RetrievalModule
+from iris_memory.services.modules.storage_module import StorageModule
 from iris_memory.services.shared_state import SharedState
 from iris_memory.utils.logger import get_logger
-from iris_memory.utils.member_utils import set_identity_service
 from iris_memory.utils.member_identity_service import MemberIdentityService
+from iris_memory.utils.member_utils import set_identity_service
 
 
 @dataclass
 class InitializerDeps:
     """初始化器依赖项"""
+
     context: Context
     config: AstrBotConfig
     plugin_data_path: Path
@@ -54,18 +56,21 @@ class InitializerDeps:
     kg: KnowledgeGraphModule = field(default_factory=KnowledgeGraphModule)
     cooldown: CooldownModule = field(default_factory=CooldownModule)
 
-    shared_state: SharedState = field(default_factory=lambda: SharedState(max_size=2000, max_recent_track=20))
+    shared_state: SharedState = field(
+        default_factory=lambda: SharedState(max_size=2000, max_recent_track=20)
+    )
 
 
 @dataclass
 class InitializerResult:
     """初始化结果"""
+
     modules: InitializerDeps
-    module_init_status: Dict[str, bool]
-    member_identity: Optional[MemberIdentityService] = None
-    image_analyzer: Optional[Any] = None
-    activity_tracker: Optional[Any] = None
-    activity_provider: Optional[Any] = None
+    module_init_status: dict[str, bool]
+    member_identity: MemberIdentityService | None = None
+    image_analyzer: Any | None = None
+    activity_tracker: Any | None = None
+    activity_provider: Any | None = None
 
 
 class ServiceInitializer:
@@ -78,16 +83,16 @@ class ServiceInitializer:
     def __init__(self, deps: InitializerDeps):
         self._deps = deps
         self._logger = get_logger("service_initializer")
-        self._module_init_status: Dict[str, bool] = {}
+        self._module_init_status: dict[str, bool] = {}
         self._init_lock: asyncio.Lock = asyncio.Lock()
 
-        self._member_identity: Optional[MemberIdentityService] = None
-        self._image_analyzer: Optional[Any] = None
-        self._activity_tracker: Optional[Any] = None
-        self._activity_provider: Optional[Any] = None
+        self._member_identity: MemberIdentityService | None = None
+        self._image_analyzer: Any | None = None
+        self._activity_tracker: Any | None = None
+        self._activity_provider: Any | None = None
 
     @property
-    def module_init_status(self) -> Dict[str, bool]:
+    def module_init_status(self) -> dict[str, bool]:
         return self._module_init_status
 
     async def initialize_all(self) -> InitializerResult:
@@ -164,8 +169,11 @@ class ServiceInitializer:
 
         # 使用 gather 并行执行，return_exceptions=True 确保一个失败不影响其他
         results = await asyncio.gather(
-            *[self._init_module_safe_parallel(name, fn) for name, fn in parallel_modules],
-            return_exceptions=True
+            *[
+                self._init_module_safe_parallel(name, fn)
+                for name, fn in parallel_modules
+            ],
+            return_exceptions=True,
         )
 
         # 记录结果
@@ -196,7 +204,9 @@ class ServiceInitializer:
         # 配置应用与其他初始化并行
         config_task = asyncio.create_task(self._apply_config())
         batch_task = asyncio.create_task(self._init_batch_processor_safe())
-        persona_batch_task = asyncio.create_task(self._init_persona_batch_processor_safe())
+        persona_batch_task = asyncio.create_task(
+            self._init_persona_batch_processor_safe()
+        )
 
         # 等待所有任务完成
         await config_task
@@ -207,6 +217,9 @@ class ServiceInitializer:
 
         persona_result = await persona_batch_task
         self._module_init_status["persona_batch_processor"] = persona_result
+
+        # Note: Scheduled tasks are initialized in MemoryService.initialize()
+        # after this initializer completes
 
     async def _init_batch_processor_safe(self) -> bool:
         """安全初始化批量处理器"""
@@ -294,12 +307,13 @@ class ServiceInitializer:
 
     async def _init_upgrade_evaluator(self) -> None:
         """初始化记忆升级评估器的 LLM provider"""
-        from iris_memory.core.upgrade_evaluator import UpgradeMode
 
         upgrade_mode = self._deps.cfg.get("memory.upgrade_mode", "rule")
 
         if upgrade_mode in ("llm", "hybrid"):
-            self._logger.debug(f"Initializing upgrade evaluator LLM provider (mode={upgrade_mode})")
+            self._logger.debug(
+                f"Initializing upgrade evaluator LLM provider (mode={upgrade_mode})"
+            )
 
             if not self._deps.llm_enhanced.llm_processor:
                 await self._deps.llm_enhanced.init_llm_processor(
@@ -308,7 +322,10 @@ class ServiceInitializer:
                     lifecycle_manager=None,
                 )
 
-            if self._deps.llm_enhanced.llm_processor and self._deps.storage.lifecycle_manager:
+            if (
+                self._deps.llm_enhanced.llm_processor
+                and self._deps.storage.lifecycle_manager
+            ):
                 self._deps.storage.lifecycle_manager.set_llm_provider(
                     self._deps.llm_enhanced.llm_processor
                 )
@@ -318,7 +335,9 @@ class ServiceInitializer:
 
     async def _init_knowledge_graph(self) -> None:
         """初始化知识图谱模块"""
-        self._logger.debug(LogTemplates.COMPONENT_INIT.format(component="knowledge graph"))
+        self._logger.debug(
+            LogTemplates.COMPONENT_INIT.format(component="knowledge graph")
+        )
 
         cfg = self._deps.cfg
         await self._deps.kg.initialize(
@@ -333,8 +352,12 @@ class ServiceInitializer:
             auto_maintenance=cfg.get("knowledge_graph.auto_maintenance", True),
             maintenance_interval=cfg.get("knowledge_graph.maintenance_interval", 86400),
             auto_cleanup_orphans=cfg.get("knowledge_graph.auto_cleanup_orphans", True),
-            auto_cleanup_low_confidence=cfg.get("knowledge_graph.auto_cleanup_low_confidence", True),
-            low_confidence_threshold=cfg.get("knowledge_graph.low_confidence_threshold", 0.2),
+            auto_cleanup_low_confidence=cfg.get(
+                "knowledge_graph.auto_cleanup_low_confidence", True
+            ),
+            low_confidence_threshold=cfg.get(
+                "knowledge_graph.low_confidence_threshold", 0.2
+            ),
             staleness_days=cfg.get("knowledge_graph.staleness_days", 30),
         )
 
@@ -345,14 +368,21 @@ class ServiceInitializer:
 
     async def _init_activity_adaptive(self) -> None:
         """初始化场景自适应组件"""
-        self._logger.debug(LogTemplates.COMPONENT_INIT.format(component="activity adaptive"))
+        self._logger.debug(
+            LogTemplates.COMPONENT_INIT.format(component="activity adaptive")
+        )
 
-        from iris_memory.core.activity_config import GroupActivityTracker, ActivityAwareConfigProvider
+        from iris_memory.core.activity_config import (
+            ActivityAwareConfigProvider,
+            GroupActivityTracker,
+        )
 
         self._activity_tracker = GroupActivityTracker()
 
         if self._deps.storage.session_manager:
-            self._deps.storage.session_manager._activity_tracker = self._activity_tracker
+            self._deps.storage.session_manager._activity_tracker = (
+                self._activity_tracker
+            )
 
         enabled = self._deps.cfg.get("activity_adaptive.enable", True)
         self._activity_provider = ActivityAwareConfigProvider(
@@ -365,13 +395,21 @@ class ServiceInitializer:
 
     async def _init_message_processing(self) -> None:
         """初始化分层消息处理组件"""
-        self._logger.debug(LogTemplates.COMPONENT_INIT.format(component="message processing"))
+        self._logger.debug(
+            LogTemplates.COMPONENT_INIT.format(component="message processing")
+        )
 
-        enable_batch = get_store().get("message_processing.batch_threshold_count", 20) > 0
+        enable_batch = (
+            get_store().get("message_processing.batch_threshold_count", 20) > 0
+        )
         use_llm = self._deps.cfg.get("memory.use_llm", False)
 
         if not enable_batch:
-            self._logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Batch processing"))
+            self._logger.debug(
+                LogTemplates.COMPONENT_INIT_DISABLED.format(
+                    component="Batch processing"
+                )
+            )
             return
 
         if use_llm and not self._deps.llm_enhanced.llm_processor:
@@ -411,37 +449,63 @@ class ServiceInitializer:
 
     async def _init_image_analyzer(self) -> None:
         """初始化图片分析器"""
-        self._logger.debug(LogTemplates.COMPONENT_INIT.format(component="image analyzer"))
+        self._logger.debug(
+            LogTemplates.COMPONENT_INIT.format(component="image analyzer")
+        )
 
         if not self._deps.cfg.get("image_analysis.enable", False):
-            self._logger.debug(LogTemplates.COMPONENT_INIT_DISABLED.format(component="Image analysis"))
+            self._logger.debug(
+                LogTemplates.COMPONENT_INIT_DISABLED.format(component="Image analysis")
+            )
             return
 
         from iris_memory.multimodal.image_analyzer import ImageAnalyzer
 
         daily_budget = self._deps.cfg.get("image_analysis.daily_budget", 100)
-        session_budget = self._deps.cfg.get("image_analysis.session_analysis_budget", 20)
+        session_budget = self._deps.cfg.get(
+            "image_analysis.session_analysis_budget", 20
+        )
 
         self._image_analyzer = ImageAnalyzer(
             astrbot_context=self._deps.context,
             config={
-                "enable_image_analysis": self._deps.cfg.get("image_analysis.enable", False),
+                "enable_image_analysis": self._deps.cfg.get(
+                    "image_analysis.enable", False
+                ),
                 "default_level": self._deps.cfg.get("image_analysis.mode", "auto"),
-                "max_images_per_message": self._deps.cfg.get("image_analysis.max_images_per_message", 2),
+                "max_images_per_message": self._deps.cfg.get(
+                    "image_analysis.max_images_per_message", 2
+                ),
                 "skip_sticker": get_store().get("image_analysis.skip_sticker"),
-                "analysis_cooldown": get_store().get("image_analysis.analysis_cooldown"),
+                "analysis_cooldown": get_store().get(
+                    "image_analysis.analysis_cooldown"
+                ),
                 "cache_ttl": get_store().get("image_analysis.cache_ttl"),
                 "max_cache_size": get_store().get("image_analysis.max_cache_size"),
-                "daily_analysis_budget": daily_budget if daily_budget > 0 else UNLIMITED_BUDGET,
-                "session_analysis_budget": session_budget if session_budget > 0 else UNLIMITED_BUDGET,
-                "similar_image_window": get_store().get("image_analysis.similar_image_window"),
-                "recent_image_limit": get_store().get("image_analysis.recent_image_limit"),
-                "require_context_relevance": self._deps.cfg.get("image_analysis.require_context_relevance", True),
+                "daily_analysis_budget": daily_budget
+                if daily_budget > 0
+                else UNLIMITED_BUDGET,
+                "session_analysis_budget": session_budget
+                if session_budget > 0
+                else UNLIMITED_BUDGET,
+                "similar_image_window": get_store().get(
+                    "image_analysis.similar_image_window"
+                ),
+                "recent_image_limit": get_store().get(
+                    "image_analysis.recent_image_limit"
+                ),
+                "require_context_relevance": self._deps.cfg.get(
+                    "image_analysis.require_context_relevance", True
+                ),
             },
-            provider_id=self._deps.cfg.get("llm_providers.image_analysis_provider_id", None),
+            provider_id=self._deps.cfg.get(
+                "llm_providers.image_analysis_provider_id", None
+            ),
         )
 
-        self._logger.debug(f"Image analyzer initialized: mode={self._deps.cfg.get('image_analysis.mode', 'detailed')}")
+        self._logger.debug(
+            f"Image analyzer initialized: mode={self._deps.cfg.get('image_analysis.mode', 'detailed')}"
+        )
 
     async def _apply_config(self) -> None:
         """将配置应用到各模块"""

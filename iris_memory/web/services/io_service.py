@@ -7,11 +7,11 @@ import io
 import json
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from iris_memory.core.types import MemoryType, StorageLayer
-from iris_memory.web.audit import audit_log
 from iris_memory.utils.logger import get_logger
+from iris_memory.web.audit import audit_log
 
 logger = get_logger("web.io_svc")
 
@@ -32,10 +32,10 @@ class IoService:
     async def export_memories(
         self,
         fmt: str = "json",
-        user_id: Optional[str] = None,
-        group_id: Optional[str] = None,
-        storage_layer: Optional[str] = None,
-    ) -> Tuple[str, str, str]:
+        user_id: str | None = None,
+        group_id: str | None = None,
+        storage_layer: str | None = None,
+    ) -> tuple[str, str, str]:
         """导出记忆数据，返回 (data_string, content_type, filename)"""
         try:
             chroma = self._service.chroma_manager
@@ -43,7 +43,7 @@ class IoService:
                 return "", "text/plain", "error.txt"
 
             collection = chroma.collection
-            where_clause: Dict[str, Any] = {}
+            where_clause: dict[str, Any] = {}
             if user_id:
                 where_clause["user_id"] = user_id
             if group_id:
@@ -59,15 +59,23 @@ class IoService:
 
             if not res["ids"]:
                 if fmt == "csv":
-                    return "id,content,user_id,type,storage_layer,created_time\n", "text/csv", "memories_empty.csv"
-                return json.dumps(
-                    {"memories": [], "exported_at": datetime.now().isoformat()},
-                    ensure_ascii=False,
-                ), "application/json", "memories_empty.json"
+                    return (
+                        "id,content,user_id,type,storage_layer,created_time\n",
+                        "text/csv",
+                        "memories_empty.csv",
+                    )
+                return (
+                    json.dumps(
+                        {"memories": [], "exported_at": datetime.now().isoformat()},
+                        ensure_ascii=False,
+                    ),
+                    "application/json",
+                    "memories_empty.json",
+                )
 
             items = []
             for i in range(min(len(res["ids"]), _EXPORT_MAX_MEMORIES)):
-                item: Dict[str, Any] = {
+                item: dict[str, Any] = {
                     "id": res["ids"][i],
                     "content": res["documents"][i] if res.get("documents") else "",
                 }
@@ -78,7 +86,11 @@ class IoService:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
             if fmt == "csv":
-                return self._memories_to_csv(items), "text/csv", f"memories_{timestamp}.csv"
+                return (
+                    self._memories_to_csv(items),
+                    "text/csv",
+                    f"memories_{timestamp}.csv",
+                )
 
             export_data = {
                 "version": "1.0",
@@ -103,8 +115,13 @@ class IoService:
 
     # ── 记忆导入 ──
 
-    async def import_memories(self, data: str, fmt: str = "json") -> Dict[str, Any]:
-        result: Dict[str, Any] = {"success_count": 0, "fail_count": 0, "errors": [], "skipped": 0}
+    async def import_memories(self, data: str, fmt: str = "json") -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "success_count": 0,
+            "fail_count": 0,
+            "errors": [],
+            "skipped": 0,
+        }
 
         try:
             chroma = self._service.chroma_manager
@@ -113,10 +130,16 @@ class IoService:
                 return result
 
             if len(data) > _IMPORT_MAX_FILE_SIZE:
-                result["errors"].append(f"文件过大，最大支持 {_IMPORT_MAX_FILE_SIZE // 1024 // 1024}MB")
+                result["errors"].append(
+                    f"文件过大，最大支持 {_IMPORT_MAX_FILE_SIZE // 1024 // 1024}MB"
+                )
                 return result
 
-            items = self._parse_csv_memories(data) if fmt == "csv" else self._parse_json_memories(data)
+            items = (
+                self._parse_csv_memories(data)
+                if fmt == "csv"
+                else self._parse_json_memories(data)
+            )
 
             if not items:
                 result["errors"].append("未解析到有效记忆数据")
@@ -139,7 +162,9 @@ class IoService:
                         user_id=item.get("user_id", "imported"),
                         sender_name=item.get("sender_name", ""),
                         group_id=item.get("group_id"),
-                        storage_layer=StorageLayer(item.get("storage_layer", "episodic")),
+                        storage_layer=StorageLayer(
+                            item.get("storage_layer", "episodic")
+                        ),
                         created_time=(
                             datetime.fromisoformat(item["created_time"])
                             if item.get("created_time")
@@ -171,7 +196,10 @@ class IoService:
             logger.error(f"Import memories error: {e}")
             result["errors"].append(f"导入失败: {e}")
 
-        audit_log("import_memories", f"success={result['success_count']} fail={result['fail_count']}")
+        audit_log(
+            "import_memories",
+            f"success={result['success_count']} fail={result['fail_count']}",
+        )
         return result
 
     # ── KG 导出 ──
@@ -179,24 +207,28 @@ class IoService:
     async def export_kg(
         self,
         fmt: str = "json",
-        user_id: Optional[str] = None,
-        group_id: Optional[str] = None,
-    ) -> Tuple[str, str, str]:
+        user_id: str | None = None,
+        group_id: str | None = None,
+    ) -> tuple[str, str, str]:
         try:
             kg = self._service.kg
             if not kg or not kg.enabled:
-                return json.dumps({"error": "知识图谱未启用"}), "application/json", "error.json"
+                return (
+                    json.dumps({"error": "知识图谱未启用"}),
+                    "application/json",
+                    "error.json",
+                )
 
             storage = kg.storage
-            nodes_data: List[Dict[str, Any]] = []
-            edges_data: List[Dict[str, Any]] = []
+            nodes_data: list[dict[str, Any]] = []
+            edges_data: list[dict[str, Any]] = []
 
             async with storage._lock:
                 assert storage._conn
 
                 sql_nodes = "SELECT * FROM kg_nodes"
-                params: List[Any] = []
-                conditions: List[str] = []
+                params: list[Any] = []
+                conditions: list[str] = []
                 if user_id:
                     conditions.append("user_id = ?")
                     params.append(user_id)
@@ -221,7 +253,11 @@ class IoService:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
             if fmt == "csv":
-                return self._kg_to_csv(nodes_data, edges_data), "text/csv", f"kg_{timestamp}.csv"
+                return (
+                    self._kg_to_csv(nodes_data, edges_data),
+                    "text/csv",
+                    f"kg_{timestamp}.csv",
+                )
 
             export_data = {
                 "version": "1.0",
@@ -241,8 +277,8 @@ class IoService:
 
     # ── KG 导入 ──
 
-    async def import_kg(self, data: str, fmt: str = "json") -> Dict[str, Any]:
-        result: Dict[str, Any] = {"success_count": 0, "fail_count": 0, "errors": []}
+    async def import_kg(self, data: str, fmt: str = "json") -> dict[str, Any]:
+        result: dict[str, Any] = {"success_count": 0, "fail_count": 0, "errors": []}
 
         try:
             kg = self._service.kg
@@ -251,14 +287,15 @@ class IoService:
                 return result
 
             if len(data) > _IMPORT_MAX_FILE_SIZE:
-                result["errors"].append(f"文件过大，最大支持 {_IMPORT_MAX_FILE_SIZE // 1024 // 1024}MB")
+                result["errors"].append(
+                    f"文件过大，最大支持 {_IMPORT_MAX_FILE_SIZE // 1024 // 1024}MB"
+                )
                 return result
 
             parsed = json.loads(data) if isinstance(data, str) else data
             nodes = parsed.get("nodes", [])
             edges = parsed.get("edges", [])
 
-            from iris_memory.knowledge_graph.kg_models import KGNode, KGEdge, KGNodeType, KGRelationType
 
             storage = kg.storage
             async with storage._lock:
@@ -275,7 +312,9 @@ class IoService:
                                     node_data.get("node_type", "concept"),
                                     node_data.get("user_id", "imported"),
                                     node_data.get("group_id"),
-                                    node_data.get("created_time", datetime.now().isoformat()),
+                                    node_data.get(
+                                        "created_time", datetime.now().isoformat()
+                                    ),
                                 ),
                             )
                             result["success_count"] += 1
@@ -295,7 +334,9 @@ class IoService:
                                     edge_data.get("relation_type", "related_to"),
                                     edge_data.get("user_id", "imported"),
                                     edge_data.get("group_id"),
-                                    edge_data.get("created_time", datetime.now().isoformat()),
+                                    edge_data.get(
+                                        "created_time", datetime.now().isoformat()
+                                    ),
                                 ),
                             )
                             result["success_count"] += 1
@@ -312,7 +353,10 @@ class IoService:
             logger.error(f"Import KG error: {e}")
             result["errors"].append(f"导入失败: {e}")
 
-        audit_log("import_kg", f"success={result['success_count']} fail={result['fail_count']}")
+        audit_log(
+            "import_kg",
+            f"success={result['success_count']} fail={result['fail_count']}",
+        )
         return result
 
     # ── 画像导出 ──
@@ -320,28 +364,38 @@ class IoService:
     async def export_personas(
         self,
         fmt: str = "json",
-        user_id: Optional[str] = None,
-    ) -> Tuple[str, str, str]:
+        user_id: str | None = None,
+    ) -> tuple[str, str, str]:
         """导出用户画像数据，返回 (data_string, content_type, filename)"""
         try:
             personas = self._service._user_personas
             if not personas:
                 if fmt == "csv":
-                    return "user_id,display_name,trust_level,intimacy_level,emotional_baseline,last_updated\n", "text/csv", "personas_empty.csv"
-                return json.dumps(
-                    {"personas": [], "exported_at": datetime.now().isoformat()},
-                    ensure_ascii=False,
-                ), "application/json", "personas_empty.json"
+                    return (
+                        "user_id,display_name,trust_level,intimacy_level,emotional_baseline,last_updated\n",
+                        "text/csv",
+                        "personas_empty.csv",
+                    )
+                return (
+                    json.dumps(
+                        {"personas": [], "exported_at": datetime.now().isoformat()},
+                        ensure_ascii=False,
+                    ),
+                    "application/json",
+                    "personas_empty.json",
+                )
 
             items = []
             for uid, persona in personas.items():
                 if user_id and uid != user_id:
                     continue
                 try:
-                    items.append({
-                        "user_id": uid,
-                        "persona_data": persona.to_dict(),
-                    })
+                    items.append(
+                        {
+                            "user_id": uid,
+                            "persona_data": persona.to_dict(),
+                        }
+                    )
                 except Exception as e:
                     logger.warning(f"Export persona {uid} failed: {e}")
                     continue
@@ -351,16 +405,28 @@ class IoService:
 
             if not items:
                 if fmt == "csv":
-                    return "user_id,display_name,trust_level,intimacy_level,emotional_baseline,last_updated\n", "text/csv", "personas_empty.csv"
-                return json.dumps(
-                    {"personas": [], "exported_at": datetime.now().isoformat()},
-                    ensure_ascii=False,
-                ), "application/json", "personas_empty.json"
+                    return (
+                        "user_id,display_name,trust_level,intimacy_level,emotional_baseline,last_updated\n",
+                        "text/csv",
+                        "personas_empty.csv",
+                    )
+                return (
+                    json.dumps(
+                        {"personas": [], "exported_at": datetime.now().isoformat()},
+                        ensure_ascii=False,
+                    ),
+                    "application/json",
+                    "personas_empty.json",
+                )
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
             if fmt == "csv":
-                return self._personas_to_csv(items), "text/csv", f"personas_{timestamp}.csv"
+                return (
+                    self._personas_to_csv(items),
+                    "text/csv",
+                    f"personas_{timestamp}.csv",
+                )
 
             export_data = {
                 "version": "1.0",
@@ -381,15 +447,26 @@ class IoService:
 
     # ── 画像导入 ──
 
-    async def import_personas(self, data: str, fmt: str = "json") -> Dict[str, Any]:
-        result: Dict[str, Any] = {"success_count": 0, "fail_count": 0, "errors": [], "skipped": 0}
+    async def import_personas(self, data: str, fmt: str = "json") -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "success_count": 0,
+            "fail_count": 0,
+            "errors": [],
+            "skipped": 0,
+        }
 
         try:
             if len(data) > _IMPORT_MAX_FILE_SIZE:
-                result["errors"].append(f"文件过大，最大支持 {_IMPORT_MAX_FILE_SIZE // 1024 // 1024}MB")
+                result["errors"].append(
+                    f"文件过大，最大支持 {_IMPORT_MAX_FILE_SIZE // 1024 // 1024}MB"
+                )
                 return result
 
-            items = self._parse_csv_personas(data) if fmt == "csv" else self._parse_json_personas(data)
+            items = (
+                self._parse_csv_personas(data)
+                if fmt == "csv"
+                else self._parse_json_personas(data)
+            )
 
             if not items:
                 result["errors"].append("未解析到有效画像数据")
@@ -436,7 +513,10 @@ class IoService:
             logger.error(f"Import personas error: {e}")
             result["errors"].append(f"导入失败: {e}")
 
-        audit_log("import_personas", f"success={result['success_count']} fail={result['fail_count']} skipped={result['skipped']}")
+        audit_log(
+            "import_personas",
+            f"success={result['success_count']} fail={result['fail_count']} skipped={result['skipped']}",
+        )
         return result
 
     # ── 导入预览 ──
@@ -446,10 +526,14 @@ class IoService:
         data: str,
         fmt: str = "json",
         import_type: str = "memories",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         try:
             if import_type == "memories":
-                items = self._parse_csv_memories(data) if fmt == "csv" else self._parse_json_memories(data)
+                items = (
+                    self._parse_csv_memories(data)
+                    if fmt == "csv"
+                    else self._parse_json_memories(data)
+                )
                 return {
                     "type": "memories",
                     "total": len(items),
@@ -457,7 +541,11 @@ class IoService:
                     "fields": list(items[0].keys()) if items else [],
                 }
             elif import_type == "personas":
-                items = self._parse_csv_personas(data) if fmt == "csv" else self._parse_json_personas(data)
+                items = (
+                    self._parse_csv_personas(data)
+                    if fmt == "csv"
+                    else self._parse_json_personas(data)
+                )
                 return {
                     "type": "personas",
                     "total": len(items),
@@ -481,12 +569,24 @@ class IoService:
     # ── 内部方法 ──
 
     @staticmethod
-    def _memories_to_csv(items: List[Dict[str, Any]]) -> str:
+    def _memories_to_csv(items: list[dict[str, Any]]) -> str:
         if not items:
             return "id,content,user_id,type,storage_layer,created_time\n"
 
         output = io.StringIO()
-        fieldnames = ["id", "content", "user_id", "group_id", "sender_name", "type", "storage_layer", "confidence", "importance_score", "created_time", "summary"]
+        fieldnames = [
+            "id",
+            "content",
+            "user_id",
+            "group_id",
+            "sender_name",
+            "type",
+            "storage_layer",
+            "confidence",
+            "importance_score",
+            "created_time",
+            "summary",
+        ]
         writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for item in items:
@@ -494,7 +594,7 @@ class IoService:
         return output.getvalue()
 
     @staticmethod
-    def _kg_to_csv(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> str:
+    def _kg_to_csv(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> str:
         output = io.StringIO()
         output.write("# NODES\n")
         if nodes:
@@ -511,7 +611,7 @@ class IoService:
         return output.getvalue()
 
     @staticmethod
-    def _parse_json_memories(data: str) -> List[Dict[str, Any]]:
+    def _parse_json_memories(data: str) -> list[dict[str, Any]]:
         try:
             parsed = json.loads(data) if isinstance(data, str) else data
             if isinstance(parsed, list):
@@ -523,7 +623,7 @@ class IoService:
             return []
 
     @staticmethod
-    def _parse_csv_memories(data: str) -> List[Dict[str, Any]]:
+    def _parse_csv_memories(data: str) -> list[dict[str, Any]]:
         try:
             reader = csv.DictReader(io.StringIO(data))
             return [dict(row) for row in reader]
@@ -531,7 +631,7 @@ class IoService:
             return []
 
     @staticmethod
-    def _validate_memory_import(item: Dict[str, Any]) -> Tuple[bool, str]:
+    def _validate_memory_import(item: dict[str, Any]) -> tuple[bool, str]:
         if not item.get("content"):
             return False, "缺少 content 字段"
         if len(item["content"]) > 10000:
@@ -539,12 +639,25 @@ class IoService:
         return True, ""
 
     @staticmethod
-    def _personas_to_csv(items: List[Dict[str, Any]]) -> str:
+    def _personas_to_csv(items: list[dict[str, Any]]) -> str:
         if not items:
             return "user_id,display_name,trust_level,intimacy_level,emotional_baseline,last_updated\n"
 
         output = io.StringIO()
-        fieldnames = ["user_id", "display_name", "trust_level", "intimacy_level", "emotional_baseline", "emotional_volatility", "work_style", "lifestyle", "social_style", "proactive_reply_preference", "last_updated", "update_count"]
+        fieldnames = [
+            "user_id",
+            "display_name",
+            "trust_level",
+            "intimacy_level",
+            "emotional_baseline",
+            "emotional_volatility",
+            "work_style",
+            "lifestyle",
+            "social_style",
+            "proactive_reply_preference",
+            "last_updated",
+            "update_count",
+        ]
         writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for item in items:
@@ -555,7 +668,7 @@ class IoService:
         return output.getvalue()
 
     @staticmethod
-    def _parse_json_personas(data: str) -> List[Dict[str, Any]]:
+    def _parse_json_personas(data: str) -> list[dict[str, Any]]:
         try:
             parsed = json.loads(data) if isinstance(data, str) else data
             if isinstance(parsed, list):
@@ -567,7 +680,7 @@ class IoService:
             return []
 
     @staticmethod
-    def _parse_csv_personas(data: str) -> List[Dict[str, Any]]:
+    def _parse_csv_personas(data: str) -> list[dict[str, Any]]:
         try:
             reader = csv.DictReader(io.StringIO(data))
             items = []
@@ -577,7 +690,12 @@ class IoService:
                     continue
                 persona_data = dict(row)
                 persona_data.pop("user_id", None)
-                for key in ["trust_level", "intimacy_level", "emotional_volatility", "proactive_reply_preference"]:
+                for key in [
+                    "trust_level",
+                    "intimacy_level",
+                    "emotional_volatility",
+                    "proactive_reply_preference",
+                ]:
                     if key in persona_data:
                         try:
                             persona_data[key] = float(persona_data[key])
@@ -595,7 +713,7 @@ class IoService:
             return []
 
     @staticmethod
-    def _validate_persona_import(item: Dict[str, Any]) -> Tuple[bool, str]:
+    def _validate_persona_import(item: dict[str, Any]) -> tuple[bool, str]:
         if not item.get("user_id"):
             return False, "缺少 user_id 字段"
         return True, ""

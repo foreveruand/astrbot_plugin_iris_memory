@@ -7,14 +7,15 @@ from typing import TYPE_CHECKING
 from quart import request
 
 from iris_memory.web.helpers import safe_int
-from iris_memory.web.response import error_response, success_response
+from iris_memory.web.response import success_response
 
 if TYPE_CHECKING:
     from quart import Quart
+
     from iris_memory.web.container import WebContainer
 
 
-def register_dashboard_routes(app: "Quart", container: "WebContainer") -> None:
+def register_dashboard_routes(app: Quart, container: WebContainer) -> None:
 
     @app.route("/api/v1/dashboard/stats", methods=["GET"])
     async def api_dashboard_stats():

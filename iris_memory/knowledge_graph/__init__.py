@@ -10,14 +10,14 @@
 - kg_context.py:   知识图谱结果格式化（注入 LLM 上下文）
 """
 
-from iris_memory.knowledge_graph.kg_models import KGNode, KGEdge, KGTriple
-from iris_memory.knowledge_graph.kg_storage import KGStorage
-from iris_memory.knowledge_graph.kg_extractor import KGExtractor
-from iris_memory.knowledge_graph.kg_reasoning import KGReasoning
-from iris_memory.knowledge_graph.kg_context import KGContextFormatter
-from iris_memory.knowledge_graph.kg_maintenance import KGMaintenanceManager
 from iris_memory.knowledge_graph.kg_consistency import KGConsistencyDetector
+from iris_memory.knowledge_graph.kg_context import KGContextFormatter
+from iris_memory.knowledge_graph.kg_extractor import KGExtractor
+from iris_memory.knowledge_graph.kg_maintenance import KGMaintenanceManager
+from iris_memory.knowledge_graph.kg_models import KGEdge, KGNode, KGTriple
 from iris_memory.knowledge_graph.kg_quality import KGQualityReporter
+from iris_memory.knowledge_graph.kg_reasoning import KGReasoning
+from iris_memory.knowledge_graph.kg_storage import KGStorage
 
 __all__ = [
     "KGNode",

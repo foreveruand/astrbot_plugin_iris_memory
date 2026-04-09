@@ -12,94 +12,100 @@
 - 使用组合模式拆分功能模块
 - message_merger.py: 消息合并和去重
 """
-import asyncio
-import time
-import re
-from typing import List, Dict, Any, Optional, Set, TYPE_CHECKING, Final, Callable, Tuple
-from dataclasses import dataclass, field
-from datetime import datetime
 
-from iris_memory.utils.logger import get_logger
-from iris_memory.utils.command_utils import SessionKeyBuilder
-from iris_memory.utils.rate_limiter import CooldownTracker
+import asyncio
+import re
+import time
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Final, Optional
+
 from iris_memory.capture.capture_engine import MemoryCaptureEngine
-from iris_memory.capture.message_merger import QueuedMessage, MessageMerger
-from iris_memory.models.memory import Memory
+from iris_memory.capture.message_merger import MessageMerger, QueuedMessage
+from iris_memory.core.constants import BatchProcessingMode, BatchSessionConfig
 from iris_memory.processing.llm_processor import LLMMessageProcessor, LLMSummaryResult
-from iris_memory.core.constants import BatchProcessingMode
-from iris_memory.core.constants import BatchSessionConfig
+from iris_memory.utils.command_utils import SessionKeyBuilder
+from iris_memory.utils.logger import get_logger
+from iris_memory.utils.rate_limiter import CooldownTracker
 
 if TYPE_CHECKING:
-    from iris_memory.proactive.manager import ProactiveManager
     from iris_memory.core.activity_config import ActivityAwareConfigProvider
+    from iris_memory.proactive.manager import ProactiveManager
 
 logger = get_logger("batch_processor")
 
 
 class MessageBatchProcessor:
     """消息批量处理器
-    
+
     核心优化：
     - 阈值：可配置数量的消息触发处理（默认从defaults读取）
     - 合并策略：短消息自动合并，批量只调用1次LLM
     - 摘要模式：将多条消息合并为1条摘要记忆
     """
-    
+
     AUTO_SAVE_INTERVAL: Final[int] = 60
-    DEFAULT_THRESHOLD_COUNT: Final[int] = 20  # schema default: message_processing.batch_threshold_count
+    DEFAULT_THRESHOLD_COUNT: Final[int] = (
+        20  # schema default: message_processing.batch_threshold_count
+    )
     DEFAULT_LLM_COOLDOWN: Final[int] = 60
     DEFAULT_SUMMARY_INTERVAL: Final[int] = 300
     MAX_TRACKED_SESSIONS: Final[int] = BatchSessionConfig.MAX_TRACKED_SESSIONS
     SESSION_EXPIRY_SECONDS: Final[int] = BatchSessionConfig.SESSION_EXPIRY_SECONDS
-    
+
     def __init__(
         self,
         capture_engine: MemoryCaptureEngine,
-        llm_processor: Optional[LLMMessageProcessor] = None,
-        proactive_manager: Optional['ProactiveManager'] = None,
+        llm_processor: LLMMessageProcessor | None = None,
+        proactive_manager: Optional["ProactiveManager"] = None,
         threshold_count: int = DEFAULT_THRESHOLD_COUNT,
         threshold_interval: int = 300,
         processing_mode: str = BatchProcessingMode.HYBRID,
         use_llm_summary: bool = False,
-        summary_prompt: Optional[str] = None,
-        on_save_callback: Optional[Callable[[], Any]] = None,
-        config: Optional[Dict[str, Any]] = None,
-        activity_provider: Optional['ActivityAwareConfigProvider'] = None
+        summary_prompt: str | None = None,
+        on_save_callback: Callable[[], Any] | None = None,
+        config: dict[str, Any] | None = None,
+        activity_provider: Optional["ActivityAwareConfigProvider"] = None,
     ) -> None:
         self.capture_engine: MemoryCaptureEngine = capture_engine
-        self.llm_processor: Optional[LLMMessageProcessor] = llm_processor
-        self.proactive_manager: Optional['ProactiveManager'] = proactive_manager
+        self.llm_processor: LLMMessageProcessor | None = llm_processor
+        self.proactive_manager: ProactiveManager | None = proactive_manager
         self.threshold_count: int = threshold_count
         self.threshold_interval: int = threshold_interval
         self.processing_mode: str = processing_mode
         self.use_llm_summary: bool = use_llm_summary
-        self.summary_prompt: Optional[str] = summary_prompt
-        self.on_save_callback: Optional[Callable[[], Any]] = on_save_callback
-        self._activity_provider: Optional['ActivityAwareConfigProvider'] = activity_provider
-        
-        cfg: Dict[str, Any] = config or {}
-        
+        self.summary_prompt: str | None = summary_prompt
+        self.on_save_callback: Callable[[], Any] | None = on_save_callback
+        self._activity_provider: ActivityAwareConfigProvider | None = (
+            activity_provider
+        )
+
+        cfg: dict[str, Any] = config or {}
+
         self._merger = MessageMerger(
             short_message_threshold=cfg.get("short_message_threshold", 15),
             merge_time_window=cfg.get("merge_time_window", 60),
-            max_merge_count=cfg.get("max_merge_count", 5)
+            max_merge_count=cfg.get("max_merge_count", 5),
         )
-        
-        self.llm_cooldown_seconds: int = cfg.get("llm_cooldown_seconds", self.DEFAULT_LLM_COOLDOWN)
-        self.summary_interval_seconds: int = cfg.get("summary_interval_seconds", self.DEFAULT_SUMMARY_INTERVAL)
-        
-        self.message_queues: Dict[str, List[QueuedMessage]] = {}
-        self.last_process_time: Dict[str, float] = {}
+
+        self.llm_cooldown_seconds: int = cfg.get(
+            "llm_cooldown_seconds", self.DEFAULT_LLM_COOLDOWN
+        )
+        self.summary_interval_seconds: int = cfg.get(
+            "summary_interval_seconds", self.DEFAULT_SUMMARY_INTERVAL
+        )
+
+        self.message_queues: dict[str, list[QueuedMessage]] = {}
+        self.last_process_time: dict[str, float] = {}
         self._llm_cooldown = CooldownTracker(self.llm_cooldown_seconds)
         self._summary_cooldown = CooldownTracker(self.summary_interval_seconds)
-        
-        self.cleanup_task: Optional[asyncio.Task] = None
-        self.auto_save_task: Optional[asyncio.Task] = None
+
+        self.cleanup_task: asyncio.Task | None = None
+        self.auto_save_task: asyncio.Task | None = None
         self.is_running: bool = False
         self._last_save_time: float = time.time()
         self._dirty: bool = False
-        
-        self.stats: Dict[str, int] = {
+
+        self.stats: dict[str, int] = {
             "batches_processed": 0,
             "messages_processed": 0,
             "messages_merged": 0,
@@ -110,7 +116,7 @@ class MessageBatchProcessor:
             "llm_calls_skipped": 0,
             "messages_deduped": 0,
         }
-    
+
     async def start(self) -> None:
         """启动处理器"""
         self.is_running = True
@@ -120,12 +126,12 @@ class MessageBatchProcessor:
             f"MessageBatchProcessor started (threshold={self.threshold_count}, "
             f"LLM: {self.use_llm_summary})"
         )
-    
+
     async def stop(self) -> None:
         """停止处理器（热更新友好）"""
         logger.debug("[Hot-Reload] Stopping MessageBatchProcessor...")
         self.is_running = False
-        
+
         if self.cleanup_task:
             self.cleanup_task.cancel()
             try:
@@ -133,7 +139,7 @@ class MessageBatchProcessor:
             except asyncio.CancelledError:
                 pass
             self.cleanup_task = None
-        
+
         if self.auto_save_task:
             self.auto_save_task.cancel()
             try:
@@ -141,45 +147,47 @@ class MessageBatchProcessor:
             except asyncio.CancelledError:
                 pass
             self.auto_save_task = None
-        
+
         try:
             await self._process_all_queues()
             await self._trigger_save()
         except Exception as e:
-            logger.warning(f"[Hot-Reload] Error processing remaining queues during stop: {e}")
-        
+            logger.warning(
+                f"[Hot-Reload] Error processing remaining queues during stop: {e}"
+            )
+
         logger.debug("[Hot-Reload] MessageBatchProcessor stopped")
-    
+
     def _check_llm_cooldown(self, session_key: str) -> bool:
         """检查LLM冷却时间"""
         return self._llm_cooldown.is_ready(session_key)
-    
+
     def _record_llm_call(self, session_key: str):
         """记录LLM调用时间"""
         self._llm_cooldown.record(session_key)
         self.stats["llm_calls"] += 1
-    
+
     def _check_summary_cooldown(self, session_key: str) -> bool:
         """检查摘要生成冷却时间"""
         return self._summary_cooldown.is_ready(session_key)
-    
+
     def _record_summary(self, session_key: str):
         """记录摘要生成时间"""
         self._summary_cooldown.record(session_key)
-    
+
     async def add_message(
         self,
         content: str,
         user_id: str,
-        sender_name: Optional[str] = None,
-        group_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
+        sender_name: str | None = None,
+        group_id: str | None = None,
+        context: dict[str, Any] | None = None,
         umo: str = "",
-        persona_id: str = "default"
+        persona_id: str = "default",
     ) -> bool:
         """添加消息到队列"""
         session_key = SessionKeyBuilder.build(user_id, group_id)
-        
+
         if session_key not in self.message_queues:
             # 新会话加入前，检查是否超出会话限额，主动清理过期会话
             if len(self.last_process_time) >= self.MAX_TRACKED_SESSIONS:
@@ -189,33 +197,35 @@ class MessageBatchProcessor:
                 self._evict_oldest_sessions()
             self.message_queues[session_key] = []
             self.last_process_time[session_key] = time.time()
-        
-        self.message_queues[session_key].append(QueuedMessage(
-            content=content,
-            user_id=user_id,
-            sender_name=sender_name,
-            group_id=group_id,
-            context=context or {},
-            umo=umo,
-            persona_id=persona_id,
-        ))
-        
+
+        self.message_queues[session_key].append(
+            QueuedMessage(
+                content=content,
+                user_id=user_id,
+                sender_name=sender_name,
+                group_id=group_id,
+                context=context or {},
+                umo=umo,
+                persona_id=persona_id,
+            )
+        )
+
         self._dirty = True
         self.stats["messages_processed"] += 1
-        
+
         logger.debug(
             f"Message queued for {session_key}, "
             f"queue size: {len(self.message_queues[session_key])}"
         )
-        
+
         should_process = await self._check_threshold(session_key)
         if should_process:
             await self._process_queue(session_key)
             return True
-        
+
         return False
-    
-    def _extract_group_id(self, session_key: str) -> Optional[str]:
+
+    def _extract_group_id(self, session_key: str) -> str | None:
         """从 session_key 中提取 group_id"""
         if ":" in session_key:
             parts = session_key.split(":", 1)
@@ -223,85 +233,90 @@ class MessageBatchProcessor:
             if gid and gid != "private":
                 return gid
         return None
-    
+
     def _get_threshold_count(self, session_key: str) -> int:
         """获取会话的批量处理数量阈值"""
         if self._activity_provider:
             group_id = self._extract_group_id(session_key)
             return self._activity_provider.get_batch_threshold_count(group_id)
         return self.threshold_count
-    
+
     def _get_threshold_interval(self, session_key: str) -> int:
         """获取会话的批量处理时间间隔"""
         if self._activity_provider:
             group_id = self._extract_group_id(session_key)
             return self._activity_provider.get_batch_threshold_interval(group_id)
         return self.threshold_interval
-    
+
     async def _check_threshold(self, session_key: str) -> bool:
         """检查是否达到处理阈值"""
         queue = self.message_queues.get(session_key, [])
         last_time = self.last_process_time.get(session_key, 0)
-        
+
         count_threshold = self._get_threshold_count(session_key)
         interval_threshold = self._get_threshold_interval(session_key)
-        
+
         if len(queue) >= count_threshold:
             return True
-        
+
         if time.time() - last_time >= interval_threshold:
             return True
-        
+
         return False
-    
+
     async def _cleanup_loop(self):
         """清理循环：处理超时队列 + 清理过期会话"""
         # 清理间隔上限 30 秒，避免 threshold_interval 太大时清理不及时
         check_interval = max(1, min(30, self.threshold_interval / 2))
-        
+
         while self.is_running:
             try:
                 await asyncio.sleep(check_interval)
-                
+
                 current_time = time.time()
-                stale_keys: List[str] = []
-                
+                stale_keys: list[str] = []
+
                 for session_key in list(self.message_queues.keys()):
                     interval = self._get_threshold_interval(session_key)
                     last_time = self.last_process_time.get(session_key, 0)
-                    
+
                     if current_time - last_time >= interval:
                         if self.message_queues[session_key]:
                             await self._process_queue(session_key)
-                    
+
                     # 标记过期会话（队列为空且超过过期时间）
-                    if (not self.message_queues.get(session_key)
-                            and current_time - last_time >= self.SESSION_EXPIRY_SECONDS):
+                    if (
+                        not self.message_queues.get(session_key)
+                        and current_time - last_time >= self.SESSION_EXPIRY_SECONDS
+                    ):
                         stale_keys.append(session_key)
-                
+
                 # 清理过期会话
                 if stale_keys:
                     for key in stale_keys:
                         self.message_queues.pop(key, None)
                         self.last_process_time.pop(key, None)
                     logger.debug(f"Evicted {len(stale_keys)} stale session(s)")
-                
+
                 # 如果会话数仍超过上限，清理最旧的空队列
                 if len(self.last_process_time) > self.MAX_TRACKED_SESSIONS:
                     self._evict_oldest_sessions()
-                            
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Cleanup loop error: {e}")
-    
+
     def _evict_expired_sessions(self) -> None:
         """清理过期的空队列会话（无需等待 cleanup_loop 的定期扫描）"""
         current_time = time.time()
         expired_keys = [
-            key for key, ts in self.last_process_time.items()
-            if (current_time - ts >= self.SESSION_EXPIRY_SECONDS
-                and not self.message_queues.get(key))
+            key
+            for key, ts in self.last_process_time.items()
+            if (
+                current_time - ts >= self.SESSION_EXPIRY_SECONDS
+                and not self.message_queues.get(key)
+            )
         ]
         for key in expired_keys:
             self.message_queues.pop(key, None)
@@ -323,46 +338,52 @@ class MessageBatchProcessor:
                 self.last_process_time.pop(key, None)
                 evicted += 1
         if evicted > 0:
-            logger.debug(f"Evicted {evicted} oldest idle session(s) (cap={self.MAX_TRACKED_SESSIONS})")
-    
+            logger.debug(
+                f"Evicted {evicted} oldest idle session(s) (cap={self.MAX_TRACKED_SESSIONS})"
+            )
+
     async def _process_queue(self, session_key: str):
         """处理指定队列"""
         queue = self.message_queues.get(session_key, [])
         if not queue:
             return
-        
+
         self.stats["batches_processed"] += 1
         original_count = len(queue)
-        
-        logger.debug(f"Processing batch for {session_key}, original count: {original_count}")
-        
+
+        logger.debug(
+            f"Processing batch for {session_key}, original count: {original_count}"
+        )
+
         try:
             queue = self._merger.deduplicate_messages(queue)
             queue = self._merger.merge_short_messages(queue)
-            
+
             merged_count = len(queue)
-            logger.debug(f"After merge: {merged_count} messages (merged {original_count - merged_count})")
-            
+            logger.debug(
+                f"After merge: {merged_count} messages (merged {original_count - merged_count})"
+            )
+
             if self.processing_mode == "summary":
                 await self._process_summary_mode(session_key, queue)
             elif self.processing_mode == "filter":
                 await self._process_filter_mode(session_key, queue)
             else:
                 await self._process_hybrid_mode(session_key, queue)
-            
+
             await self._trigger_proactive_reply(queue)
-            
+
         except Exception as e:
             logger.error(f"Batch processing failed: {e}")
         finally:
             self.message_queues[session_key] = []
             self.last_process_time[session_key] = time.time()
-            
+
             merger_stats = self._merger.get_stats()
             self.stats["messages_merged"] = merger_stats["messages_merged"]
             self.stats["messages_deduped"] = merger_stats["messages_deduped"]
-    
-    async def _process_summary_mode(self, session_key: str, queue: List[QueuedMessage]):
+
+    async def _process_summary_mode(self, session_key: str, queue: list[QueuedMessage]):
         """摘要模式"""
         if len(queue) < 2:
             for msg in queue:
@@ -371,53 +392,59 @@ class MessageBatchProcessor:
                     user_id=msg.user_id,
                     group_id=msg.group_id,
                     context=msg.context,
-                    sender_name=msg.sender_name
+                    sender_name=msg.sender_name,
                 )
             return
-        
+
         can_use_llm = (
-            self.use_llm_summary 
-            and self.llm_processor 
+            self.use_llm_summary
+            and self.llm_processor
             and self._check_llm_cooldown(session_key)
         )
-        
+
         if can_use_llm:
             self._record_llm_call(session_key)
             summary_result = await self._generate_llm_summary(queue)
-            
+
             if summary_result:
                 await self._capture_summary_memory(
-                    session_key, queue, summary_result.summary,
-                    source="llm", metadata={
+                    session_key,
+                    queue,
+                    summary_result.summary,
+                    source="llm",
+                    metadata={
                         "key_points": summary_result.key_points,
                         "preferences": summary_result.user_preferences,
                         "message_count": len(queue),
-                        "llm_calls": 1
-                    }
+                        "llm_calls": 1,
+                    },
                 )
                 self._record_summary(session_key)
                 return
-        
+
         messages = [m.content for m in queue]
         summary = self._generate_local_summary(messages)
         await self._capture_summary_memory(
-            session_key, queue, summary,
-            source="local", metadata={"message_count": len(queue)}
+            session_key,
+            queue,
+            summary,
+            source="local",
+            metadata={"message_count": len(queue)},
         )
         self._record_summary(session_key)
-    
-    async def _process_filter_mode(self, session_key: str, queue: List[QueuedMessage]):
+
+    async def _process_filter_mode(self, session_key: str, queue: list[QueuedMessage]):
         """筛选模式"""
         can_use_llm = (
-            self.use_llm_summary 
-            and self.llm_processor 
+            self.use_llm_summary
+            and self.llm_processor
             and self._check_llm_cooldown(session_key)
         )
-        
+
         if can_use_llm and len(queue) >= 5:
             self._record_llm_call(session_key)
             high_value_indices = await self._batch_classify_with_llm(queue)
-            
+
             for i, msg in enumerate(queue):
                 if i in high_value_indices:
                     await self.capture_engine.capture_memory(
@@ -425,7 +452,7 @@ class MessageBatchProcessor:
                         user_id=msg.user_id,
                         group_id=msg.group_id,
                         context={**msg.context, "llm_selected": True},
-                        sender_name=msg.sender_name
+                        sender_name=msg.sender_name,
                     )
                 elif self._is_high_value_message(msg):
                     await self.capture_engine.capture_memory(
@@ -433,7 +460,7 @@ class MessageBatchProcessor:
                         user_id=msg.user_id,
                         group_id=msg.group_id,
                         context=msg.context,
-                        sender_name=msg.sender_name
+                        sender_name=msg.sender_name,
                     )
         else:
             for msg in queue:
@@ -443,61 +470,61 @@ class MessageBatchProcessor:
                         user_id=msg.user_id,
                         group_id=msg.group_id,
                         context=msg.context,
-                        sender_name=msg.sender_name
+                        sender_name=msg.sender_name,
                     )
-    
-    async def _process_hybrid_mode(self, session_key: str, queue: List[QueuedMessage]):
+
+    async def _process_hybrid_mode(self, session_key: str, queue: list[QueuedMessage]):
         """混合模式"""
         can_use_llm = (
-            self.use_llm_summary 
-            and self.llm_processor 
+            self.use_llm_summary
+            and self.llm_processor
             and self._check_llm_cooldown(session_key)
         )
-        
+
         high_value_indices = set()
-        
+
         if can_use_llm and len(queue) >= 5:
             self._record_llm_call(session_key)
             high_value_indices = await self._batch_classify_with_llm(queue)
-        
+
         captured_count = 0
         for i, msg in enumerate(queue):
             is_high = i in high_value_indices or self._is_high_value_message(msg)
-            
+
             try:
                 memory = await self.capture_engine.capture_memory(
                     message=msg.content,
                     user_id=msg.user_id,
                     group_id=msg.group_id,
                     context={
-                        **msg.context, 
-                        "batch_processed": True, 
+                        **msg.context,
+                        "batch_processed": True,
                         "high_value": is_high,
-                        "llm_used": i in high_value_indices
+                        "llm_used": i in high_value_indices,
                     },
-                    sender_name=msg.sender_name
+                    sender_name=msg.sender_name,
                 )
                 if memory:
                     captured_count += 1
             except Exception as e:
                 logger.warning(f"Failed to capture memory: {e}")
-        
+
         if captured_count > 0:
             logger.debug(f"Batch capture: {captured_count}/{len(queue)} messages")
-        
+
         if len(queue) >= 2 and self._check_summary_cooldown(session_key):
             await self._process_summary_mode(session_key, queue)
-    
-    async def _batch_classify_with_llm(self, queue: List[QueuedMessage]) -> Set[int]:
+
+    async def _batch_classify_with_llm(self, queue: list[QueuedMessage]) -> set[int]:
         """批量分类"""
-        if not self.llm_processor or not hasattr(self.llm_processor, '_call_llm'):
+        if not self.llm_processor or not hasattr(self.llm_processor, "_call_llm"):
             return set()
-        
+
         try:
-            messages_text = "\n".join([
-                f"[{i}] {msg.content}" for i, msg in enumerate(queue)
-            ])
-            
+            messages_text = "\n".join(
+                [f"[{i}] {msg.content}" for i, msg in enumerate(queue)]
+            )
+
             prompt = f"""请分析以下{len(queue)}条消息，判断哪些是高价值消息（需要立即保存）。
 
 消息列表：
@@ -513,96 +540,98 @@ class MessageBatchProcessor:
 回复格式：0, 2, 5"""
 
             response = await self.llm_processor._call_llm(prompt, max_tokens=100)
-            
+
             if not response:
                 return set()
-            
+
             response_clean = response.strip().lower()
             if response_clean == "none" or not response_clean:
                 return set()
-            
-            indices: Set[int] = set()
-            for num in re.findall(r'\d+', response_clean):
+
+            indices: set[int] = set()
+            for num in re.findall(r"\d+", response_clean):
                 idx = int(num)
                 if 0 <= idx < len(queue):
                     indices.add(idx)
-            
-            logger.debug(f"Batch LLM classified {len(indices)}/{len(queue)} as high value")
+
+            logger.debug(
+                f"Batch LLM classified {len(indices)}/{len(queue)} as high value"
+            )
             return indices
-            
+
         except Exception as e:
             logger.warning(f"Batch LLM classification failed: {e}")
             return set()
-    
+
     def _is_high_value_message(self, msg: QueuedMessage) -> bool:
         """判断消息是否高价值"""
         content = msg.content
-        
+
         high_value_patterns = [
-            r'我(喜欢|讨厌|爱|恨)',
-            r'我(想|要|打算|计划)',
-            r'记住',
-            r'别忘了',
-            r'重要',
-            r'生日',
-            r'电话',
-            r'地址',
+            r"我(喜欢|讨厌|爱|恨)",
+            r"我(想|要|打算|计划)",
+            r"记住",
+            r"别忘了",
+            r"重要",
+            r"生日",
+            r"电话",
+            r"地址",
         ]
-        
+
         for pattern in high_value_patterns:
             if re.search(pattern, content):
                 return True
-        
+
         if len(content) > 100:
             return True
-        
+
         return False
-    
-    async def _generate_llm_summary(self, queue: List[QueuedMessage]) -> Optional[LLMSummaryResult]:
+
+    async def _generate_llm_summary(
+        self, queue: list[QueuedMessage]
+    ) -> LLMSummaryResult | None:
         """使用LLM生成摘要"""
         if not self.llm_processor or not self.llm_processor.is_available():
             return None
-        
+
         messages = [msg.content for msg in queue]
         first_msg = queue[0]
-        
+
         context = {
             "user_persona": first_msg.context.get("user_persona", {}),
         }
-        
+
         return await self.llm_processor.generate_summary(
-            messages=messages,
-            user_id=first_msg.user_id,
-            context=context
+            messages=messages, user_id=first_msg.user_id, context=context
         )
-    
-    def _generate_local_summary(self, messages: List[str]) -> str:
+
+    def _generate_local_summary(self, messages: list[str]) -> str:
         """生成本地摘要"""
         if not messages:
             return ""
-        
+
         if len(messages) == 1:
             return messages[0]
-        
+
         total_len = sum(len(m) for m in messages)
         avg_len = total_len / len(messages)
-        
+
         if avg_len < 20:
             return f"用户连续发送了{len(messages)}条短消息：" + " ".join(messages[:3])
         else:
             return f"用户发送了{len(messages)}条消息，内容涉及：" + messages[0][:50]
-    
+
     async def _capture_summary_memory(
         self,
         session_key: str,
-        queue: List[QueuedMessage],
+        queue: list[QueuedMessage],
         summary: str,
         source: str,
-        metadata: Dict[str, Any]
+        metadata: dict[str, Any],
     ):
         """捕获摘要记忆"""
         first_msg = queue[0]
-        
+
         await self.capture_engine.capture_memory(
             message=summary,
             user_id=first_msg.user_id,
@@ -611,17 +640,17 @@ class MessageBatchProcessor:
                 **first_msg.context,
                 "summary": True,
                 "summary_source": source,
-                **metadata
+                **metadata,
             },
-            sender_name=first_msg.sender_name
+            sender_name=first_msg.sender_name,
         )
-        
+
         if source == "llm":
             self.stats["llm_summaries"] += 1
         else:
             self.stats["local_summaries"] += 1
-    
-    async def _trigger_proactive_reply(self, queue: List[QueuedMessage]):
+
+    async def _trigger_proactive_reply(self, queue: list[QueuedMessage]):
         """触发主动回复检查"""
         if not self.proactive_manager or not queue:
             return
@@ -654,40 +683,40 @@ class MessageBatchProcessor:
             )
         except Exception as e:
             logger.warning(f"Proactive reply check failed: {e}")
-    
+
     async def _process_all_queues(self):
         """处理所有队列"""
         for session_key in list(self.message_queues.keys()):
             if self.message_queues[session_key]:
                 await self._process_queue(session_key)
-    
+
     async def _auto_save_loop(self):
         """自动保存循环"""
         while self.is_running:
             try:
                 await asyncio.sleep(self.AUTO_SAVE_INTERVAL)
-                
+
                 if self._dirty:
                     await self._trigger_save()
                     self._dirty = False
                     self.stats["auto_saves"] += 1
-                    
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Auto save loop error: {e}")
-    
+
     async def _trigger_save(self):
         """触发保存回调"""
         if self.on_save_callback:
             try:
                 result = self.on_save_callback()
-                if hasattr(result, '__await__'):
+                if hasattr(result, "__await__"):
                     await result
             except Exception as e:
                 logger.warning(f"Save callback failed: {e}")
-    
-    async def serialize_queues(self) -> Dict[str, Any]:
+
+    async def serialize_queues(self) -> dict[str, Any]:
         """序列化队列"""
         return {
             "queues": {
@@ -701,38 +730,39 @@ class MessageBatchProcessor:
                         "context": self._serialize_context(m.context),
                         "umo": m.umo,
                         "is_merged": m.is_merged,
-                        "original_messages": m.original_messages
+                        "original_messages": m.original_messages,
                     }
                     for m in v
                 ]
                 for k, v in self.message_queues.items()
             },
-            "last_process_time": self.last_process_time
+            "last_process_time": self.last_process_time,
         }
-    
-    def _serialize_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _serialize_context(self, context: dict[str, Any]) -> dict[str, Any]:
         """序列化 context 字典，过滤掉无法 JSON 序列化的对象
-        
+
         Args:
             context: 原始 context 字典
-            
+
         Returns:
             Dict[str, Any]: 可序列化的 context 字典
         """
         if not isinstance(context, dict):
             return {}
-        
+
         result = {}
         for key, value in context.items():
             try:
                 import json
+
                 json.dumps(value)
                 result[key] = value
             except (TypeError, ValueError):
                 result[key] = str(type(value).__name__)
         return result
-    
-    async def deserialize_queues(self, data: Dict[str, Any]) -> None:
+
+    async def deserialize_queues(self, data: dict[str, Any]) -> None:
         """反序列化队列"""
         queues = data.get("queues", {})
         for session_key, messages in queues.items():
@@ -746,13 +776,13 @@ class MessageBatchProcessor:
                     context=m.get("context", {}),
                     umo=m.get("umo", ""),
                     is_merged=m.get("is_merged", False),
-                    original_messages=m.get("original_messages", [])
+                    original_messages=m.get("original_messages", []),
                 )
                 for m in messages
             ]
-        
+
         self.last_process_time = data.get("last_process_time", {})
-    
-    def get_stats(self) -> Dict[str, int]:
+
+    def get_stats(self) -> dict[str, int]:
         """获取统计信息"""
         return self.stats.copy()

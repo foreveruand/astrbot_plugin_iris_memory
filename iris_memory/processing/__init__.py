@@ -11,37 +11,34 @@
 检测基类统一由 iris_memory.core.detection 提供。
 """
 
-from .llm_processor import (
-    LLMMessageProcessor,
-    LLMClassificationResult,
-    LLMSummaryResult
-)
-from .message_processor import MessageProcessor, ErrorFriendlyProcessor
-from .markdown_stripper import MarkdownStripper, T2IConfigReader
-
-# Re-exported from core for backward compatibility
-from iris_memory.core.upgrade_evaluator import (
-    UpgradeEvaluator,
-    UpgradeMode
-)
-
 from iris_memory.core.detection.base_result import BaseDetectionResult
 from iris_memory.core.detection.llm_enhanced_base import (
-    LLMEnhancedDetector,
     DetectionMode,
+    LLMEnhancedDetector,
 )
 
+# Re-exported from core for backward compatibility
+from iris_memory.core.upgrade_evaluator import UpgradeEvaluator, UpgradeMode
+
+from .llm_processor import (
+    LLMClassificationResult,
+    LLMMessageProcessor,
+    LLMSummaryResult,
+)
+from .markdown_stripper import MarkdownStripper, T2IConfigReader
+from .message_processor import ErrorFriendlyProcessor, MessageProcessor
+
 __all__ = [
-    'LLMMessageProcessor',
-    'LLMClassificationResult',
-    'LLMSummaryResult',
-    'MessageProcessor',
-    'ErrorFriendlyProcessor',
-    'MarkdownStripper',
-    'T2IConfigReader',
-    'UpgradeEvaluator',
-    'UpgradeMode',
-    'BaseDetectionResult',
-    'LLMEnhancedDetector',
-    'DetectionMode',
+    "LLMMessageProcessor",
+    "LLMClassificationResult",
+    "LLMSummaryResult",
+    "MessageProcessor",
+    "ErrorFriendlyProcessor",
+    "MarkdownStripper",
+    "T2IConfigReader",
+    "UpgradeEvaluator",
+    "UpgradeMode",
+    "BaseDetectionResult",
+    "LLMEnhancedDetector",
+    "DetectionMode",
 ]

@@ -7,7 +7,7 @@ PersonaView - 画像注入视图生成 + Dict 兼容接口
 
 from __future__ import annotations
 
-from typing import Any, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from iris_memory.core.constants import DEFAULT_EMOTION
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from iris_memory.models.user_persona import UserPersona
 
 
-def build_injection_view(persona: "UserPersona") -> Dict[str, Any]:
+def build_injection_view(persona: UserPersona) -> dict[str, Any]:
     """生成精简的画像视图（供 prompt 注入使用，不含审计日志）
 
     情感字段通过委托访问器从 EmotionalState 读取（如果已绑定）。
@@ -26,7 +26,7 @@ def build_injection_view(persona: "UserPersona") -> Dict[str, Any]:
     Returns:
         精简字典视图
     """
-    view: Dict[str, Any] = {}
+    view: dict[str, Any] = {}
 
     emotional_baseline = persona.get_emotional_baseline()
     emotional_trajectory = persona.get_emotional_trajectory()
@@ -34,7 +34,7 @@ def build_injection_view(persona: "UserPersona") -> Dict[str, Any]:
     negative_ratio = persona.get_negative_ratio()
 
     if emotional_baseline != DEFAULT_EMOTION or emotional_trajectory:
-        emotional: Dict[str, Any] = {
+        emotional: dict[str, Any] = {
             "baseline": emotional_baseline,
             "trajectory": emotional_trajectory,
             "volatility": round(emotional_volatility, 2),
@@ -54,7 +54,7 @@ def build_injection_view(persona: "UserPersona") -> Dict[str, Any]:
         view["habits"] = persona.habits[:10]
 
     # 工作维度
-    work: Dict[str, Any] = {}
+    work: dict[str, Any] = {}
     if persona.work_style:
         work["style"] = persona.work_style
     if persona.work_goals:
@@ -67,7 +67,7 @@ def build_injection_view(persona: "UserPersona") -> Dict[str, Any]:
         view["work"] = work
 
     # 生活维度
-    life: Dict[str, Any] = {}
+    life: dict[str, Any] = {}
     if persona.lifestyle:
         life["style"] = persona.lifestyle
     if persona.life_preferences:
@@ -84,9 +84,14 @@ def build_injection_view(persona: "UserPersona") -> Dict[str, Any]:
     }
 
     # 人格特质（Big Five）— 仅展示偏离默认值(0.5)的维度
-    personality: Dict[str, float] = {}
-    for trait in ("openness", "conscientiousness", "extraversion",
-                  "agreeableness", "neuroticism"):
+    personality: dict[str, float] = {}
+    for trait in (
+        "openness",
+        "conscientiousness",
+        "extraversion",
+        "agreeableness",
+        "neuroticism",
+    ):
         val = getattr(persona, f"personality_{trait}", 0.5)
         if abs(val - 0.5) > 0.05:
             personality[trait] = round(val, 2)
@@ -97,12 +102,14 @@ def build_injection_view(persona: "UserPersona") -> Dict[str, Any]:
     view["preferences"] = {}
     if persona.preferred_reply_style:
         view["preferences"]["style"] = persona.preferred_reply_style
-    view["preferences"]["proactive_reply"] = round(persona.proactive_reply_preference, 2)
+    view["preferences"]["proactive_reply"] = round(
+        persona.proactive_reply_preference, 2
+    )
     if persona.topic_blacklist:
         view["preferences"]["topic_blacklist"] = persona.topic_blacklist[:10]
 
     # 关系
-    relationship: Dict[str, Any] = {
+    relationship: dict[str, Any] = {
         "trust": round(persona.trust_level, 2),
         "intimacy": round(persona.intimacy_level, 2),
     }

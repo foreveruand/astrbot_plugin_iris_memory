@@ -15,7 +15,6 @@ semantic_confidence = base × evidence_factor × consistency_factor
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List
 
 from iris_memory.utils.logger import get_logger
 
@@ -25,6 +24,7 @@ logger = get_logger("semantic_confidence")
 @dataclass(frozen=True, slots=True)
 class ConfidenceResult:
     """置信度计算结果"""
+
     confidence: float
     evidence_count: int
     contradiction_count: int
@@ -94,8 +94,8 @@ class SemanticConfidenceCalculator:
 
     def calculate_from_memories(
         self,
-        memories: List,
-        contradiction_ids: List[str] | None = None,
+        memories: list,
+        contradiction_ids: list[str] | None = None,
     ) -> ConfidenceResult:
         """从记忆列表直接计算
 

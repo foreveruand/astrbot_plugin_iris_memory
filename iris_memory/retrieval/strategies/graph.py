@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Callable, List, Optional, TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
+from iris_memory.retrieval.retrieval_logger import retrieval_log
 from iris_memory.retrieval.strategies.base import StrategyParams
 from iris_memory.utils.logger import get_logger
-from iris_memory.retrieval.retrieval_logger import retrieval_log
 
 if TYPE_CHECKING:
     from iris_memory.models.memory import Memory
@@ -32,10 +33,10 @@ class GraphStrategy:
         rerank_fn: Callable,
         get_working_memories_fn: Callable,
         merge_memories_fn: Callable,
-        kg_module: Optional[object] = None,
+        kg_module: object | None = None,
         enable_emotion_aware: bool = True,
         enable_working_memory_merge: bool = True,
-        session_manager: Optional[object] = None,
+        session_manager: object | None = None,
     ) -> None:
         self._chroma = chroma_manager
         self._update_access = update_access_fn
@@ -51,7 +52,7 @@ class GraphStrategy:
     def set_kg_module(self, kg_module: object) -> None:
         self._kg_module = kg_module
 
-    async def execute(self, params: StrategyParams) -> List["Memory"]:
+    async def execute(self, params: StrategyParams) -> list[Memory]:
         # 向量检索部分
         vector_memories = await self._chroma.query_memories(
             query_text=params.query,
@@ -76,19 +77,20 @@ class GraphStrategy:
                     if edge.memory_id:
                         kg_memory_ids.add(edge.memory_id)
             except Exception as e:
-                retrieval_log.graph_fallback(
-                    params.user_id, f"KG reason error: {e}"
-                )
+                retrieval_log.graph_fallback(params.user_id, f"KG reason error: {e}")
 
         # 工作记忆合并
         if self._enable_working_memory_merge and self._session_manager:
             working_memories = await self._get_working_memories(
-                params.query, params.user_id, params.group_id,
+                params.query,
+                params.user_id,
+                params.group_id,
                 params.storage_layer,
             )
             if working_memories:
                 vector_memories = self._merge_memories(
-                    vector_memories, working_memories,
+                    vector_memories,
+                    working_memories,
                     max_total=params.top_k * 2,
                 )
 
@@ -111,10 +113,12 @@ class GraphStrategy:
 
         # 重排序
         ranked = self._rerank_memories(
-            vector_memories, params.query,
-            params.emotional_state, params.user_id,
+            vector_memories,
+            params.query,
+            params.emotional_state,
+            params.user_id,
         )
 
-        result = ranked[:params.top_k]
+        result = ranked[: params.top_k]
         await self._update_access(result)
         return result

@@ -19,7 +19,7 @@ def validate_china_id(digits: str) -> bool:
     if len(digits) != 18:
         return False
     weights = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
-    check_chars = '10X98765432'
+    check_chars = "10X98765432"
     try:
         total = sum(int(digits[i]) * weights[i] for i in range(17))
         return check_chars[total % 11].upper() == digits[17].upper()

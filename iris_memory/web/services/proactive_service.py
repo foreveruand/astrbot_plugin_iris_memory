@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -15,10 +15,10 @@ class ProactiveWebService:
     def __init__(self, memory_service: Any) -> None:
         self._memory_service = memory_service
 
-    def _get_manager(self) -> Optional[Any]:
+    def _get_manager(self) -> Any | None:
         return getattr(self._memory_service, "proactive_manager", None)
 
-    async def get_status(self) -> Dict[str, Any]:
+    async def get_status(self) -> dict[str, Any]:
         manager = self._get_manager()
         if not manager:
             return {
@@ -50,13 +50,13 @@ class ProactiveWebService:
             },
         }
 
-    async def list_whitelist(self) -> List[str]:
+    async def list_whitelist(self) -> list[str]:
         manager = self._get_manager()
         if not manager:
             return []
         return manager.get_whitelist()
 
-    async def add_to_whitelist(self, group_id: str) -> Dict[str, Any]:
+    async def add_to_whitelist(self, group_id: str) -> dict[str, Any]:
         manager = self._get_manager()
         if not manager:
             return {"success": False, "message": "主动回复模块未初始化"}
@@ -71,11 +71,13 @@ class ProactiveWebService:
         result = manager.add_group_to_whitelist(group_id)
 
         if result:
-            logger.info(f"Added group {group_id} to proactive reply whitelist via Web UI")
+            logger.info(
+                f"Added group {group_id} to proactive reply whitelist via Web UI"
+            )
             return {"success": True, "message": f"已添加群聊 {group_id} 到白名单"}
         return {"success": False, "message": f"群聊 {group_id} 已在白名单中"}
 
-    async def remove_from_whitelist(self, group_id: str) -> Dict[str, Any]:
+    async def remove_from_whitelist(self, group_id: str) -> dict[str, Any]:
         manager = self._get_manager()
         if not manager:
             return {"success": False, "message": "主动回复模块未初始化"}
@@ -87,11 +89,13 @@ class ProactiveWebService:
         result = manager.remove_group_from_whitelist(group_id)
 
         if result:
-            logger.info(f"Removed group {group_id} from proactive reply whitelist via Web UI")
+            logger.info(
+                f"Removed group {group_id} from proactive reply whitelist via Web UI"
+            )
             return {"success": True, "message": f"已从白名单移除群聊 {group_id}"}
         return {"success": False, "message": f"群聊 {group_id} 不在白名单中"}
 
-    async def check_whitelist(self, group_id: str) -> Dict[str, Any]:
+    async def check_whitelist(self, group_id: str) -> dict[str, Any]:
         manager = self._get_manager()
         if not manager:
             return {"in_whitelist": False, "group_id": group_id}
@@ -101,7 +105,7 @@ class ProactiveWebService:
             "group_id": group_id,
         }
 
-    async def get_stats(self) -> Dict[str, Any]:
+    async def get_stats(self) -> dict[str, Any]:
         manager = self._get_manager()
         if not manager:
             return {
@@ -114,18 +118,30 @@ class ProactiveWebService:
             }
         return await manager.get_stats()
 
-    async def get_followup_status(self) -> Dict[str, Any]:
+    async def get_followup_status(self) -> dict[str, Any]:
         manager = self._get_manager()
         if not manager:
-            return {"error": "主动回复模块未初始化", "active_expectations": [], "total": 0}
+            return {
+                "error": "主动回复模块未初始化",
+                "active_expectations": [],
+                "total": 0,
+            }
 
         planner = getattr(manager, "_followup_planner", None)
         if not planner:
-            return {"error": "FollowUp planner 未初始化", "active_expectations": [], "total": 0}
+            return {
+                "error": "FollowUp planner 未初始化",
+                "active_expectations": [],
+                "total": 0,
+            }
 
         store = getattr(planner, "_store", None)
         if not store:
-            return {"error": "ExpectationStore 未初始化", "active_expectations": [], "total": 0}
+            return {
+                "error": "ExpectationStore 未初始化",
+                "active_expectations": [],
+                "total": 0,
+            }
 
         expectations = store.get_all()
 

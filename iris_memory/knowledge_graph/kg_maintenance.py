@@ -16,7 +16,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from iris_memory.utils.logger import get_logger
 
@@ -34,21 +34,25 @@ DEFAULT_STALENESS_DAYS: int = 30
 @dataclass
 class CleanupResult:
     """单次清理任务结果"""
+
     task_name: str
     removed_count: int = 0
-    details: List[str] = field(default_factory=list)
+    details: list[str] = field(default_factory=list)
 
 
 @dataclass
 class MaintenanceReport:
     """完整维护报告"""
-    results: List[CleanupResult] = field(default_factory=list)
+
+    results: list[CleanupResult] = field(default_factory=list)
     total_removed: int = 0
     duration_seconds: float = 0.0
 
     def summary(self) -> str:
         """生成可读摘要"""
-        lines = [f"维护报告（耗时 {self.duration_seconds:.2f}s，共清理 {self.total_removed} 项）："]
+        lines = [
+            f"维护报告（耗时 {self.duration_seconds:.2f}s，共清理 {self.total_removed} 项）："
+        ]
         for r in self.results:
             lines.append(f"  - {r.task_name}: 移除 {r.removed_count} 项")
             for detail in r.details[:5]:
@@ -67,14 +71,14 @@ class KGMaintenanceManager:
     所有操作通过 KGStorage 公共接口完成，不直接操作数据库。
     """
 
-    def __init__(self, storage: "KGStorage") -> None:
+    def __init__(self, storage: KGStorage) -> None:
         self._storage = storage
 
     # ================================================================
     # 孤立节点清理
     # ================================================================
 
-    async def find_orphan_nodes(self) -> List[str]:
+    async def find_orphan_nodes(self) -> list[str]:
         """检测孤立节点（无任何边连接的节点）
 
         Returns:
@@ -121,7 +125,7 @@ class KGMaintenanceManager:
         self,
         confidence_threshold: float = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
         staleness_days: int = DEFAULT_STALENESS_DAYS,
-    ) -> List[str]:
+    ) -> list[str]:
         """检测低置信度且长期未更新的边
 
         使用 SQL 查询替代全量加载，降低内存占用。
@@ -189,7 +193,7 @@ class KGMaintenanceManager:
     # 悬空边清理
     # ================================================================
 
-    async def find_dangling_edges(self) -> List[str]:
+    async def find_dangling_edges(self) -> list[str]:
         """检测悬空边（指向不存在节点的边）
 
         Returns:

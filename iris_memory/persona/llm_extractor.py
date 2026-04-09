@@ -2,14 +2,13 @@
 LLM 提取器 - 基于 LLM 的画像提取
 """
 
-import json
-from typing import Dict, Any, Optional
+from typing import Any
 
-from iris_memory.utils.logger import get_logger
-from iris_memory.utils.llm_helper import resolve_llm_provider, call_llm, parse_llm_json
-from iris_memory.utils.rate_limiter import DailyCallLimiter
 from iris_memory.core.provider_utils import normalize_provider_id
-from iris_memory.persona.keyword_maps import ExtractionResult, PERSONA_EXTRACTION_PROMPT
+from iris_memory.persona.keyword_maps import PERSONA_EXTRACTION_PROMPT, ExtractionResult
+from iris_memory.utils.llm_helper import call_llm, parse_llm_json, resolve_llm_provider
+from iris_memory.utils.logger import get_logger
+from iris_memory.utils.rate_limiter import DailyCallLimiter
 
 logger = get_logger("persona_extractor")
 
@@ -20,19 +19,21 @@ class LLMExtractor:
     def __init__(
         self,
         astrbot_context=None,
-        provider_id: Optional[str] = None,
+        provider_id: str | None = None,
         max_tokens: int = 300,
         daily_limit: int = 50,
     ):
         self._astrbot_context = astrbot_context
-        self._provider_id = normalize_provider_id(provider_id)  # "default" 或具体 provider_id
+        self._provider_id = normalize_provider_id(
+            provider_id
+        )  # "default" 或具体 provider_id
         self._max_tokens = max_tokens
 
         self._limiter = DailyCallLimiter(daily_limit)
 
         # 缓存 provider
         self._resolved_provider = None
-        self._resolved_provider_id: Optional[str] = None
+        self._resolved_provider_id: str | None = None
         self._provider_initialized = False
 
     def _is_within_limit(self) -> bool:
@@ -66,7 +67,7 @@ class LLMExtractor:
     async def extract(
         self,
         content: str,
-        memory_context: Optional[Dict[str, Any]] = None,
+        memory_context: dict[str, Any] | None = None,
     ) -> ExtractionResult:
         """使用 LLM 从文本中提取画像信息"""
         result = ExtractionResult(source="llm")
@@ -97,7 +98,7 @@ class LLMExtractor:
 
         return result
 
-    async def _call_llm(self, prompt: str) -> Optional[str]:
+    async def _call_llm(self, prompt: str) -> str | None:
         """调用 LLM（委托给 llm_helper）"""
         result = await call_llm(
             self._astrbot_context,
@@ -108,7 +109,7 @@ class LLMExtractor:
         return result.content if result.success and result.content else None
 
     @staticmethod
-    def _parse_response(response: str) -> Optional[ExtractionResult]:
+    def _parse_response(response: str) -> ExtractionResult | None:
         """解析 LLM JSON 响应为 ExtractionResult"""
         raw = parse_llm_json(response)
         if not raw:
@@ -212,8 +213,13 @@ class LLMExtractor:
         # personality (Big Five)
         personality = raw.get("personality")
         if isinstance(personality, dict):
-            for trait in ("openness", "conscientiousness", "extraversion",
-                          "agreeableness", "neuroticism"):
+            for trait in (
+                "openness",
+                "conscientiousness",
+                "extraversion",
+                "agreeableness",
+                "neuroticism",
+            ):
                 val = personality.get(trait)
                 if val is not None and isinstance(val, (int, float)):
                     clamped = max(-0.1, min(0.1, float(val)))

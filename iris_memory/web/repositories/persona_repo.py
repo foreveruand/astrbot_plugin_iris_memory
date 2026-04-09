@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -15,30 +15,36 @@ class PersonaRepository:
     def __init__(self, memory_service: Any) -> None:
         self._service = memory_service
 
-    def _get_personas(self) -> Dict[str, Any]:
+    def _get_personas(self) -> dict[str, Any]:
         try:
             return self._service._user_personas or {}
         except Exception:
             return {}
 
-    def _get_emotional_states(self) -> Dict[str, Any]:
+    def _get_emotional_states(self) -> dict[str, Any]:
         try:
             return self._service._user_emotional_states or {}
         except Exception:
             return {}
 
-    def _build_persona_data(self, uid: str, persona: Any) -> Dict[str, Any]:
+    def _build_persona_data(self, uid: str, persona: Any) -> dict[str, Any]:
         interests = getattr(persona, "interests", {}) or {}
-        top_interests = dict(sorted(interests.items(), key=lambda x: x[1], reverse=True)[:5])
+        top_interests = dict(
+            sorted(interests.items(), key=lambda x: x[1], reverse=True)[:5]
+        )
 
-        emotional_baseline = getattr(persona, "emotional_baseline", "neutral") or "neutral"
+        emotional_baseline = (
+            getattr(persona, "emotional_baseline", "neutral") or "neutral"
+        )
 
         current_emotion = "neutral"
         try:
             states = self._get_emotional_states()
             state = states.get(uid)
             if state:
-                current_emotion = getattr(state, "current", {}).get("primary", "neutral")
+                current_emotion = getattr(state, "current", {}).get(
+                    "primary", "neutral"
+                )
         except Exception:
             pass
 
@@ -66,11 +72,17 @@ class PersonaRepository:
             "habits": list(getattr(persona, "habits", [])[:3]),
             "social_style": getattr(persona, "social_style", None),
             "preferred_reply_style": getattr(persona, "preferred_reply_style", None),
-            "proactive_reply_preference": getattr(persona, "proactive_reply_preference", 0.5),
-            "hourly_distribution": list(getattr(persona, "hourly_distribution", [0.0] * 24)),
+            "proactive_reply_preference": getattr(
+                persona, "proactive_reply_preference", 0.5
+            ),
+            "hourly_distribution": list(
+                getattr(persona, "hourly_distribution", [0.0] * 24)
+            ),
             "personality": {
                 "openness": getattr(persona, "personality_openness", 0.5),
-                "conscientiousness": getattr(persona, "personality_conscientiousness", 0.5),
+                "conscientiousness": getattr(
+                    persona, "personality_conscientiousness", 0.5
+                ),
                 "extraversion": getattr(persona, "personality_extraversion", 0.5),
                 "agreeableness": getattr(persona, "personality_agreeableness", 0.5),
                 "neuroticism": getattr(persona, "personality_neuroticism", 0.5),
@@ -83,15 +95,22 @@ class PersonaRepository:
             },
         }
 
-    async def list_all(self, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+    async def list_all(self, page: int = 1, page_size: int = 20) -> dict[str, Any]:
         """分页列出用户画像"""
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
-        result: Dict[str, Any] = {"items": [], "total": 0, "page": page, "page_size": page_size}
+        result: dict[str, Any] = {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+        }
 
         try:
             personas = self._get_personas()
-            all_items = [self._build_persona_data(uid, p) for uid, p in personas.items()]
+            all_items = [
+                self._build_persona_data(uid, p) for uid, p in personas.items()
+            ]
             all_items.sort(key=lambda x: x.get("last_updated", ""), reverse=True)
             result["total"] = len(all_items)
             start = (page - 1) * page_size
@@ -101,7 +120,7 @@ class PersonaRepository:
 
         return result
 
-    async def get_by_user_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_by_user_id(self, user_id: str) -> dict[str, Any] | None:
         """根据用户 ID 获取画像"""
         try:
             personas = self._get_personas()
@@ -113,11 +132,18 @@ class PersonaRepository:
             logger.warning(f"Get persona error: {e}")
             return None
 
-    async def search(self, query: str, page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+    async def search(
+        self, query: str, page: int = 1, page_size: int = 20
+    ) -> dict[str, Any]:
         """搜索用户画像"""
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
-        result: Dict[str, Any] = {"items": [], "total": 0, "page": page, "page_size": page_size}
+        result: dict[str, Any] = {
+            "items": [],
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+        }
 
         try:
             personas = self._get_personas()
@@ -139,7 +165,9 @@ class PersonaRepository:
         return result
 
     @staticmethod
-    def _matches_query(uid: str, persona: Any, data: Dict[str, Any], query_lower: str) -> bool:
+    def _matches_query(
+        uid: str, persona: Any, data: dict[str, Any], query_lower: str
+    ) -> bool:
         if query_lower in uid.lower():
             return True
         if data.get("display_name") and query_lower in data["display_name"].lower():
@@ -159,7 +187,7 @@ class PersonaRepository:
                 return True
         return False
 
-    async def delete_by_user_id(self, user_id: str) -> Tuple[bool, str]:
+    async def delete_by_user_id(self, user_id: str) -> tuple[bool, str]:
         """删除指定用户的画像"""
         try:
             personas = self._get_personas()
@@ -171,7 +199,7 @@ class PersonaRepository:
             logger.error(f"Delete persona error: {e}")
             return False, f"删除失败: {e}"
 
-    async def clear_all(self) -> Tuple[bool, str, int]:
+    async def clear_all(self) -> tuple[bool, str, int]:
         """清空所有用户画像"""
         try:
             personas = self._get_personas()
@@ -189,7 +217,7 @@ class EmotionRepository:
     def __init__(self, memory_service: Any) -> None:
         self._service = memory_service
 
-    async def get_by_user_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+    async def get_by_user_id(self, user_id: str) -> dict[str, Any] | None:
         """根据用户 ID 获取情感状态"""
         try:
             states = self._service._user_emotional_states

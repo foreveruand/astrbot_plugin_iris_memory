@@ -6,26 +6,26 @@ LLM增强基类
 - LLMEnhancedBase: 底层LLM调用封装（provider管理、重试、JSON解析）
 - LLMEnhancedDetector: 上层模板方法模式（统一 detect/rule/llm/hybrid 流程）
 """
+
 import asyncio
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar
+from typing import Any, Generic, TypeVar
 
-from iris_memory.core.detection.base_result import BaseDetectionResult
-from iris_memory.utils.logger import get_logger
+from iris_memory.core.provider_utils import normalize_provider_id
 from iris_memory.utils.llm_helper import (
     LLMCallResult,
-    resolve_llm_provider,
     call_llm,
     parse_llm_json,
+    resolve_llm_provider,
 )
+from iris_memory.utils.logger import get_logger
 from iris_memory.utils.rate_limiter import CooldownTracker, DailyCallLimiter
-from iris_memory.core.provider_utils import normalize_provider_id
 
 logger = get_logger("llm_enhanced_base")
 
 # 泛型结果类型，子类指定具体的检测结果类型
-T = TypeVar('T')
+T = TypeVar("T")
 
 MAX_RETRIES = 2
 INITIAL_BACKOFF = 0.5
@@ -35,6 +35,7 @@ BACKOFF_MULTIPLIER = 2.0
 
 class DetectionMode(str, Enum):
     """检测模式"""
+
     RULE = "rule"
     LLM = "llm"
     HYBRID = "hybrid"
@@ -42,7 +43,7 @@ class DetectionMode(str, Enum):
 
 class LLMEnhancedBase(ABC):
     """LLM增强基类
-    
+
     提供统一的LLM调用封装，支持：
     - 延迟初始化provider
     - 每日调用限制
@@ -50,11 +51,11 @@ class LLMEnhancedBase(ABC):
     - JSON响应解析
     - 多种检测模式（rule/llm/hybrid）
     """
-    
+
     def __init__(
         self,
         astrbot_context=None,
-        provider_id: Optional[str] = None,
+        provider_id: str | None = None,
         mode: DetectionMode = DetectionMode.HYBRID,
         daily_limit: int = 0,
         max_tokens: int = 300,
@@ -67,18 +68,18 @@ class LLMEnhancedBase(ABC):
         self._daily_limit = daily_limit
         self._max_tokens = max_tokens
         self._temperature = temperature
-        
+
         self._resolved_provider = None
-        self._resolved_provider_id: Optional[str] = None
+        self._resolved_provider_id: str | None = None
         self._provider_initialized = False
-        
+
         self._limiter = DailyCallLimiter(daily_limit)
-        
+
         # 可选冷却追踪器（per-context cooldown）
-        self._cooldown_tracker: Optional[CooldownTracker] = None
+        self._cooldown_tracker: CooldownTracker | None = None
         if cooldown_seconds > 0:
             self._cooldown_tracker = CooldownTracker(cooldown_seconds)
-        
+
         self._stats = {
             "total_calls": 0,
             "successful_calls": 0,
@@ -89,37 +90,37 @@ class LLMEnhancedBase(ABC):
             "llm_skipped_cooldown": 0,
             "llm_skipped_limit": 0,
         }
-    
+
     @property
     def mode(self) -> DetectionMode:
         return self._mode
-    
+
     @mode.setter
     def mode(self, value: DetectionMode):
         self._mode = DetectionMode(value) if isinstance(value, str) else value
-    
+
     @property
     def is_llm_enabled(self) -> bool:
         return self._mode in (DetectionMode.LLM, DetectionMode.HYBRID)
-    
+
     def _is_within_limit(self) -> bool:
         return self._limiter.is_within_limit()
-    
+
     def _check_cooldown(self, context_key: str = "global") -> bool:
         """检查冷却状态，无冷却追踪器时始终返回 True"""
         if self._cooldown_tracker is None:
             return True
         return self._cooldown_tracker.is_ready(context_key)
-    
+
     def _record_cooldown(self, context_key: str = "global") -> None:
         """记录冷却调用"""
         if self._cooldown_tracker is not None:
             self._cooldown_tracker.record(context_key)
-    
+
     @property
     def remaining_daily_calls(self) -> int:
         return self._limiter.remaining
-    
+
     async def _resolve_provider(self) -> bool:
         """LLM 提供者解析（委托给 llm_helper）
 
@@ -129,7 +130,7 @@ class LLMEnhancedBase(ABC):
         """
         if self._provider_initialized:
             return self._resolved_provider is not None
-        
+
         provider, resolved_id = resolve_llm_provider(
             self._astrbot_context,
             self._configured_provider_id or "",
@@ -142,17 +143,17 @@ class LLMEnhancedBase(ABC):
             return True
         # 不设置 _provider_initialized = True，允许后续重试
         return False
-    
+
     async def _call_llm(self, prompt: str) -> LLMCallResult:
         if not await self._resolve_provider():
             return LLMCallResult(success=False, error="Provider not available")
-        
+
         if not self._is_within_limit():
             return LLMCallResult(success=False, error="Daily limit reached")
-        
+
         backoff = INITIAL_BACKOFF
         last_error = None
-        
+
         for attempt in range(MAX_RETRIES):
             try:
                 result = await self._call_llm_once(prompt)
@@ -180,7 +181,7 @@ class LLMEnhancedBase(ABC):
             f"[{error_type}] {last_error} | provider_id={repr(self._resolved_provider_id)}"
         )
         return LLMCallResult(success=False, error=str(last_error))
-    
+
     async def _call_llm_once(self, prompt: str) -> LLMCallResult:
         """LLM 单次调用（委托给 llm_helper）"""
         self._stats["total_calls"] += 1
@@ -192,12 +193,12 @@ class LLMEnhancedBase(ABC):
             parse_json=True,
         )
         return result
-    
-    def _parse_json_response(self, response: str) -> Optional[Dict[str, Any]]:
+
+    def _parse_json_response(self, response: str) -> dict[str, Any] | None:
         """JSON 解析（委托给 llm_helper）"""
         return parse_llm_json(response)
-    
-    def get_stats(self) -> Dict[str, Any]:
+
+    def get_stats(self) -> dict[str, Any]:
         return {
             **self._stats,
             "daily_limit": self._daily_limit,
@@ -205,12 +206,12 @@ class LLMEnhancedBase(ABC):
             "mode": self._mode.value,
             "has_cooldown": self._cooldown_tracker is not None,
         }
-    
+
     @abstractmethod
     async def detect(self, *args, **kwargs) -> Any:
         """子类实现的检测方法"""
         pass
-    
+
     @abstractmethod
     def _rule_detect(self, *args, **kwargs) -> Any:
         """子类实现的规则检测方法"""
@@ -219,79 +220,79 @@ class LLMEnhancedBase(ABC):
 
 class LLMEnhancedDetector(LLMEnhancedBase, Generic[T]):
     """增强的LLM检测器基类 - 支持泛型结果类型和模板方法模式
-    
+
     将 detect/rule/llm/hybrid 的公共流程提取到基类中，
     子类只需实现以下抽象方法：
-    
+
     - _build_prompt(*args, **kwargs) -> str: 构建LLM提示词
     - _parse_llm_result(data: Dict) -> T: 解析LLM返回的JSON
     - _rule_detect(*args, **kwargs) -> T: 规则检测实现
-    
+
     可选覆写：
     - _get_empty_result() -> T: 空输入时的默认结果
     - _should_skip_input(*args, **kwargs) -> bool: 是否跳过输入
     - _hybrid_detect(*args, **kwargs) -> T: 自定义混合检测逻辑
     - _llm_detect(*args, **kwargs) -> T: 自定义LLM检测逻辑
     """
-    
+
     async def detect(self, *args, **kwargs) -> T:
         """模板方法 - 统一检测流程
-        
+
         根据当前模式分派到对应的检测方法。
         子类通常不需要覆写此方法。
         """
         if self._should_skip_input(*args, **kwargs):
             return self._get_empty_result()
-        
+
         if self._mode == DetectionMode.RULE:
             return self._rule_detect(*args, **kwargs)
         elif self._mode == DetectionMode.LLM:
             return await self._llm_detect(*args, **kwargs)
         else:
             return await self._hybrid_detect(*args, **kwargs)
-    
+
     async def _llm_detect(self, *args, **kwargs) -> T:
         """统一LLM检测流程
-        
+
         构建提示词 → 调用LLM → 解析结果 → 失败时回退到规则。
         子类可覆写以定制LLM检测逻辑。
         """
         prompt = self._build_prompt(*args, **kwargs)
         result = await self._call_llm(prompt)
-        
+
         if not result.success or not result.parsed_json:
             logger.debug(
                 f"LLM detection failed for {self.__class__.__name__}, "
                 f"falling back to rule"
             )
             return self._rule_detect(*args, **kwargs)
-        
+
         parsed = self._parse_llm_result(result.parsed_json)
         return parsed
-    
+
     async def _hybrid_detect(self, *args, **kwargs) -> T:
         """默认混合检测逻辑
-        
+
         规则预筛 → LLM确认。
         子类应覆写此方法以提供定制化的混合逻辑。
         """
         rule_result = self._rule_detect(*args, **kwargs)
-        
+
         llm_result = await self._llm_detect(*args, **kwargs)
-        if hasattr(llm_result, 'confidence') and llm_result.confidence >= 0.6:
-            if hasattr(llm_result, 'source'):
+        if hasattr(llm_result, "confidence") and llm_result.confidence >= 0.6:
+            if hasattr(llm_result, "source"):
                 llm_result.source = "hybrid"
             self._stats["llm_triggered_decisions"] += 1
             return llm_result
-        
-        if hasattr(rule_result, 'source'):
+
+        if hasattr(rule_result, "source"):
             rule_result.source = "hybrid"
         self._stats["rule_only_decisions"] += 1
         return rule_result
-    
+
     def _should_skip_input(self, *args, **kwargs) -> bool:
         """判断是否跳过输入（空值、过短等）
-        
+
         子类可覆写以提供定制的跳过逻辑。
         默认行为：检查第一个位置参数是否为空字符串。
         """
@@ -302,37 +303,37 @@ class LLMEnhancedDetector(LLMEnhancedBase, Generic[T]):
             if isinstance(first_arg, list) and not first_arg:
                 return True
         return False
-    
+
     def _get_empty_result(self) -> T:
         """返回空输入时的默认结果
-        
+
         子类必须覆写此方法。
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} must implement _get_empty_result()"
         )
-    
+
     @abstractmethod
     def _build_prompt(self, *args, **kwargs) -> str:
         """构建LLM提示词
-        
+
         子类实现。将输入转换为LLM可理解的提示词。
         """
         pass
-    
+
     @abstractmethod
-    def _parse_llm_result(self, data: Dict[str, Any]) -> T:
+    def _parse_llm_result(self, data: dict[str, Any]) -> T:
         """解析LLM结果
-        
+
         子类实现。将LLM返回的JSON字典转换为结果对象。
         应使用 BaseDetectionResult 的工具方法处理通用转换。
         """
         pass
-    
+
     @abstractmethod
     def _rule_detect(self, *args, **kwargs) -> T:
         """规则检测实现
-        
+
         子类实现。纯规则逻辑，不涉及LLM调用。
         """
         pass

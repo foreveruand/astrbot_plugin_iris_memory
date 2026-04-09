@@ -16,11 +16,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Coroutine, Dict, Optional
+from collections.abc import Callable, Coroutine
+from typing import Any
 
+from iris_memory.core.provider_utils import get_default_provider
 from iris_memory.proactive.models import ProactiveReplyResult
 from iris_memory.utils.llm_helper import call_llm
-from iris_memory.core.provider_utils import get_default_provider
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("proactive.reply_sender")
@@ -55,10 +56,10 @@ class ProactiveReplySender:
         astrbot_context: Any,
         prepare_llm_context: PrepareLLMContextCallback,
         record_chat_message: RecordChatCallback,
-        get_group_umo: Callable[[str], Optional[str]],
-        llm_provider: Optional[Any] = None,
-        llm_provider_id: Optional[str] = None,
-        configured_provider_id: Optional[str] = None,
+        get_group_umo: Callable[[str], str | None],
+        llm_provider: Any | None = None,
+        llm_provider_id: str | None = None,
+        configured_provider_id: str | None = None,
     ) -> None:
         self._context = astrbot_context
         self._prepare_llm_context = prepare_llm_context
@@ -72,7 +73,7 @@ class ProactiveReplySender:
     async def send_reply(
         self,
         result: ProactiveReplyResult,
-    ) -> Optional[str]:
+    ) -> str | None:
         """发送主动回复
 
         完整流程：
@@ -101,8 +102,7 @@ class ProactiveReplySender:
         umo = self._get_group_umo(group_id)
         if not umo:
             logger.warning(
-                f"ProactiveReplySender: no UMO for group {group_id}, "
-                f"cannot send reply"
+                f"ProactiveReplySender: no UMO for group {group_id}, cannot send reply"
             )
             return None
 
@@ -127,6 +127,7 @@ class ProactiveReplySender:
                 # 首次使用时懒加载解析 provider（此时 AstrBot 的 provider 已加载完毕）
                 if self._configured_provider_id:
                     from iris_memory.core.provider_utils import get_provider_by_id
+
                     provider, provider_id = get_provider_by_id(
                         self._context, self._configured_provider_id
                     )
@@ -191,8 +192,7 @@ class ProactiveReplySender:
 
         except Exception as e:
             logger.error(
-                f"ProactiveReplySender: failed to send reply for "
-                f"group={group_id}: {e}"
+                f"ProactiveReplySender: failed to send reply for group={group_id}: {e}"
             )
             return None
 
@@ -220,8 +220,7 @@ class ProactiveReplySender:
             await self._context.send_message(umo, message_chain)
         except ImportError as e:
             logger.error(
-                f"Cannot import AstrBot message types, "
-                f"message sending unavailable: {e}"
+                f"Cannot import AstrBot message types, message sending unavailable: {e}"
             )
         except Exception as e:
             logger.error(f"Failed to send message via AstrBot API: {e}")

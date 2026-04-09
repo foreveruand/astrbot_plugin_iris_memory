@@ -5,16 +5,16 @@ from __future__ import annotations
 import secrets
 import time
 from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("web_auth")
 
-_SESSION_TOKENS: Dict[str, float] = {}
+_SESSION_TOKENS: dict[str, float] = {}
 _TOKEN_EXPIRE_SECONDS = 3600 * 24
 
-_LOGIN_ATTEMPTS: Dict[str, List[float]] = defaultdict(list)
+_LOGIN_ATTEMPTS: dict[str, list[float]] = defaultdict(list)
 _LOGIN_MAX_ATTEMPTS = 5
 _LOGIN_WINDOW_SECONDS = 60
 
@@ -23,7 +23,9 @@ def check_login_rate_limit(client_ip: str) -> bool:
     """检查登录限流，True=允许"""
     now = time.time()
     attempts = _LOGIN_ATTEMPTS[client_ip]
-    _LOGIN_ATTEMPTS[client_ip] = [t for t in attempts if now - t < _LOGIN_WINDOW_SECONDS]
+    _LOGIN_ATTEMPTS[client_ip] = [
+        t for t in attempts if now - t < _LOGIN_WINDOW_SECONDS
+    ]
     return len(_LOGIN_ATTEMPTS[client_ip]) < _LOGIN_MAX_ATTEMPTS
 
 

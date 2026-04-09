@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import time
 from datetime import date
-from typing import Dict, Optional
 
 
 class CooldownTracker:
@@ -26,7 +25,7 @@ class CooldownTracker:
 
     def __init__(self, cooldown_seconds: float):
         self.cooldown_seconds = cooldown_seconds
-        self._last_call: Dict[str, float] = {}
+        self._last_call: dict[str, float] = {}
 
     def is_ready(self, key: str) -> bool:
         """检查 key 是否已过冷却期"""
@@ -37,7 +36,7 @@ class CooldownTracker:
         """记录一次调用"""
         self._last_call[key] = time.time()
 
-    def clear(self, key: Optional[str] = None) -> None:
+    def clear(self, key: str | None = None) -> None:
         """清除某个 key 或全部冷却记录"""
         if key is None:
             self._last_call.clear()
@@ -60,7 +59,7 @@ class DailyCallLimiter:
 
     def __init__(self, daily_limit: int = 0):
         self._daily_limit = daily_limit
-        self._call_date: Optional[date] = None
+        self._call_date: date | None = None
         self._call_count: int = 0
 
     # ------ internal ------

@@ -7,7 +7,7 @@ LLM增强模块 — 聚合所有 LLM 检测器和 LLM 处理器
 
 from __future__ import annotations
 
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -31,12 +31,12 @@ class LLMEnhancedModule:
     """
 
     def __init__(self) -> None:
-        self._detectors: Dict[str, Any] = {}
-        self._llm_processor: Optional[LLMMessageProcessor] = None
+        self._detectors: dict[str, Any] = {}
+        self._llm_processor: LLMMessageProcessor | None = None
 
     # ── 注册表访问 ──
 
-    def get_detector(self, name: str) -> Optional[Any]:
+    def get_detector(self, name: str) -> Any | None:
         """获取指定名称的 LLM 检测器"""
         return self._detectors.get(name)
 
@@ -55,29 +55,29 @@ class LLMEnhancedModule:
     # ── 便捷属性（兼容旧代码） ──
 
     @property
-    def sensitivity_detector(self) -> Optional[Any]:
+    def sensitivity_detector(self) -> Any | None:
         return self._detectors.get(SENSITIVITY)
 
     @property
-    def trigger_detector(self) -> Optional[Any]:
+    def trigger_detector(self) -> Any | None:
         return self._detectors.get(TRIGGER)
 
     @property
-    def emotion_analyzer(self) -> Optional[Any]:
+    def emotion_analyzer(self) -> Any | None:
         return self._detectors.get(EMOTION)
 
     @property
-    def conflict_resolver(self) -> Optional[Any]:
+    def conflict_resolver(self) -> Any | None:
         return self._detectors.get(CONFLICT)
 
     @property
-    def retrieval_router(self) -> Optional[Any]:
+    def retrieval_router(self) -> Any | None:
         return self._detectors.get(RETRIEVAL)
 
     # ── LLM Processor ──
 
     @property
-    def llm_processor(self) -> Optional[LLMMessageProcessor]:
+    def llm_processor(self) -> LLMMessageProcessor | None:
         return self._llm_processor
 
     # ── 初始化 ──
@@ -88,15 +88,15 @@ class LLMEnhancedModule:
             logger.debug("LLM enhanced: all modules using rule mode")
             return
 
-        from iris_memory.core.detection.llm_enhanced_base import DetectionMode
-        from iris_memory.capture.detector.llm_sensitivity_detector import (
-            LLMSensitivityDetector,
-        )
-        from iris_memory.capture.detector.llm_trigger_detector import LLMTriggerDetector
         from iris_memory.analysis.emotion.llm_emotion_analyzer import LLMEmotionAnalyzer
         from iris_memory.capture.conflict.llm_conflict_resolver import (
             LLMConflictResolver,
         )
+        from iris_memory.capture.detector.llm_sensitivity_detector import (
+            LLMSensitivityDetector,
+        )
+        from iris_memory.capture.detector.llm_trigger_detector import LLMTriggerDetector
+        from iris_memory.core.detection.llm_enhanced_base import DetectionMode
         from iris_memory.retrieval.llm_retrieval_router import LLMRetrievalRouter
 
         provider_id = cfg.get("llm_providers.enhanced_provider_id", None)

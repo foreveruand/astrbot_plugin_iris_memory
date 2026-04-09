@@ -12,7 +12,7 @@
     retrieval_log.retrieve_ok(user_id, count, strategy)
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from iris_memory.utils.logger import get_logger
 
@@ -23,11 +23,7 @@ class RetrievalLogger:
     """记忆检索结构化日志器 — 统一 DEBUG 输出"""
 
     def retrieve_start(
-        self,
-        user_id: str,
-        query: str,
-        group_id: Optional[str] = None,
-        top_k: int = 10
+        self, user_id: str, query: str, group_id: str | None = None, top_k: int = 10
     ) -> None:
         _logger.debug(
             f"RETRIEVAL.START user={user_id} "
@@ -35,39 +31,26 @@ class RetrievalLogger:
             f"top_k={top_k} query_len={len(query)}"
         )
 
-    def emotional_state(
-        self,
-        user_id: str,
-        primary: str,
-        intensity: float
-    ) -> None:
+    def emotional_state(self, user_id: str, primary: str, intensity: float) -> None:
         _logger.debug(
             f"RETRIEVAL.EMOTION user={user_id} "
             f"primary={primary} intensity={intensity:.2f}"
         )
 
     def strategy_selected(
-        self,
-        user_id: str,
-        strategy: str,
-        source: str = "router"
+        self, user_id: str, strategy: str, source: str = "router"
     ) -> None:
         _logger.debug(
-            f"RETRIEVAL.STRATEGY user={user_id} "
-            f"strategy={strategy} source={source}"
+            f"RETRIEVAL.STRATEGY user={user_id} strategy={strategy} source={source}"
         )
 
     def routing_failed(self, user_id: str, error: str) -> None:
         _logger.debug(
-            f"RETRIEVAL.ROUTING.FALLBACK user={user_id} "
-            f"error={_trunc(error, 100)}"
+            f"RETRIEVAL.ROUTING.FALLBACK user={user_id} error={_trunc(error, 100)}"
         )
 
     def vector_query(
-        self,
-        user_id: str,
-        candidate_count: int,
-        storage_layer: Optional[str] = None
+        self, user_id: str, candidate_count: int, storage_layer: str | None = None
     ) -> None:
         _logger.debug(
             f"RETRIEVAL.VECTOR user={user_id} "
@@ -76,10 +59,7 @@ class RetrievalLogger:
         )
 
     def working_memory_merged(
-        self,
-        user_id: str,
-        working_count: int,
-        total_count: int
+        self, user_id: str, working_count: int, total_count: int
     ) -> None:
         _logger.debug(
             f"RETRIEVAL.WORKING_MERGE user={user_id} "
@@ -87,11 +67,7 @@ class RetrievalLogger:
         )
 
     def emotion_filter_applied(
-        self,
-        user_id: str,
-        before_count: int,
-        after_count: int,
-        reason: str
+        self, user_id: str, before_count: int, after_count: int, reason: str
     ) -> None:
         filtered = before_count - after_count
         _logger.debug(
@@ -101,37 +77,19 @@ class RetrievalLogger:
             f"reason={reason}"
         )
 
-    def memory_filtered(
-        self,
-        user_id: str,
-        memory_id: str,
-        reason: str
-    ) -> None:
+    def memory_filtered(self, user_id: str, memory_id: str, reason: str) -> None:
         _logger.debug(
-            f"RETRIEVAL.FILTER user={user_id} "
-            f"id={memory_id[:8]}... reason={reason}"
+            f"RETRIEVAL.FILTER user={user_id} id={memory_id[:8]}... reason={reason}"
         )
 
     def no_memories_found(self, user_id: str, query: str) -> None:
-        _logger.debug(
-            f"RETRIEVAL.EMPTY user={user_id} query_len={len(query)}"
-        )
+        _logger.debug(f"RETRIEVAL.EMPTY user={user_id} query_len={len(query)}")
 
-    def retrieve_ok(
-        self,
-        user_id: str,
-        count: int,
-        strategy: str
-    ) -> None:
-        _logger.info(
-            f"RETRIEVAL.OK user={user_id} "
-            f"count={count} strategy={strategy}"
-        )
+    def retrieve_ok(self, user_id: str, count: int, strategy: str) -> None:
+        _logger.info(f"RETRIEVAL.OK user={user_id} count={count} strategy={strategy}")
 
     def retrieve_error(self, user_id: str, error: Exception) -> None:
-        _logger.error(
-            f"RETRIEVAL.ERROR user={user_id} error={error}"
-        )
+        _logger.error(f"RETRIEVAL.ERROR user={user_id} error={error}")
 
     def graph_fallback(self, user_id: str, query: str) -> None:
         _logger.warning(

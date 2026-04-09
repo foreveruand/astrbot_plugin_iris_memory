@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from typing import Any
 
 from iris_memory.config import get_store
 from iris_memory.proactive.models import (
@@ -34,7 +35,7 @@ FollowUpReplyCallback = Callable[
 # LLM 判断回调
 LLMFollowUpCallback = Callable[
     [FollowUpExpectation],
-    Coroutine[Any, Any, Optional[FollowUpDecision]],
+    Coroutine[Any, Any, FollowUpDecision | None],
 ]
 
 # FollowUp LLM 判断 Prompt 模板
@@ -79,9 +80,9 @@ class FollowUpPlanner:
 
     def __init__(
         self,
-        expectation_store: Optional[ExpectationStore] = None,
-        on_followup_reply: Optional[FollowUpReplyCallback] = None,
-        on_llm_decide: Optional[LLMFollowUpCallback] = None,
+        expectation_store: ExpectationStore | None = None,
+        on_followup_reply: FollowUpReplyCallback | None = None,
+        on_llm_decide: LLMFollowUpCallback | None = None,
     ) -> None:
         self._cfg = get_store()
         self._store = expectation_store or ExpectationStore()
@@ -89,9 +90,9 @@ class FollowUpPlanner:
         self._on_llm_decide = on_llm_decide
 
         # group_id -> asyncio.Task (短期窗口定时器)
-        self._short_window_timers: Dict[str, asyncio.Task] = {}
+        self._short_window_timers: dict[str, asyncio.Task] = {}
         # group_id -> asyncio.Task (FollowUp 窗口超时定时器)
-        self._window_timeout_timers: Dict[str, asyncio.Task] = {}
+        self._window_timeout_timers: dict[str, asyncio.Task] = {}
         self._closed = False
 
     def set_followup_reply_callback(self, callback: FollowUpReplyCallback) -> None:
@@ -110,8 +111,8 @@ class FollowUpPlanner:
         trigger_message: str,
         bot_reply_summary: str,
         followup_count: int = 0,
-        recent_context: Optional[List[Dict[str, Any]]] = None,
-    ) -> Optional[FollowUpExpectation]:
+        recent_context: list[dict[str, Any]] | None = None,
+    ) -> FollowUpExpectation | None:
         """创建跟进期待
 
         Args:
@@ -204,15 +205,19 @@ class FollowUpPlanner:
             return False
 
         # 聚合消息
-        expectation.aggregated_messages.append({
-            "user_id": user_id,
-            "sender_name": sender_name,
-            "content": message,
-            "timestamp": datetime.now().isoformat(),
-        })
+        expectation.aggregated_messages.append(
+            {
+                "user_id": user_id,
+                "sender_name": sender_name,
+                "content": message,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
 
         # 设置/重置短期窗口
-        short_window = self._cfg.get("proactive_reply.followup_short_window_seconds", 10)
+        short_window = self._cfg.get(
+            "proactive_reply.followup_short_window_seconds", 10
+        )
         now = datetime.now()
         new_short_end = now + timedelta(seconds=short_window)
 
@@ -247,7 +252,7 @@ class FollowUpPlanner:
         """检查某群是否有活跃的跟进期待"""
         return self._store.has_active(group_id)
 
-    def get_expectation(self, group_id: str) -> Optional[FollowUpExpectation]:
+    def get_expectation(self, group_id: str) -> FollowUpExpectation | None:
         """获取某群的活跃跟进期待（不移除）"""
         return self._store.get(group_id)
 
@@ -264,8 +269,7 @@ class FollowUpPlanner:
         if delay > 0:
             self._start_short_window_timer(group_id, delay)
             logger.debug(
-                f"Restarted short window timer for group {group_id}: "
-                f"delay={delay:.1f}s"
+                f"Restarted short window timer for group {group_id}: delay={delay:.1f}s"
             )
 
     def clear_expectation(self, group_id: str) -> None:
@@ -340,9 +344,7 @@ class FollowUpPlanner:
         finally:
             self._short_window_timers.pop(group_id, None)
 
-    async def _followup_window_expired(
-        self, group_id: str, delay: float
-    ) -> None:
+    async def _followup_window_expired(self, group_id: str, delay: float) -> None:
         """FollowUp 窗口到期回调"""
         try:
             await asyncio.sleep(delay)
@@ -362,7 +364,9 @@ class FollowUpPlanner:
 
             # followup_after_all_replies 模式下不等待用户发言，直接触发跟进
             # 其他情况下只有用户有发言时才判断
-            followup_after_all = self._cfg.get("proactive_reply.followup_after_all_replies", False)
+            followup_after_all = self._cfg.get(
+                "proactive_reply.followup_after_all_replies", False
+            )
             if expectation.has_aggregated_messages or followup_after_all:
                 logger.info(
                     f"FollowUp window expired for group {group_id}: "
@@ -379,13 +383,9 @@ class FollowUpPlanner:
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            logger.error(
-                f"FollowUp window expired error for group {group_id}: {e}"
-            )
+            logger.error(f"FollowUp window expired error for group {group_id}: {e}")
 
-    async def _trigger_llm_decision(
-        self, expectation: FollowUpExpectation
-    ) -> None:
+    async def _trigger_llm_decision(self, expectation: FollowUpExpectation) -> None:
         """触发 LLM 判断
 
         使用 _processing 标记防止短期窗口定时器和 FollowUp 窗口超时定时器
@@ -395,7 +395,7 @@ class FollowUpPlanner:
             expectation: 跟进期待
         """
         # 防止竞态：两个定时器可能同时触发此方法
-        if getattr(expectation, '_processing', False):
+        if getattr(expectation, "_processing", False):
             logger.debug(
                 f"FollowUp decision already in progress for group "
                 f"{expectation.group_id}, skipping duplicate trigger"
@@ -465,13 +465,11 @@ class FollowUpPlanner:
                 recent_context=expectation.recent_context,
             )
         else:
-            logger.debug(
-                f"FollowUp count {new_count} reached max, stopping"
-            )
+            logger.debug(f"FollowUp count {new_count} reached max, stopping")
 
     async def _get_llm_decision(
         self, expectation: FollowUpExpectation
-    ) -> Optional[FollowUpDecision]:
+    ) -> FollowUpDecision | None:
         """获取 LLM 判断结果
 
         优先使用外部注入的 LLM 回调，失败时降级到规则判断。
@@ -487,7 +485,9 @@ class FollowUpPlanner:
             except Exception as e:
                 logger.warning(f"LLM followup decision failed: {e}")
 
-                fallback = self._cfg.get("proactive_reply.followup_fallback_to_rule", True)
+                fallback = self._cfg.get(
+                    "proactive_reply.followup_fallback_to_rule", True
+                )
                 if not fallback:
                     return None
 
@@ -498,13 +498,15 @@ class FollowUpPlanner:
 
     def _rule_fallback_decision(
         self, expectation: FollowUpExpectation
-    ) -> Optional[FollowUpDecision]:
+    ) -> FollowUpDecision | None:
         """规则降级判断
 
         followup_after_all_replies 模式：即使无用户回应也主动跟进。
         普通模式：有聚合消息才回复。
         """
-        followup_after_all = self._cfg.get("proactive_reply.followup_after_all_replies", False)
+        followup_after_all = self._cfg.get(
+            "proactive_reply.followup_after_all_replies", False
+        )
         if not expectation.has_aggregated_messages:
             if followup_after_all:
                 return FollowUpDecision(
@@ -572,7 +574,7 @@ class FollowUpPlanner:
                 "\n行为指导：\n"
                 "- 自然地延续或深化刚才的话题，不要生硬地重复同一问题\n"
                 "- 简短自然，像朋友闲聊一样\n"
-                "- 不要提及\"用户没有回复\"等元信息\n"
+                '- 不要提及"用户没有回复"等元信息\n'
             )
 
         recent_messages = [
@@ -664,7 +666,7 @@ def build_followup_prompt(expectation: FollowUpExpectation) -> str:
     )
 
 
-def parse_followup_response(response_text: str) -> Optional[FollowUpDecision]:
+def parse_followup_response(response_text: str) -> FollowUpDecision | None:
     """解析 LLM 返回的 FollowUp 决策 JSON
 
     Args:

@@ -1,11 +1,12 @@
 """
 指令解析工具模块 - 统一处理指令解析逻辑
 """
+
 from __future__ import annotations
 
 import re
-from typing import Optional, Set, List, TYPE_CHECKING
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from iris_memory.core.constants import DeleteMainScope
@@ -14,74 +15,72 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class ParsedCommand:
     """解析后的指令结果"""
+
     raw_message: str
     content: str  # 去除指令前缀后的内容
-    command: Optional[str]  # 识别到的指令名
-    args: List[str]  # 参数列表
-    
+    command: str | None  # 识别到的指令名
+    args: list[str]  # 参数列表
+
     @property
     def has_content(self) -> bool:
         """是否有有效内容"""
         return bool(self.content.strip())
-    
+
     @property
-    def first_arg(self) -> Optional[str]:
+    def first_arg(self) -> str | None:
         """获取第一个参数"""
         return self.args[0] if self.args else None
 
 
 class CommandParser:
     """指令解析器"""
-    
+
     @staticmethod
-    def parse(message: str, prefixes: Set[str]) -> ParsedCommand:
+    def parse(message: str, prefixes: set[str]) -> ParsedCommand:
         """
         解析指令消息
-        
+
         Args:
             message: 原始消息
             prefixes: 指令前缀集合
-            
+
         Returns:
             ParsedCommand: 解析结果
         """
         stripped = message.strip()
-        command: Optional[str] = None
+        command: str | None = None
         content: str = stripped
-        args: List[str] = []
-        
+        args: list[str] = []
+
         # 检测并移除指令前缀
         for prefix in prefixes:
-            prefix_stripped = prefix.lstrip('/')
+            prefix_stripped = prefix.lstrip("/")
             if stripped.startswith(prefix):
                 command = prefix_stripped
-                content = stripped[len(prefix):].strip()
+                content = stripped[len(prefix) :].strip()
                 break
             elif stripped.startswith(prefix_stripped):
                 command = prefix_stripped
-                content = stripped[len(prefix_stripped):].strip()
+                content = stripped[len(prefix_stripped) :].strip()
                 break
-        
+
         # 解析参数
         if content:
             args = content.split()
-        
+
         return ParsedCommand(
-            raw_message=message,
-            content=content,
-            command=command,
-            args=args
+            raw_message=message, content=content, command=command, args=args
         )
-    
+
     @staticmethod
     def parse_with_slash(message: str, command_name: str) -> ParsedCommand:
         """
         解析带斜杠的指令
-        
+
         Args:
             message: 原始消息
             command_name: 指令名（不含斜杠）
-            
+
         Returns:
             ParsedCommand: 解析结果
         """
@@ -99,7 +98,7 @@ class DeleteScopeParser:
     }
 
     @classmethod
-    def parse(cls, param: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    def parse(cls, param: str | None) -> tuple[str | None, str | None]:
         """
         解析删除范围参数
 
@@ -135,12 +134,13 @@ class DeleteScopeParser:
 @dataclass(frozen=True)
 class UnifiedDeleteResult:
     """统一删除指令解析结果"""
-    main_scope: DeleteMainScope        # 主范围
-    group_sub_scope: Optional[str]     # 群聊子范围 (shared/private/all)
-    scope_filter: Optional[str]        # 数据库过滤值
-    scope_desc: str                    # 中文描述
-    is_valid: bool                     # 是否有效
-    error_message: Optional[str]       # 错误消息
+
+    main_scope: DeleteMainScope  # 主范围
+    group_sub_scope: str | None  # 群聊子范围 (shared/private/all)
+    scope_filter: str | None  # 数据库过滤值
+    scope_desc: str  # 中文描述
+    is_valid: bool  # 是否有效
+    error_message: str | None  # 错误消息
 
 
 class UnifiedDeleteScopeParser:
@@ -150,11 +150,7 @@ class UnifiedDeleteScopeParser:
     GROUP_SUB_SCOPES = {"shared", "private", "all"}
 
     @classmethod
-    def parse(
-        cls,
-        args: List[str],
-        has_confirm: bool = False
-    ) -> UnifiedDeleteResult:
+    def parse(cls, args: list[str], has_confirm: bool = False) -> UnifiedDeleteResult:
         """
         解析统一删除指令参数
 
@@ -175,7 +171,7 @@ class UnifiedDeleteScopeParser:
                 scope_filter=None,
                 scope_desc="当前会话",
                 is_valid=True,
-                error_message=None
+                error_message=None,
             )
 
         first_arg = args[0].lower()
@@ -188,7 +184,7 @@ class UnifiedDeleteScopeParser:
                 scope_filter=None,
                 scope_desc="",
                 is_valid=False,
-                error_message="参数错误，可用范围: current, private, group [shared|private|all], all confirm"
+                error_message="参数错误，可用范围: current, private, group [shared|private|all], all confirm",
             )
 
         # current: 当前会话
@@ -199,7 +195,7 @@ class UnifiedDeleteScopeParser:
                 scope_filter=None,
                 scope_desc="当前会话",
                 is_valid=True,
-                error_message=None
+                error_message=None,
             )
 
         # private: 私聊记忆
@@ -210,7 +206,7 @@ class UnifiedDeleteScopeParser:
                 scope_filter=None,
                 scope_desc="私聊",
                 is_valid=True,
-                error_message=None
+                error_message=None,
             )
 
         # group: 群聊记忆
@@ -224,7 +220,7 @@ class UnifiedDeleteScopeParser:
                     scope_filter=None,
                     scope_desc="",
                     is_valid=False,
-                    error_message="参数错误，请使用: shared, private 或 all"
+                    error_message="参数错误，请使用: shared, private 或 all",
                 )
 
             scope_filter, scope_desc = DeleteScopeParser.parse(sub_scope)
@@ -234,7 +230,7 @@ class UnifiedDeleteScopeParser:
                 scope_filter=scope_filter,
                 scope_desc=scope_desc,
                 is_valid=True,
-                error_message=None
+                error_message=None,
             )
 
         # all: 所有记忆（需要 confirm）
@@ -245,7 +241,7 @@ class UnifiedDeleteScopeParser:
                 scope_filter=None,
                 scope_desc="所有",
                 is_valid=True,
-                error_message=None
+                error_message=None,
             )
 
         # 不应该到达这里
@@ -255,29 +251,29 @@ class UnifiedDeleteScopeParser:
             scope_filter=None,
             scope_desc="",
             is_valid=False,
-            error_message="未知错误"
+            error_message="未知错误",
         )
 
 
 class StatsFormatter:
     """统计信息格式化器"""
-    
+
     @staticmethod
     def format_memory_stats(
         working_count: int,
         episodic_count: int,
         image_analyzed: int = 0,
-        cache_hits: int = 0
+        cache_hits: int = 0,
     ) -> str:
         """
         格式化记忆统计信息
-        
+
         Args:
             working_count: 工作记忆数量
             episodic_count: 情景记忆数量
             image_analyzed: 图片分析数量
             cache_hits: 缓存命中次数
-            
+
         Returns:
             str: 格式化后的统计文本
         """
@@ -286,69 +282,69 @@ class StatsFormatter:
             f"- 工作记忆：{working_count} 条",
             f"- 情景记忆：{episodic_count} 条",
         ]
-        
+
         if image_analyzed > 0:
             lines.append(f"- 图片分析：{image_analyzed} 张")
         if cache_hits > 0:
             lines.append(f"- 缓存命中：{cache_hits} 次")
-        
+
         return "\n".join(lines)
-    
+
     @staticmethod
-    def format_search_results(memories: List) -> str:
+    def format_search_results(memories: list) -> str:
         """
         格式化搜索结果
-        
+
         Args:
             memories: 记忆对象列表
-            
+
         Returns:
             str: 格式化后的搜索结果
         """
         if not memories:
             return "未找到相关记忆"
-        
+
         lines = [f"找到 {len(memories)} 条相关记忆：\n"]
-        
+
         for i, memory in enumerate(memories, 1):
             time_str = memory.created_time.strftime("%m-%d %H:%M")
             lines.append(f"{i}. [{memory.type.value.upper()}] {time_str}")
             lines.append(f"   {memory.content}\n")
-        
+
         return "\n".join(lines)
 
 
 class SessionKeyBuilder:
     """会话键构建器"""
-    
+
     SEPARATOR: str = ":"
     PRIVATE: str = "private"
-    
+
     @classmethod
-    def build(cls, user_id: str, group_id: Optional[str]) -> str:
+    def build(cls, user_id: str, group_id: str | None) -> str:
         """
         构建会话键
-        
+
         Args:
             user_id: 用户ID
             group_id: 群聊ID（私聊为None）
-            
+
         Returns:
             str: 会话键
         """
         if group_id:
             return f"{user_id}{cls.SEPARATOR}{group_id}"
         return f"{user_id}{cls.SEPARATOR}{cls.PRIVATE}"
-    
+
     @classmethod
-    def build_for_kv(cls, user_id: str, group_id: Optional[str]) -> str:
+    def build_for_kv(cls, user_id: str, group_id: str | None) -> str:
         """
         构建用于KV存储的键
-        
+
         Args:
             user_id: 用户ID
             group_id: 群聊ID
-            
+
         Returns:
             str: KV存储键
         """
@@ -359,12 +355,18 @@ class SessionKeyBuilder:
 class MessageFilter:
     """消息过滤器"""
 
-    KNOWN_COMMANDS: Set[str] = frozenset([
-        "memory_save", "memory_search", "memory_clear", "memory_stats",
-        "memory_delete", "proactive_reply"
-    ])
+    KNOWN_COMMANDS: set[str] = frozenset(
+        [
+            "memory_save",
+            "memory_search",
+            "memory_clear",
+            "memory_stats",
+            "memory_delete",
+            "proactive_reply",
+        ]
+    )
 
-    RICH_TEXT_PATTERNS: List[str] = [
+    RICH_TEXT_PATTERNS: list[str] = [
         r"^\[\]\(%7B%22version%22.*%7D\)",
         r"mqqapi://markdown/mention",
         r"mqqapi://markdown",
@@ -376,7 +378,7 @@ class MessageFilter:
         """检查是否为指令消息"""
         stripped = message.strip()
 
-        if stripped.startswith('/'):
+        if stripped.startswith("/"):
             return True
 
         for cmd in cls.KNOWN_COMMANDS:
@@ -433,10 +435,10 @@ class MessageFilter:
             return True
 
         markdown_markers = [
-            r'\*\*\*[^*]+\*\*\*',
-            r'```[a-z]*\n',
-            r'> ! `https?://',
-            r'\[@[^\]]+\]\(mqqapi://',
+            r"\*\*\*[^*]+\*\*\*",
+            r"```[a-z]*\n",
+            r"> ! `https?://",
+            r"\[@[^\]]+\]\(mqqapi://",
         ]
 
         match_count = 0
@@ -489,17 +491,17 @@ class MessageFilter:
 
         text = message
 
-        text = re.sub(r'\[\]\(%7B[^)]*%7D\)', '', text, flags=re.IGNORECASE)
+        text = re.sub(r"\[\]\(%7B[^)]*%7D\)", "", text, flags=re.IGNORECASE)
 
-        text = re.sub(r'\[@([^\]]+)\]\(mqqapi://[^\)]+\)', r'@\1', text)
+        text = re.sub(r"\[@([^\]]+)\]\(mqqapi://[^\)]+\)", r"@\1", text)
 
-        text = re.sub(r'\*\*\*([^*]+)\*\*\*', r'\1', text)
+        text = re.sub(r"\*\*\*([^*]+)\*\*\*", r"\1", text)
 
-        text = re.sub(r'```[a-z]*\n?', '', text)
-        text = re.sub(r'```', '', text)
+        text = re.sub(r"```[a-z]*\n?", "", text)
+        text = re.sub(r"```", "", text)
 
-        text = re.sub(r'> ! `[^`]+`', '', text)
+        text = re.sub(r"> ! `[^`]+`", "", text)
 
-        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
 
         return text.strip()

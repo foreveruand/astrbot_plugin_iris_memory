@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Dict, Optional, Set
 
 from iris_memory.utils.logger import get_logger
 
@@ -55,17 +54,17 @@ class ReplyCoordinator:
 
     def __init__(self) -> None:
         # 正在进行正常 LLM 回复的群组集合
-        self._normal_reply_pending: Set[str] = set()
+        self._normal_reply_pending: set[str] = set()
 
         # 群级别主动回复锁（防止 signal + followup 并发发送）
-        self._proactive_locks: Dict[str, asyncio.Lock] = {}
+        self._proactive_locks: dict[str, asyncio.Lock] = {}
 
         # 正常回复完成时间戳（group_id -> timestamp）
-        self._last_normal_reply_time: Dict[str, float] = {}
+        self._last_normal_reply_time: dict[str, float] = {}
 
     # ── 正常回复守卫 ──────────────────────────────────────────
 
-    def mark_normal_reply_start(self, group_id: Optional[str]) -> None:
+    def mark_normal_reply_start(self, group_id: str | None) -> None:
         """标记群组开始正常 LLM 回复流程
 
         在 process_normal_message 返回非 None prompt 时调用。
@@ -80,7 +79,7 @@ class ReplyCoordinator:
 
     def mark_normal_reply_end(
         self,
-        group_id: Optional[str],
+        group_id: str | None,
         cooldown_seconds: float = 0.0,
     ) -> None:
         """标记群组正常 LLM 回复流程结束
@@ -178,7 +177,7 @@ class ReplyCoordinator:
         self,
         group_id: str,
         cooldown_seconds: float = 0.0,
-    ) -> "_ProactiveReplyGuard":
+    ) -> _ProactiveReplyGuard:
         """获取主动回复守卫（上下文管理器）
 
         用法：
@@ -235,7 +234,7 @@ class _ProactiveReplyGuard:
         self._coordinator = coordinator
         self._group_id = group_id
         self._cooldown_seconds = cooldown_seconds
-        self._lock: Optional[asyncio.Lock] = None
+        self._lock: asyncio.Lock | None = None
         self._allowed = False
 
     async def __aenter__(self) -> bool:
@@ -266,6 +265,8 @@ class _ProactiveReplyGuard:
         self._allowed = True
         return True
 
-    async def __aexit__(self, exc_type: type, exc_val: Exception, exc_tb: object) -> None:
+    async def __aexit__(
+        self, exc_type: type, exc_val: Exception, exc_tb: object
+    ) -> None:
         if self._lock is not None and self._lock.locked():
             self._lock.release()

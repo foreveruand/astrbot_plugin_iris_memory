@@ -9,31 +9,31 @@ LLM 统计模块
 
 Usage:
     from iris_memory.stats import get_stats_registry, StatsQuery
-    
+
     # 获取统计注册表
     registry = get_stats_registry()
-    
+
     # 查询
     query = StatsQuery(provider_id="openai-gpt-4", limit=50)
     records = registry.query(query)
-    
+
     # 获取聚合统计
     aggregated = registry.get_aggregated()
-    
+
     # 获取摘要
     summary = registry.get_summary()
 """
 
-from iris_memory.stats.registry import (
-    LLMStatsRegistry,
-    get_stats_registry,
-    SOURCE_ALIASES,
-)
 from iris_memory.stats.models import (
-    LLMCallRecord,
     LLMAggregatedStats,
+    LLMCallRecord,
     StatsQuery,
     StatsSummary,
+)
+from iris_memory.stats.registry import (
+    SOURCE_ALIASES,
+    LLMStatsRegistry,
+    get_stats_registry,
 )
 from iris_memory.stats.store import StatsKVStore
 

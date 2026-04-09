@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 
 class SessionRepository:
@@ -11,7 +11,7 @@ class SessionRepository:
     def __init__(self, memory_service: Any) -> None:
         self._service = memory_service
 
-    async def get_all_sessions(self) -> Dict[str, Any]:
+    async def get_all_sessions(self) -> dict[str, Any]:
         try:
             if self._service.session_manager:
                 return self._service.session_manager.get_all_sessions()
@@ -19,8 +19,8 @@ class SessionRepository:
         except Exception:
             return {}
 
-    async def get_session_stats(self) -> Dict[str, int]:
-        result: Dict[str, int] = {
+    async def get_session_stats(self) -> dict[str, int]:
+        result: dict[str, int] = {
             "total_sessions": 0,
             "active_sessions": 0,
             "total_users": 0,

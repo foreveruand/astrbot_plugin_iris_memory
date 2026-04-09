@@ -7,7 +7,7 @@
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from iris_memory.core.types import StorageLayer
 from iris_memory.models.memory import Memory
@@ -29,7 +29,7 @@ class MemoryReinforcementEngine:
     def __init__(
         self,
         chroma_manager: Any = None,
-        review_interval_hours: Optional[int] = None,
+        review_interval_hours: int | None = None,
     ):
         self._chroma = chroma_manager
         self._review_interval_hours = (
@@ -37,8 +37,8 @@ class MemoryReinforcementEngine:
             if review_interval_hours is not None
             else self._load_config_interval()
         )
-        self._review_history: Dict[str, List[tuple]] = {}
-        self._task: Optional[asyncio.Task] = None
+        self._review_history: dict[str, list[tuple]] = {}
+        self._task: asyncio.Task | None = None
         self._is_running = False
 
     async def start(self) -> None:
@@ -47,7 +47,9 @@ class MemoryReinforcementEngine:
             return
         self._is_running = True
         self._task = asyncio.create_task(self._reinforcement_loop())
-        logger.info(f"ReinforcementEngine started: interval={self._review_interval_hours}h")
+        logger.info(
+            f"ReinforcementEngine started: interval={self._review_interval_hours}h"
+        )
 
     async def stop(self) -> None:
         """停止后台强化循环"""
@@ -97,12 +99,17 @@ class MemoryReinforcementEngine:
     async def _update_rif_scores(self, user_id: str) -> None:
         """更新用户的记忆 RIF 评分"""
         try:
-            episodic = await self._chroma.get_memories_by_storage_layer(StorageLayer.EPISODIC)
-            semantic = await self._chroma.get_memories_by_storage_layer(StorageLayer.SEMANTIC)
+            episodic = await self._chroma.get_memories_by_storage_layer(
+                StorageLayer.EPISODIC
+            )
+            semantic = await self._chroma.get_memories_by_storage_layer(
+                StorageLayer.SEMANTIC
+            )
             all_memories = (episodic or []) + (semantic or [])
 
             candidates = [
-                m for m in all_memories
+                m
+                for m in all_memories
                 if m.user_id == user_id and m.importance_score >= 0.4
             ]
 
@@ -115,7 +122,9 @@ class MemoryReinforcementEngine:
     async def _apply_sm2_reinforcement(self, memory: Memory) -> None:
         """应用 SM-2 变体强化：根据间隔重复效应更新 RIF 评分"""
         last_review = self._get_last_review_time(memory.id, memory.user_id)
-        next_review = self._calculate_next_review(memory, last_review or memory.created_at)
+        next_review = self._calculate_next_review(
+            memory, last_review or memory.created_at
+        )
 
         if datetime.now() >= next_review:
             old_rif = memory.rif_score
@@ -123,7 +132,9 @@ class MemoryReinforcementEngine:
             self.record_review(memory.id, memory.user_id)
             try:
                 await self._chroma.update_memory(memory)
-                logger.debug(f"RIF updated: {memory.id} {old_rif:.2f} -> {memory.rif_score:.2f}")
+                logger.debug(
+                    f"RIF updated: {memory.id} {old_rif:.2f} -> {memory.rif_score:.2f}"
+                )
             except Exception as e:
                 logger.warning(f"Failed to update memory {memory.id}: {e}")
 
@@ -153,6 +164,7 @@ class MemoryReinforcementEngine:
         """从 ConfigStore 读取回顾间隔小时数"""
         try:
             from iris_memory.config import get_store
+
             return get_store().get(
                 "memory.reinforcement.interval_hours",
                 MemoryReinforcementEngine.DEFAULT_REVIEW_INTERVAL_HOURS,
@@ -166,7 +178,7 @@ class MemoryReinforcementEngine:
             self._review_history[user_id] = []
         self._review_history[user_id].append((memory_id, datetime.now()))
 
-    def _get_last_review_time(self, memory_id: str, user_id: str) -> Optional[datetime]:
+    def _get_last_review_time(self, memory_id: str, user_id: str) -> datetime | None:
         history = self._review_history.get(user_id, [])
         for mid, t in reversed(history):
             if mid == memory_id:

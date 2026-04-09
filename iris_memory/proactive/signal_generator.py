@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
 
 from iris_memory.config import get_store
 from iris_memory.proactive.models import Signal, SignalType
@@ -21,43 +20,122 @@ logger = get_logger("proactive.signal_generator")
 # ========== 信号关键词表 ==========
 
 # 疑问词（中文 + 英文常见 + 口语变体）
-QUESTION_KEYWORDS: List[str] = [
-    "吗", "呢", "什么", "怎么", "为什么", "如何", "哪里", "哪个",
-    "几个", "几点", "多少", "能不能", "可以吗", "是不是", "有没有",
-    "谁", "怎样", "何时", "咱", "啊", "哪样",
-    "how", "what", "why", "where", "when",
+QUESTION_KEYWORDS: list[str] = [
+    "吗",
+    "呢",
+    "什么",
+    "怎么",
+    "为什么",
+    "如何",
+    "哪里",
+    "哪个",
+    "几个",
+    "几点",
+    "多少",
+    "能不能",
+    "可以吗",
+    "是不是",
+    "有没有",
+    "谁",
+    "怎样",
+    "何时",
+    "咱",
+    "啊",
+    "哪样",
+    "how",
+    "what",
+    "why",
+    "where",
+    "when",
 ]
 
 # @Bot / 提及
-MENTION_PATTERNS: List[str] = [
-    "你说", "你怎么看", "你觉得", "你认为",
-    "帮我", "帮忙", "求助",
+MENTION_PATTERNS: list[str] = [
+    "你说",
+    "你怎么看",
+    "你觉得",
+    "你认为",
+    "帮我",
+    "帮忙",
+    "求助",
 ]
 
 # 情感词
-EMOTION_POSITIVE: List[str] = [
-    "开心", "高兴", "太好了", "成功了", "庆祝", "激动", "兴奋",
-    "棒", "厉害", "牛", "绝了", "爽",
-    "绝绝子", "yyds", "赞", "欧耶", "嘴角上扬",
-    "开花", "小确幸", "笑死",
+EMOTION_POSITIVE: list[str] = [
+    "开心",
+    "高兴",
+    "太好了",
+    "成功了",
+    "庆祝",
+    "激动",
+    "兴奋",
+    "棒",
+    "厉害",
+    "牛",
+    "绝了",
+    "爽",
+    "绝绝子",
+    "yyds",
+    "赞",
+    "欧耶",
+    "嘴角上扬",
+    "开花",
+    "小确幸",
+    "笑死",
 ]
-EMOTION_NEGATIVE: List[str] = [
-    "难过", "伤心", "烦", "累", "焦虑", "压力", "失眠", "崩溃",
-    "无聊", "不爽", "郁闷", "痛苦", "绝望", "迷茫",
-    "破防", "emo", "裂开", "麻了", "不想努力了",
-    "不开心", "心累", "自闭",
+EMOTION_NEGATIVE: list[str] = [
+    "难过",
+    "伤心",
+    "烦",
+    "累",
+    "焦虑",
+    "压力",
+    "失眠",
+    "崩溃",
+    "无聊",
+    "不爽",
+    "郁闷",
+    "痛苦",
+    "绝望",
+    "迷茫",
+    "破防",
+    "emo",
+    "裂开",
+    "麻了",
+    "不想努力了",
+    "不开心",
+    "心累",
+    "自闭",
 ]
 
 # 寻求关注
-ATTENTION_KEYWORDS: List[str] = [
-    "有人吗", "在吗", "出来聊天", "好无聊", "陪我", "说说话",
-    "有没有人", "谁在", "好寂寞", "一个人好无聊",
+ATTENTION_KEYWORDS: list[str] = [
+    "有人吗",
+    "在吗",
+    "出来聊天",
+    "好无聊",
+    "陪我",
+    "说说话",
+    "有没有人",
+    "谁在",
+    "好寂寞",
+    "一个人好无聊",
 ]
 
 # 简短确认（直接过滤）
-SHORT_CONFIRM_PATTERNS: List[str] = [
-    "嗯", "哦", "好的", "好吧", "行", "ok", "OK", "Ok",
-    "收到", "了解", "知道了", "明白",
+SHORT_CONFIRM_PATTERNS: list[str] = [
+    "嗯",
+    "哦",
+    "好的",
+    "好吧",
+    "行",
+    "ok",
+    "OK",
+    "Ok",
+    "收到",
+    "了解",
+    "知道了",
+    "明白",
 ]
 
 # 纯表情正则
@@ -105,7 +183,7 @@ class SignalGenerator:
         group_id: str,
         session_key: str,
         emotion_intensity: float = 0.0,
-    ) -> List[Signal]:
+    ) -> list[Signal]:
         """从消息中生成信号
 
         Args:
@@ -118,7 +196,7 @@ class SignalGenerator:
         Returns:
             生成的信号列表（可能为空）
         """
-        signals: List[Signal] = []
+        signals: list[Signal] = []
 
         if not text or not text.strip():
             return signals
@@ -130,9 +208,7 @@ class SignalGenerator:
             return signals
 
         # 规则匹配检测
-        rule_signal = self._detect_rule_match(
-            text, user_id, group_id, session_key
-        )
+        rule_signal = self._detect_rule_match(text, user_id, group_id, session_key)
         if rule_signal:
             signals.append(rule_signal)
 
@@ -151,14 +227,14 @@ class SignalGenerator:
         user_id: str,
         group_id: str,
         session_key: str,
-    ) -> Optional[Signal]:
+    ) -> Signal | None:
         """规则匹配检测
 
         Returns:
             匹配的 Signal，或 None
         """
         score = 0.0
-        matched: List[str] = []
+        matched: list[str] = []
 
         # 疑问检测
         q_score = self._detect_question(text)
@@ -207,7 +283,7 @@ class SignalGenerator:
         group_id: str,
         session_key: str,
         emotion_intensity: float,
-    ) -> Optional[Signal]:
+    ) -> Signal | None:
         """高情感信号检测
 
         当外部提供的情感强度 > 0.7 时生成 emotion_high 信号。
@@ -263,7 +339,7 @@ class SignalGenerator:
         return 0.0
 
     @staticmethod
-    def _detect_emotion_keywords(text: str) -> Tuple[float, str]:
+    def _detect_emotion_keywords(text: str) -> tuple[float, str]:
         """情感关键词检测
 
         Returns:

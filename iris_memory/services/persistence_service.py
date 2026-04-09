@@ -13,12 +13,12 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, Callable, Awaitable
+from typing import Any
 
-from iris_memory.utils.logger import get_logger
 from iris_memory.core.constants import KVStoreKeys, LogTemplates
-from iris_memory.utils.member_utils import set_identity_service
 from iris_memory.services.shared_state import SharedState
+from iris_memory.utils.logger import get_logger
+from iris_memory.utils.member_utils import set_identity_service
 
 logger = get_logger("memory_service.persistence")
 
@@ -26,26 +26,28 @@ logger = get_logger("memory_service.persistence")
 @dataclass
 class KVLoaderConfig:
     """KV 加载配置"""
+
     key: str
     component_path: str
     deserialize_method: str
     default: Any = field(default_factory=dict)
-    config_check: Optional[str] = None
-    log_message: Optional[str] = None
+    config_check: str | None = None
+    log_message: str | None = None
     is_async: bool = True
-    special_handler: Optional[str] = None
+    special_handler: str | None = None
 
 
 @dataclass
 class KVSaveConfig:
     """KV 保存配置"""
+
     key: str
     component_path: str
     serialize_method: str
-    config_check: Optional[str] = None
-    log_message: Optional[str] = None
+    config_check: str | None = None
+    log_message: str | None = None
     is_async: bool = True
-    special_handler: Optional[str] = None
+    special_handler: str | None = None
 
 
 _KV_LOADERS: list[KVLoaderConfig] = [
@@ -223,7 +225,7 @@ class PersistenceService:
         self._image_analyzer = image_analyzer
         self._activity_tracker = activity_tracker
         self._activity_provider = activity_provider
-        self._cached_put_kv_data: Optional[Any] = None
+        self._cached_put_kv_data: Any | None = None
 
     # ── 可选组件更新 ──
 
@@ -300,7 +302,9 @@ class PersistenceService:
             else:
                 count = 0
             logger.debug(config.log_message.format(count=count))
-        elif config.key == KVStoreKeys.MEMBER_IDENTITY and hasattr(component, "get_stats"):
+        elif config.key == KVStoreKeys.MEMBER_IDENTITY and hasattr(
+            component, "get_stats"
+        ):
             stats = component.get_stats()
             logger.debug(
                 f"Loaded member identity data: "
@@ -392,7 +396,7 @@ class PersistenceService:
         else:
             logger.debug(config.log_message)
 
-    async def _save_batch_queues(self, put_kv_data: Optional[Any] = None) -> None:
+    async def _save_batch_queues(self, put_kv_data: Any | None = None) -> None:
         """保存批量处理器队列（支持无参回调）"""
         if not self._capture.batch_processor:
             return
@@ -470,13 +474,16 @@ class PersistenceService:
             logger.debug(LogTemplates.PLUGIN_TERMINATED)
 
         except Exception as e:
-            logger.error(LogTemplates.PLUGIN_TERMINATE_ERROR.format(error=e), exc_info=True)
+            logger.error(
+                LogTemplates.PLUGIN_TERMINATE_ERROR.format(error=e), exc_info=True
+            )
 
     def _clear_global_state(self) -> None:
         """清理全局状态引用"""
         set_identity_service(None)
 
         from iris_memory.core.service_container import ServiceContainer
+
         ServiceContainer.instance().clear()
         logger.debug("[Hot-Reload] ServiceContainer and global state cleared")
 
@@ -488,13 +495,16 @@ class PersistenceService:
             ("Message Classifier", self._capture.message_classifier),
             ("Batch Processor", self._capture.batch_processor),
             ("Persona Batch Processor", self._analysis.persona_batch_processor),
-            ("LLM Processor", self._llm_enhanced.llm_processor if self._llm_enhanced else None),
+            (
+                "LLM Processor",
+                self._llm_enhanced.llm_processor if self._llm_enhanced else None,
+            ),
             ("Proactive Manager", self._proactive.manager),
             ("Image Analyzer", self._image_analyzer),
         ]
 
         for name, component in components:
-            if component and hasattr(component, 'get_stats'):
+            if component and hasattr(component, "get_stats"):
                 try:
                     stats = component.get_stats()
                     logger.debug(f"{name}: {stats}")

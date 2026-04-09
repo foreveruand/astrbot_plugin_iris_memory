@@ -5,7 +5,6 @@
 """
 
 from datetime import datetime, timedelta
-from typing import List, Optional
 
 from iris_memory.core.types import QualityLevel, StorageLayer
 from iris_memory.models.memory import Memory
@@ -23,7 +22,7 @@ class GracePeriodManager:
     DEFAULT_GRACE_DAYS = 7
     SILENT_DELETE_CONFIDENCE_THRESHOLD = 0.3
     SILENT_DELETE_ACCESS_THRESHOLD = 0
-    
+
     AUTO_KEEP_EMOTIONAL_WEIGHT_THRESHOLD = 0.5
     AUTO_KEEP_IMPORTANCE_THRESHOLD = 0.6
     AUTO_KEEP_ACCESS_THRESHOLD = 2
@@ -69,7 +68,9 @@ class GracePeriodManager:
             return "silent_delete"
 
         if self._should_auto_keep(memory):
-            logger.debug(f"Memory {memory.id[:8]} auto-kept (emotional={memory.emotional_weight:.2f}, importance={memory.importance_score:.2f})")
+            logger.debug(
+                f"Memory {memory.id[:8]} auto-kept (emotional={memory.emotional_weight:.2f}, importance={memory.importance_score:.2f})"
+            )
             return "auto_keep"
 
         await self._initiate_grace_period(memory)
@@ -77,7 +78,7 @@ class GracePeriodManager:
 
     def _should_auto_keep(self, memory: Memory) -> bool:
         """判断记忆是否应自动保留（无需宽限期等待）
-        
+
         高价值记忆特征：
         - 情感权重 >= 0.5（有情感价值）
         - 或 重要性 >= 0.6 且 访问 >= 2 次（有持续关注）
@@ -85,7 +86,10 @@ class GracePeriodManager:
         """
         if memory.emotional_weight >= self.AUTO_KEEP_EMOTIONAL_WEIGHT_THRESHOLD:
             return True
-        if memory.importance_score >= self.AUTO_KEEP_IMPORTANCE_THRESHOLD and memory.access_count >= self.AUTO_KEEP_ACCESS_THRESHOLD:
+        if (
+            memory.importance_score >= self.AUTO_KEEP_IMPORTANCE_THRESHOLD
+            and memory.access_count >= self.AUTO_KEEP_ACCESS_THRESHOLD
+        ):
             return True
         if memory.confidence >= 0.6 and memory.access_count >= 1:
             return True
@@ -93,7 +97,9 @@ class GracePeriodManager:
 
     async def _initiate_grace_period(self, memory: Memory) -> None:
         """设置宽限期"""
-        memory.grace_period_expires_at = datetime.now() + timedelta(days=self._grace_days)
+        memory.grace_period_expires_at = datetime.now() + timedelta(
+            days=self._grace_days
+        )
         memory.review_status = "pending_review"
 
         if self._chroma:
@@ -104,12 +110,12 @@ class GracePeriodManager:
 
     async def get_pending_review_memories(
         self,
-        user_id: Optional[str] = None,
-        group_id: Optional[str] = None,
+        user_id: str | None = None,
+        group_id: str | None = None,
         limit: int = 20,
-    ) -> List[Memory]:
+    ) -> list[Memory]:
         """获取当前处于宽限期的记忆列表
-        
+
         Args:
             user_id: 用户ID（None 表示所有用户）
             group_id: 群组ID
@@ -119,11 +125,14 @@ class GracePeriodManager:
             return []
         try:
             # 从 EPISODIC 层查询所有候选
-            episodic = await self._chroma.get_memories_by_storage_layer(StorageLayer.EPISODIC)
+            episodic = await self._chroma.get_memories_by_storage_layer(
+                StorageLayer.EPISODIC
+            )
             if not episodic:
                 return []
             pending = [
-                m for m in episodic
+                m
+                for m in episodic
                 if m.review_status == "pending_review"
                 and m.grace_period_expires_at is not None
                 and (user_id is None or m.user_id == user_id)

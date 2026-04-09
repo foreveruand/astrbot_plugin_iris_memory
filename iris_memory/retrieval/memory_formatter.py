@@ -5,14 +5,21 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from iris_memory.models.memory import Memory
-from iris_memory.core.memory_scope import MemoryScope
-from iris_memory.utils.member_utils import format_member_tag
-from iris_memory.utils.token_manager import TokenBudget, MemoryCompressor, DynamicMemorySelector
-from iris_memory.persona.persona_coordinator import PersonaCoordinator, CoordinationStrategy
 from iris_memory.core.constants import RetrievalDefaults
+from iris_memory.core.memory_scope import MemoryScope
+from iris_memory.models.memory import Memory
+from iris_memory.persona.persona_coordinator import (
+    CoordinationStrategy,
+    PersonaCoordinator,
+)
+from iris_memory.utils.member_utils import format_member_tag
+from iris_memory.utils.token_manager import (
+    DynamicMemorySelector,
+    MemoryCompressor,
+    TokenBudget,
+)
 
 
 class MemoryFormatter:
@@ -24,10 +31,10 @@ class MemoryFormatter:
 
     def __init__(
         self,
-        token_budget: Optional[TokenBudget] = None,
-        compressor: Optional[MemoryCompressor] = None,
-        selector: Optional[DynamicMemorySelector] = None,
-        persona_coordinator: Optional[PersonaCoordinator] = None,
+        token_budget: TokenBudget | None = None,
+        compressor: MemoryCompressor | None = None,
+        selector: DynamicMemorySelector | None = None,
+        persona_coordinator: PersonaCoordinator | None = None,
     ) -> None:
         self.token_budget = token_budget or TokenBudget(
             total_budget=RetrievalDefaults.TOKEN_BUDGET
@@ -45,12 +52,12 @@ class MemoryFormatter:
 
     def format_memories_for_llm(
         self,
-        memories: List[Memory],
+        memories: list[Memory],
         use_token_budget: bool = True,
-        user_persona: Optional[Dict[str, Any]] = None,
+        user_persona: dict[str, Any] | None = None,
         persona_style: str = "default",
-        group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None,
+        group_id: str | None = None,
+        current_sender_name: str | None = None,
         max_context_memories: int = 3,
     ) -> str:
         """格式化记忆用于注入到 LLM 上下文
@@ -80,11 +87,17 @@ class MemoryFormatter:
             )
 
         if persona_style == "natural":
-            formatted = self._format_natural_style(memories, group_id, current_sender_name)
+            formatted = self._format_natural_style(
+                memories, group_id, current_sender_name
+            )
         elif persona_style == "roleplay":
-            formatted = self._format_roleplay_style(memories, group_id, current_sender_name)
+            formatted = self._format_roleplay_style(
+                memories, group_id, current_sender_name
+            )
         else:
-            formatted = self._format_default_style(memories, group_id, current_sender_name)
+            formatted = self._format_default_style(
+                memories, group_id, current_sender_name
+            )
 
         if user_persona:
             formatted = self.persona_coordinator.format_context_with_persona(
@@ -95,7 +108,9 @@ class MemoryFormatter:
 
         return formatted
 
-    def _format_memory_label(self, memory: Memory, group_id: Optional[str] = None) -> str:
+    def _format_memory_label(
+        self, memory: Memory, group_id: str | None = None
+    ) -> str:
         """为记忆生成来源标签"""
         parts = []
 
@@ -116,9 +131,9 @@ class MemoryFormatter:
 
     def _format_natural_style(
         self,
-        memories: List[Memory],
-        group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None,
+        memories: list[Memory],
+        group_id: str | None = None,
+        current_sender_name: str | None = None,
     ) -> str:
         """自然群友风格格式化"""
         formatted = "【你记得的事情】\n"
@@ -138,9 +153,9 @@ class MemoryFormatter:
 
     def _format_roleplay_style(
         self,
-        memories: List[Memory],
-        group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None,
+        memories: list[Memory],
+        group_id: str | None = None,
+        current_sender_name: str | None = None,
     ) -> str:
         """角色扮演风格格式化"""
         formatted = "【你的记忆】\n"
@@ -153,9 +168,9 @@ class MemoryFormatter:
 
     def _format_default_style(
         self,
-        memories: List[Memory],
-        group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None,
+        memories: list[Memory],
+        group_id: str | None = None,
+        current_sender_name: str | None = None,
     ) -> str:
         """默认格式化"""
         formatted = "【相关记忆】\n"
@@ -186,7 +201,7 @@ class MemoryFormatter:
         return formatted
 
     @staticmethod
-    def _format_sender_tag(memory: Memory, group_id: Optional[str]) -> str:
+    def _format_sender_tag(memory: Memory, group_id: str | None) -> str:
         """Format a stable sender tag for group disambiguation."""
         if group_id:
             return format_member_tag(memory.sender_name, memory.user_id, group_id)

@@ -8,30 +8,41 @@ v1.9.2 重构：
 - MemoryRetrievalEngine 保持向后兼容的公共 API
 """
 
-import asyncio
-from typing import List, Dict, Any, Optional, Final, ClassVar
 from datetime import datetime
+from typing import Any, ClassVar
 
-from iris_memory.models.memory import Memory
-from iris_memory.core.types import StorageLayer, RetrievalStrategy, EmotionType, MemoryType, RerankContext
-from iris_memory.analysis.rif_scorer import RIFScorer
 from iris_memory.analysis.emotion.emotion_analyzer import EmotionAnalyzer
+from iris_memory.analysis.rif_scorer import RIFScorer
+from iris_memory.core.constants import RetrievalDefaults
+from iris_memory.core.types import (
+    EmotionType,
+    MemoryType,
+    RerankContext,
+    RetrievalStrategy,
+    StorageLayer,
+)
 from iris_memory.models.emotion_state import EmotionalState
-from iris_memory.utils.token_manager import TokenBudget, MemoryCompressor, DynamicMemorySelector
-from iris_memory.persona.persona_coordinator import PersonaCoordinator, CoordinationStrategy
-from iris_memory.utils.member_utils import format_member_tag
-from iris_memory.retrieval.reranker import Reranker
-from iris_memory.retrieval.retrieval_router import RetrievalRouter
-from iris_memory.retrieval.retrieval_logger import retrieval_log
+from iris_memory.models.memory import Memory
+from iris_memory.persona.persona_coordinator import (
+    CoordinationStrategy,
+    PersonaCoordinator,
+)
 from iris_memory.retrieval.memory_formatter import MemoryFormatter
+from iris_memory.retrieval.reranker import Reranker
+from iris_memory.retrieval.retrieval_logger import retrieval_log
+from iris_memory.retrieval.retrieval_router import RetrievalRouter
 from iris_memory.retrieval.strategies.base import StrategyParams
-from iris_memory.retrieval.strategies.vector import VectorOnlyStrategy
-from iris_memory.retrieval.strategies.time_aware import TimeAwareStrategy
 from iris_memory.retrieval.strategies.emotion_aware import EmotionAwareStrategy
 from iris_memory.retrieval.strategies.graph import GraphStrategy
 from iris_memory.retrieval.strategies.hybrid import HybridStrategy
+from iris_memory.retrieval.strategies.time_aware import TimeAwareStrategy
+from iris_memory.retrieval.strategies.vector import VectorOnlyStrategy
 from iris_memory.utils.logger import get_logger
-from iris_memory.core.constants import RetrievalDefaults
+from iris_memory.utils.token_manager import (
+    DynamicMemorySelector,
+    MemoryCompressor,
+    TokenBudget,
+)
 
 logger = get_logger("retrieval_engine")
 
@@ -87,7 +98,7 @@ class MemoryRetrievalEngine:
     - 记忆压缩减少token消耗
     """
 
-    _STRATEGY_METHOD_MAP: ClassVar[Dict[RetrievalStrategy, str]] = {
+    _STRATEGY_METHOD_MAP: ClassVar[dict[RetrievalStrategy, str]] = {
         RetrievalStrategy.VECTOR_ONLY: "_vector_only_retrieval",
         RetrievalStrategy.TIME_AWARE: "_time_aware_retrieval",
         RetrievalStrategy.EMOTION_AWARE: "_emotion_aware_retrieval",
@@ -98,9 +109,9 @@ class MemoryRetrievalEngine:
     def __init__(
         self,
         chroma_manager,
-        rif_scorer: Optional[RIFScorer] = None,
-        emotion_analyzer: Optional[EmotionAnalyzer] = None,
-        reranker: Optional[Reranker] = None,
+        rif_scorer: RIFScorer | None = None,
+        emotion_analyzer: EmotionAnalyzer | None = None,
+        reranker: Reranker | None = None,
         session_manager=None,
         llm_retrieval_router=None,
     ):
@@ -129,10 +140,11 @@ class MemoryRetrievalEngine:
 
         # Token管理器
         self.token_budget = TokenBudget(total_budget=RetrievalDefaults.TOKEN_BUDGET)
-        self.memory_compressor = MemoryCompressor(max_summary_length=RetrievalDefaults.MAX_SUMMARY_LENGTH)
+        self.memory_compressor = MemoryCompressor(
+            max_summary_length=RetrievalDefaults.MAX_SUMMARY_LENGTH
+        )
         self.memory_selector = DynamicMemorySelector(
-            token_budget=self.token_budget,
-            compressor=self.memory_compressor
+            token_budget=self.token_budget, compressor=self.memory_compressor
         )
 
         # 人格协调器
@@ -142,7 +154,7 @@ class MemoryRetrievalEngine:
 
         # 重排序器
         self.reranker = reranker or Reranker(enable_vector_score=True)
-        
+
         # 检索路由器（支持LLM增强）
         self._llm_router = llm_retrieval_router
         self.router = RetrievalRouter()
@@ -159,27 +171,27 @@ class MemoryRetrievalEngine:
         )
 
         # 策略实例（延迟在 _build_strategies 中创建）
-        self._strategies: Dict[RetrievalStrategy, Any] = {}
+        self._strategies: dict[RetrievalStrategy, Any] = {}
         self._build_strategies()
-    
-    async def _update_access_and_sync(self, memories: List[Memory]) -> None:
+
+    async def _update_access_and_sync(self, memories: list[Memory]) -> None:
         """更新记忆访问统计并同步到 ChromaDB
-        
+
         对最终返回的记忆调用 update_access()，然后将 access_count
         同步回 ChromaDB，确保升级条件（如 access_count >= 5）可以满足。
-        
+
         Args:
             memories: 最终返回的记忆列表
         """
         if not memories:
             return
-        
+
         chroma_memories = []
         for memory in memories:
             memory.update_access()
             if memory.storage_layer != StorageLayer.WORKING:
                 chroma_memories.append(memory)
-        
+
         if chroma_memories and self.chroma_manager:
             try:
                 await self.chroma_manager.batch_update_access_stats(chroma_memories)
@@ -190,14 +202,14 @@ class MemoryRetrievalEngine:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         top_k: int = 10,
-        storage_layer: Optional[StorageLayer] = None,
-        emotional_state: Optional[EmotionalState] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[Memory]:
+        storage_layer: StorageLayer | None = None,
+        emotional_state: EmotionalState | None = None,
+        persona_id: str | None = None,
+    ) -> list[Memory]:
         """检索相关记忆
-        
+
         Args:
             query: 查询文本
             user_id: 用户ID
@@ -206,52 +218,64 @@ class MemoryRetrievalEngine:
             storage_layer: 存储层过滤（可选）
             emotional_state: 情感状态（用于情感感知检索）
             persona_id: 人格 ID（非 None 时启用 persona 过滤）
-            
+
         Returns:
             List[Memory]: 相关记忆列表（已排序）
         """
         try:
             retrieval_log.retrieve_start(user_id, query, group_id, top_k)
-            
+
             if emotional_state:
                 retrieval_log.emotional_state(
                     user_id,
                     emotional_state.current.primary.value,
-                    emotional_state.current.intensity
+                    emotional_state.current.intensity,
                 )
-            
+
             strategy = RetrievalStrategy.HYBRID
             if self.enable_routing:
-                context = {'emotional_state': emotional_state}
+                context = {"emotional_state": emotional_state}
                 strategy = await self._route_query(query, context, user_id)
-                retrieval_log.strategy_selected(user_id, strategy.value if hasattr(strategy, 'value') else str(strategy))
+                retrieval_log.strategy_selected(
+                    user_id,
+                    strategy.value if hasattr(strategy, "value") else str(strategy),
+                )
             else:
                 retrieval_log.strategy_selected(user_id, "HYBRID", "default")
-            
+
             result = await self.retrieve_with_strategy(
-                query, user_id, group_id, strategy, top_k, emotional_state, storage_layer,
+                query,
+                user_id,
+                group_id,
+                strategy,
+                top_k,
+                emotional_state,
+                storage_layer,
                 persona_id=persona_id,
             )
-            
-            retrieval_log.retrieve_ok(user_id, len(result), strategy.value if hasattr(strategy, 'value') else str(strategy))
+
+            retrieval_log.retrieve_ok(
+                user_id,
+                len(result),
+                strategy.value if hasattr(strategy, "value") else str(strategy),
+            )
             return result
-            
+
         except (ValueError, TypeError) as e:
             # 数据格式/类型错误：可恢复
             retrieval_log.retrieve_error(user_id, e)
             return []
         except Exception as e:
             # 未预期异常：记录完整堆栈
-            logger.error(f"Unexpected retrieval error for user={user_id}", exc_info=True)
+            logger.error(
+                f"Unexpected retrieval error for user={user_id}", exc_info=True
+            )
             retrieval_log.retrieve_error(user_id, e)
             return []
-    
+
     def _apply_emotion_filter(
-        self,
-        memories: List[Memory],
-        emotional_state: EmotionalState,
-        user_id: str = ""
-    ) -> List[Memory]:
+        self, memories: list[Memory], emotional_state: EmotionalState, user_id: str = ""
+    ) -> list[Memory]:
         """对情感不匹配的记忆进行降权标记（不硬过滤）
 
         情感一致性的最终裁决由 Reranker._calculate_emotion_score 完成，
@@ -259,28 +283,39 @@ class MemoryRetrievalEngine:
         """
         if not emotional_state:
             return memories
-        
-        positive_subtypes = {'joy', 'excitement', 'calm', 'contentment', 'amusement'}
+
+        positive_subtypes = {"joy", "excitement", "calm", "contentment", "amusement"}
         emotion_threshold = RetrievalDefaults.EMOTION_FILTER_THRESHOLD
-        
+
         for memory in memories:
-            if emotional_state.current.primary in [EmotionType.SADNESS, EmotionType.ANGER, EmotionType.FEAR]:
-                if memory.emotional_weight > emotion_threshold and memory.type == MemoryType.EMOTION:
-                    if hasattr(memory, 'subtype') and memory.subtype:
+            if emotional_state.current.primary in [
+                EmotionType.SADNESS,
+                EmotionType.ANGER,
+                EmotionType.FEAR,
+            ]:
+                if (
+                    memory.emotional_weight > emotion_threshold
+                    and memory.type == MemoryType.EMOTION
+                ):
+                    if hasattr(memory, "subtype") and memory.subtype:
                         if memory.subtype in positive_subtypes:
                             memory.metadata["_emotion_mismatch"] = True
-                            retrieval_log.memory_filtered(user_id, memory.id, "emotion_mismatch_tagged")
-        
+                            retrieval_log.memory_filtered(
+                                user_id, memory.id, "emotion_mismatch_tagged"
+                            )
+
         return memories
-    
-    async def _route_query(self, query: str, context: Optional[Dict] = None, user_id: str = "") -> RetrievalStrategy:
+
+    async def _route_query(
+        self, query: str, context: dict | None = None, user_id: str = ""
+    ) -> RetrievalStrategy:
         """路由查询（支持LLM增强）
-        
+
         Args:
             query: 查询文本
             context: 上下文
             user_id: 用户ID（用于日志）
-            
+
         Returns:
             RetrievalStrategy: 检索策略
         """
@@ -291,16 +326,16 @@ class MemoryRetrievalEngine:
                     return result.strategy
             except Exception as e:
                 retrieval_log.routing_failed(user_id, str(e))
-        
+
         return self.router.route(query, context)
-    
+
     def _rerank_memories(
         self,
-        memories: List[Memory],
+        memories: list[Memory],
         query: str,
-        emotional_state: Optional[EmotionalState] = None,
-        user_id: Optional[str] = None
-    ) -> List[Memory]:
+        emotional_state: EmotionalState | None = None,
+        user_id: str | None = None,
+    ) -> list[Memory]:
         """重排序记忆（使用统一的Reranker）
 
         Args:
@@ -315,15 +350,16 @@ class MemoryRetrievalEngine:
         # 构建上下文
         context: RerankContext = {}
         if emotional_state:
-            context['emotional_state'] = emotional_state
+            context["emotional_state"] = emotional_state
         if user_id:
-            context['current_user_id'] = user_id
+            context["current_user_id"] = user_id
 
         # 注入 MemberIdentityService（如果可用）
         from iris_memory.utils.member_utils import get_identity_service
+
         identity_service = get_identity_service()
         if identity_service:
-            context['member_identity_service'] = identity_service
+            context["member_identity_service"] = identity_service
 
         # 使用Reranker重排序
         return self.reranker.rerank(memories, query, context)
@@ -332,13 +368,13 @@ class MemoryRetrievalEngine:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         strategy: RetrievalStrategy = RetrievalStrategy.HYBRID,
         top_k: int = 10,
-        emotional_state: Optional[EmotionalState] = None,
-        storage_layer: Optional[StorageLayer] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[Memory]:
+        emotional_state: EmotionalState | None = None,
+        storage_layer: StorageLayer | None = None,
+        persona_id: str | None = None,
+    ) -> list[Memory]:
         """使用指定策略检索记忆
 
         优先使用新的策略对象，回退到旧方法以保持兼容。
@@ -365,24 +401,23 @@ class MemoryRetrievalEngine:
         method_name = self._STRATEGY_METHOD_MAP.get(strategy, "_hybrid_retrieval")
         method = getattr(self, method_name)
         return await method(
-            query, user_id, group_id, top_k, emotional_state,
-            storage_layer, persona_id
+            query, user_id, group_id, top_k, emotional_state, storage_layer, persona_id
         )
-    
+
     def _is_kg_available(self) -> bool:
         """检查知识图谱模块是否可用"""
         return self._kg_module is not None and self._kg_module.enabled
-    
+
     async def _hybrid_retrieval(
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         top_k: int = 10,
-        emotional_state: Optional[EmotionalState] = None,
-        storage_layer: Optional[StorageLayer] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[Memory]:
+        emotional_state: EmotionalState | None = None,
+        storage_layer: StorageLayer | None = None,
+        persona_id: str | None = None,
+    ) -> list[Memory]:
         candidate_memories = await self.chroma_manager.query_memories(
             query_text=query,
             user_id=user_id,
@@ -393,60 +428,66 @@ class MemoryRetrievalEngine:
         )
         # 过滤待审核 / 已拒绝的语义记忆
         candidate_memories = [
-            m for m in candidate_memories
+            m
+            for m in candidate_memories
             if m.review_status not in ("pending_review", "rejected")
         ]
-        retrieval_log.vector_query(user_id, len(candidate_memories), storage_layer.value if storage_layer and hasattr(storage_layer, 'value') else None)
-        
+        retrieval_log.vector_query(
+            user_id,
+            len(candidate_memories),
+            storage_layer.value
+            if storage_layer and hasattr(storage_layer, "value")
+            else None,
+        )
+
         if self.enable_working_memory_merge and self.session_manager:
             working_memories = await self._get_relevant_working_memories(
                 query, user_id, group_id, storage_layer
             )
             if working_memories:
-                retrieval_log.working_memory_merged(user_id, len(working_memories), len(candidate_memories) + len(working_memories))
+                retrieval_log.working_memory_merged(
+                    user_id,
+                    len(working_memories),
+                    len(candidate_memories) + len(working_memories),
+                )
                 candidate_memories = self._merge_memories(
                     candidate_memories, working_memories, max_total=top_k * 2
                 )
-        
+
         if not candidate_memories:
             retrieval_log.no_memories_found(user_id, query)
             return []
-        
+
         if self.enable_emotion_aware and emotional_state:
             before_count = len(candidate_memories)
             candidate_memories = self._apply_emotion_filter(
-                candidate_memories,
-                emotional_state,
-                user_id
+                candidate_memories, emotional_state, user_id
             )
             retrieval_log.emotion_filter_applied(
                 user_id, before_count, len(candidate_memories), "negative_state"
             )
-        
+
         ranked_memories = self._rerank_memories(
-            candidate_memories,
-            query,
-            emotional_state,
-            user_id
+            candidate_memories, query, emotional_state, user_id
         )
-        
+
         result = ranked_memories[:top_k]
-        
+
         # 更新访问统计并同步到 ChromaDB
         await self._update_access_and_sync(result)
-        
+
         return result
-    
+
     async def _vector_only_retrieval(
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         top_k: int = 10,
-        emotional_state: Optional[EmotionalState] = None,
-        storage_layer: Optional[StorageLayer] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[Memory]:
+        emotional_state: EmotionalState | None = None,
+        storage_layer: StorageLayer | None = None,
+        persona_id: str | None = None,
+    ) -> list[Memory]:
         """纯向量检索"""
         memories = await self.chroma_manager.query_memories(
             query_text=query,
@@ -458,17 +499,17 @@ class MemoryRetrievalEngine:
         )
         await self._update_access_and_sync(memories)
         return memories
-    
+
     async def _time_aware_retrieval(
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         top_k: int = 10,
-        emotional_state: Optional[EmotionalState] = None,
-        storage_layer: Optional[StorageLayer] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[Memory]:
+        emotional_state: EmotionalState | None = None,
+        storage_layer: StorageLayer | None = None,
+        persona_id: str | None = None,
+    ) -> list[Memory]:
         """时间感知检索"""
         memories = await self.chroma_manager.query_memories(
             query_text=query,
@@ -478,7 +519,7 @@ class MemoryRetrievalEngine:
             storage_layer=storage_layer,
             persona_id=persona_id,
         )
-        
+
         # 按时间得分重新排序
         scored = [(m, self._calculate_time_score(m)) for m in memories]
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -500,17 +541,17 @@ class MemoryRetrievalEngine:
             时间得分 (0-1)
         """
         return memory.calculate_time_score(use_created_time=True)
-    
+
     async def _emotion_aware_retrieval(
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         top_k: int = 10,
-        emotional_state: Optional[EmotionalState] = None,
-        storage_layer: Optional[StorageLayer] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[Memory]:
+        emotional_state: EmotionalState | None = None,
+        storage_layer: StorageLayer | None = None,
+        persona_id: str | None = None,
+    ) -> list[Memory]:
         """情感感知检索"""
         memories = await self.chroma_manager.query_memories(
             query_text=query,
@@ -520,10 +561,10 @@ class MemoryRetrievalEngine:
             storage_layer=storage_layer,
             persona_id=persona_id,
         )
-        
+
         if emotional_state:
             memories = self._apply_emotion_filter(memories, emotional_state, user_id)
-        
+
         result = memories[:top_k]
         # 更新访问统计并同步到 ChromaDB
         await self._update_access_and_sync(result)
@@ -545,12 +586,12 @@ class MemoryRetrievalEngine:
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str] = None,
+        group_id: str | None = None,
         top_k: int = 10,
-        emotional_state: Optional[EmotionalState] = None,
-        storage_layer: Optional[StorageLayer] = None,
-        persona_id: Optional[str] = None,
-    ) -> List[Memory]:
+        emotional_state: EmotionalState | None = None,
+        storage_layer: StorageLayer | None = None,
+        persona_id: str | None = None,
+    ) -> list[Memory]:
         """知识图谱检索 + 向量检索混合
 
         流程：
@@ -604,7 +645,9 @@ class MemoryRetrievalEngine:
                 query, user_id, group_id, storage_layer
             )
             if working_memories:
-                vector_memories = self._merge_memories(vector_memories, working_memories, max_total=top_k * 2)
+                vector_memories = self._merge_memories(
+                    vector_memories, working_memories, max_total=top_k * 2
+                )
 
         if not vector_memories:
             retrieval_log.no_memories_found(user_id, query)
@@ -624,103 +667,107 @@ class MemoryRetrievalEngine:
             )
 
         # 重排序
-        ranked = self._rerank_memories(
-            vector_memories, query, emotional_state, user_id
-        )
+        ranked = self._rerank_memories(vector_memories, query, emotional_state, user_id)
 
         result = ranked[:top_k]
         await self._update_access_and_sync(result)
 
         return result
-    
+
     async def _get_relevant_working_memories(
         self,
         query: str,
         user_id: str,
-        group_id: Optional[str],
-        storage_layer: Optional[StorageLayer] = None
-    ) -> List[Memory]:
+        group_id: str | None,
+        storage_layer: StorageLayer | None = None,
+    ) -> list[Memory]:
         """获取相关的工作记忆
-        
+
         Args:
             query: 查询文本
             user_id: 用户ID
             group_id: 群组ID（可选）
             storage_layer: 存储层过滤（可选）
-            
+
         Returns:
             List[Memory]: 工作记忆列表
         """
         if not self.session_manager:
             return []
-        
+
         # 如果指定了非WORKING的存储层，不返回工作记忆
         if storage_layer and storage_layer != StorageLayer.WORKING:
             return []
-        
+
         try:
-            working_memories = await self.session_manager.get_working_memory(user_id, group_id)
-            
+            working_memories = await self.session_manager.get_working_memory(
+                user_id, group_id
+            )
+
             if not working_memories:
                 return []
-            
+
             # 工作记忆合并数量上限（防止超出Token预算）
             max_working_merge = min(self.max_context_memories * 2, 10)
-            
+
             # 提取查询关键词（支持中文字符级匹配 + 空格分词）
             query_lower = query.lower()
             query_tokens = self._tokenize_for_match(query_lower)
-            
+
             scored: list[tuple[Memory, float]] = []
             for memory in working_memories:
                 content_lower = memory.content.lower()
                 content_tokens = self._tokenize_for_match(content_lower)
-                
+
                 # 计算匹配得分
                 score = 0.0
-                
+
                 # 1. 子串包含（最强信号）
                 if query_lower in content_lower or content_lower in query_lower:
                     score += 1.0
-                
+
                 # 2. Token重叠率
                 if query_tokens and content_tokens:
                     overlap = query_tokens & content_tokens
                     # Jaccard-like: 以查询侧token数为分母，避免长内容稀释
                     score += len(overlap) / len(query_tokens) * 0.6
-                
+
                 # 3. 时近性加成（最近1小时内创建的工作记忆轻微加成）
-                hours_age = (datetime.now() - memory.created_time).total_seconds() / 3600
+                hours_age = (
+                    datetime.now() - memory.created_time
+                ).total_seconds() / 3600
                 if hours_age < 1:
                     score += 0.15
                 elif hours_age < 6:
                     score += 0.05
-                
+
                 if score > 0:
                     scored.append((memory, score))
-            
+
             # 如果没有匹配，对短查询返回最近的几条工作记忆作为上下文
             if not scored and len(query) < RetrievalDefaults.SHORT_QUERY_THRESHOLD:
-                recent = sorted(working_memories, key=lambda m: m.created_time, reverse=True)
+                recent = sorted(
+                    working_memories, key=lambda m: m.created_time, reverse=True
+                )
                 return recent[:max_working_merge]
-            
+
             # 按得分排序，取前max_working_merge条
             scored.sort(key=lambda x: x[1], reverse=True)
             return [m for m, _ in scored[:max_working_merge]]
-            
-        except Exception as e:
+
+        except Exception:
             return []
-    
+
     @staticmethod
     def _tokenize_for_match(text: str) -> set:
         """提取匹配用的token集合（支持中英文混合）
-        
+
         对中文按字符级bigram切分，对英文/数字按空格分词，
         兼顾中文语义和英文关键词匹配。
-        
+
         Args:
             text: 输入文本
-            
+
         Returns:
             set: token集合
         """
@@ -730,40 +777,40 @@ class MemoryRetrievalEngine:
             if word:
                 tokens.add(word)
         # 中文字符bigram（覆盖中文语义）
-        chinese_chars = [c for c in text if '\u4e00' <= c <= '\u9fff']
+        chinese_chars = [c for c in text if "\u4e00" <= c <= "\u9fff"]
         for i in range(len(chinese_chars)):
             tokens.add(chinese_chars[i])  # unigram
             if i + 1 < len(chinese_chars):
                 tokens.add(chinese_chars[i] + chinese_chars[i + 1])  # bigram
         return tokens
-    
+
     def _merge_memories(
         self,
-        persistent_memories: List[Memory],
-        working_memories: List[Memory],
-        max_total: Optional[int] = None
-    ) -> List[Memory]:
+        persistent_memories: list[Memory],
+        working_memories: list[Memory],
+        max_total: int | None = None,
+    ) -> list[Memory]:
         """合并持久记忆和工作记忆
-        
+
         Args:
             persistent_memories: 来自Chroma的持久记忆
             working_memories: 来自SessionManager的工作记忆
             max_total: 合并后最大数量（默认无限制，由调用方的top_k控制）
-            
+
         Returns:
             List[Memory]: 合并后的记忆列表（去重，工作记忆优先）
         """
         # 使用ID去重
         seen_ids = set()
         merged = []
-        
+
         # 工作记忆数量上限：不超过总量的一半，且不超过max_context_memories
         max_working = min(
             len(working_memories),
             self.max_context_memories,
-            (max_total or len(working_memories) + len(persistent_memories)) // 2 + 1
+            (max_total or len(working_memories) + len(persistent_memories)) // 2 + 1,
         )
-        
+
         # 工作记忆优先（更新鲜的上下文），但有数量限制
         for memory in working_memories:
             if len(merged) >= max_working:
@@ -771,7 +818,7 @@ class MemoryRetrievalEngine:
             if memory.id not in seen_ids:
                 seen_ids.add(memory.id)
                 merged.append(memory)
-        
+
         # 添加持久记忆
         for memory in persistent_memories:
             if max_total and len(merged) >= max_total:
@@ -779,9 +826,9 @@ class MemoryRetrievalEngine:
             if memory.id not in seen_ids:
                 seen_ids.add(memory.id)
                 merged.append(memory)
-        
+
         return merged
-    
+
     def set_session_manager(self, session_manager):
         self.session_manager = session_manager
         self._build_strategies()
@@ -790,13 +837,16 @@ class MemoryRetrievalEngine:
         """构建策略实例（在依赖变更后重新调用）"""
         self._strategies = {
             RetrievalStrategy.VECTOR_ONLY: VectorOnlyStrategy(
-                self.chroma_manager, self._update_access_and_sync,
+                self.chroma_manager,
+                self._update_access_and_sync,
             ),
             RetrievalStrategy.TIME_AWARE: TimeAwareStrategy(
-                self.chroma_manager, self._update_access_and_sync,
+                self.chroma_manager,
+                self._update_access_and_sync,
             ),
             RetrievalStrategy.EMOTION_AWARE: EmotionAwareStrategy(
-                self.chroma_manager, self._update_access_and_sync,
+                self.chroma_manager,
+                self._update_access_and_sync,
                 self._apply_emotion_filter,
             ),
             RetrievalStrategy.HYBRID: HybridStrategy(
@@ -823,15 +873,15 @@ class MemoryRetrievalEngine:
                 session_manager=self.session_manager,
             ),
         }
-    
+
     def format_memories_for_llm(
         self,
-        memories: List[Memory],
+        memories: list[Memory],
         use_token_budget: bool = True,
-        user_persona: Optional[Dict[str, Any]] = None,
+        user_persona: dict[str, Any] | None = None,
         persona_style: str = "default",
-        group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None
+        group_id: str | None = None,
+        current_sender_name: str | None = None,
     ) -> str:
         """格式化记忆用于注入到LLM上下文（委托给 MemoryFormatter）"""
         return self._formatter.format_memories_for_llm(
@@ -843,53 +893,71 @@ class MemoryRetrievalEngine:
             current_sender_name=current_sender_name,
             max_context_memories=self.max_context_memories,
         )
-    
+
     # ── Backward-compat thin delegates (formatting moved to MemoryFormatter) ──
 
-    def _format_memory_label(self, memory: Memory, group_id: Optional[str] = None) -> str:
+    def _format_memory_label(
+        self, memory: Memory, group_id: str | None = None
+    ) -> str:
         return self._formatter._format_memory_label(memory, group_id)
 
     def _format_natural_style(
-        self, memories: List[Memory], group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None,
+        self,
+        memories: list[Memory],
+        group_id: str | None = None,
+        current_sender_name: str | None = None,
     ) -> str:
-        return self._formatter._format_natural_style(memories, group_id, current_sender_name)
+        return self._formatter._format_natural_style(
+            memories, group_id, current_sender_name
+        )
 
     def _format_roleplay_style(
-        self, memories: List[Memory], group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None,
+        self,
+        memories: list[Memory],
+        group_id: str | None = None,
+        current_sender_name: str | None = None,
     ) -> str:
-        return self._formatter._format_roleplay_style(memories, group_id, current_sender_name)
+        return self._formatter._format_roleplay_style(
+            memories, group_id, current_sender_name
+        )
 
     def _format_default_style(
-        self, memories: List[Memory], group_id: Optional[str] = None,
-        current_sender_name: Optional[str] = None,
+        self,
+        memories: list[Memory],
+        group_id: str | None = None,
+        current_sender_name: str | None = None,
     ) -> str:
-        return self._formatter._format_default_style(memories, group_id, current_sender_name)
+        return self._formatter._format_default_style(
+            memories, group_id, current_sender_name
+        )
 
     @staticmethod
-    def _format_sender_tag(memory: Memory, group_id: Optional[str]) -> str:
+    def _format_sender_tag(memory: Memory, group_id: str | None) -> str:
         return MemoryFormatter._format_sender_tag(memory, group_id)
-    
-    def set_config(self, config: Dict[str, Any]):
+
+    def set_config(self, config: dict[str, Any]):
         """设置配置
-        
+
         Args:
             config: 配置字典
         """
-        self.max_context_memories = min(max(1, config.get("max_context_memories", 3)), 20)
+        self.max_context_memories = min(
+            max(1, config.get("max_context_memories", 3)), 20
+        )
         self.enable_time_aware = config.get("enable_time_aware", True)
         self.enable_emotion_aware = config.get("enable_emotion_aware", True)
         self.enable_token_budget = config.get("enable_token_budget", True)
         self.enable_routing = config.get("enable_routing", True)
-        self.enable_working_memory_merge = config.get("enable_working_memory_merge", True)
-        
+        self.enable_working_memory_merge = config.get(
+            "enable_working_memory_merge", True
+        )
+
         # 更新token预算
         token_budget = config.get("token_budget", 512)
         if token_budget != self.token_budget.total_budget:
             self.token_budget = TokenBudget(total_budget=token_budget)
             self.memory_selector.token_budget = self.token_budget
-        
+
         # 更新人格协调策略
         coordination_strategy = config.get("coordination_strategy", "hybrid")
         self.persona_coordinator.set_strategy(

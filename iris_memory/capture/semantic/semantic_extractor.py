@@ -8,22 +8,22 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from iris_memory.models.memory import Memory
-from iris_memory.core.types import MemoryType, StorageLayer, QualityLevel
 from iris_memory.capture.semantic.semantic_clustering import (
-    SemanticClustering,
     MemoryCluster,
+    SemanticClustering,
 )
 from iris_memory.capture.semantic.semantic_confidence import (
-    SemanticConfidenceCalculator,
     ConfidenceResult,
+    SemanticConfidenceCalculator,
 )
-from iris_memory.utils.logger import get_logger
+from iris_memory.core.types import MemoryType, QualityLevel, StorageLayer
+from iris_memory.models.memory import Memory
 from iris_memory.utils.llm_helper import call_llm, parse_llm_json, resolve_llm_provider
+from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from iris_memory.storage.chroma_manager import ChromaManager
@@ -104,16 +104,17 @@ BATCH_SEMANTIC_EXTRACTION_PROMPT = """你是一个记忆管理系统的语义提
 
 # ── 提取结果 ──
 
+
 class ExtractionResult:
     """单个聚类的语义提取结果"""
 
     def __init__(
         self,
         cluster: MemoryCluster,
-        semantic_memory: Optional[Memory],
+        semantic_memory: Memory | None,
         confidence_result: ConfidenceResult,
         success: bool,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         self.cluster = cluster
         self.semantic_memory = semantic_memory
@@ -138,11 +139,11 @@ class SemanticExtractor:
 
     def __init__(
         self,
-        chroma_manager: Optional[ChromaManager] = None,
+        chroma_manager: ChromaManager | None = None,
         astrbot_context: Any = None,
         provider_id: str = "",
-        clustering: Optional[SemanticClustering] = None,
-        confidence_calculator: Optional[SemanticConfidenceCalculator] = None,
+        clustering: SemanticClustering | None = None,
+        confidence_calculator: SemanticConfidenceCalculator | None = None,
         source_expiry_days: int = 0,
         llm_max_tokens: int = 500,
         use_vector_clustering: bool = False,
@@ -152,9 +153,11 @@ class SemanticExtractor:
         self.astrbot_context = astrbot_context
         self._provider_id = provider_id
         self._llm_provider = None
-        self._llm_resolved_id: Optional[str] = None
+        self._llm_resolved_id: str | None = None
         self.clustering = clustering or SemanticClustering()
-        self.confidence_calculator = confidence_calculator or SemanticConfidenceCalculator()
+        self.confidence_calculator = (
+            confidence_calculator or SemanticConfidenceCalculator()
+        )
         self.source_expiry_days = source_expiry_days
         self.llm_max_tokens = llm_max_tokens
         self.use_vector_clustering = use_vector_clustering
@@ -171,7 +174,7 @@ class SemanticExtractor:
 
     # ── 主入口 ──
 
-    async def run(self) -> List[ExtractionResult]:
+    async def run(self) -> list[ExtractionResult]:
         """执行一轮完整的语义提取
 
         Returns:
@@ -189,7 +192,9 @@ class SemanticExtractor:
             logger.debug("No episodic memories found for semantic extraction")
             return []
 
-        logger.debug(f"Semantic extraction: processing {len(episodic_memories)} episodic memories")
+        logger.debug(
+            f"Semantic extraction: processing {len(episodic_memories)} episodic memories"
+        )
 
         # 2. 聚类
         if self.use_vector_clustering:
@@ -224,8 +229,8 @@ class SemanticExtractor:
 
     async def extract_from_clusters(
         self,
-        clusters: List[MemoryCluster],
-    ) -> List[ExtractionResult]:
+        clusters: list[MemoryCluster],
+    ) -> list[ExtractionResult]:
         """从给定聚类列表提取（可用于冲突解决后重新评估）
 
         Args:
@@ -239,8 +244,8 @@ class SemanticExtractor:
     # ── 批量聚类提取 ──
 
     async def _extract_clusters_batch(
-        self, clusters: List[MemoryCluster]
-    ) -> List[ExtractionResult]:
+        self, clusters: list[MemoryCluster]
+    ) -> list[ExtractionResult]:
         """将多个聚类分批提取，每批合并为 1 次 LLM 调用
 
         当 batch_size == 1 或只有 1 个聚类时退化为逐个提取。
@@ -248,7 +253,7 @@ class SemanticExtractor:
         if not clusters:
             return []
 
-        results: List[ExtractionResult] = []
+        results: list[ExtractionResult] = []
         for i in range(0, len(clusters), self.batch_size):
             batch = clusters[i : i + self.batch_size]
             if len(batch) == 1:
@@ -260,8 +265,8 @@ class SemanticExtractor:
         return results
 
     async def _extract_multi_clusters(
-        self, clusters: List[MemoryCluster]
-    ) -> List[ExtractionResult]:
+        self, clusters: list[MemoryCluster]
+    ) -> list[ExtractionResult]:
         """对多个聚类发起 1 次 LLM 调用，返回各自的提取结果
 
         如果批量调用失败，自动降级为逐个提取。
@@ -271,7 +276,7 @@ class SemanticExtractor:
 
             # 构建多聚类 prompt
             ref_memory = clusters[0].memories[0]
-            clusters_text_parts: List[str] = []
+            clusters_text_parts: list[str] = []
             for idx, cluster in enumerate(clusters, 1):
                 memories_text = self._format_memories_for_prompt(cluster.memories)
                 clusters_text_parts.append(
@@ -303,19 +308,17 @@ class SemanticExtractor:
                 "falling back to per-cluster extraction"
             )
         except Exception as e:
-            logger.warning(
-                f"Batch extraction error, falling back to per-cluster: {e}"
-            )
+            logger.warning(f"Batch extraction error, falling back to per-cluster: {e}")
 
         # 降级：逐个提取
-        results: List[ExtractionResult] = []
+        results: list[ExtractionResult] = []
         for cluster in clusters:
             results.append(await self._extract_cluster(cluster))
         return results
 
     def _parse_batch_response(
         self, llm_result: Any, expected_count: int
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> list[dict[str, Any]] | None:
         """解析批量提取的 LLM 数组响应
 
         Returns:
@@ -351,11 +354,11 @@ class SemanticExtractor:
 
     def _build_batch_results(
         self,
-        clusters: List[MemoryCluster],
-        items: List[Dict[str, Any]],
-    ) -> List[ExtractionResult]:
+        clusters: list[MemoryCluster],
+        items: list[dict[str, Any]],
+    ) -> list[ExtractionResult]:
         """将 LLM 数组响应与聚类一一对应，构建 ExtractionResult 列表"""
-        results: List[ExtractionResult] = []
+        results: list[ExtractionResult] = []
         for idx, cluster in enumerate(clusters):
             if idx < len(items) and isinstance(items[idx], dict):
                 result = self._build_single_result(cluster, items[idx])
@@ -371,7 +374,7 @@ class SemanticExtractor:
         return results
 
     def _build_single_result(
-        self, cluster: MemoryCluster, data: Dict[str, Any]
+        self, cluster: MemoryCluster, data: dict[str, Any]
     ) -> ExtractionResult:
         """从解析后的单个 JSON dict 构建 ExtractionResult（共用逻辑）"""
         content = data.get("content", "")
@@ -399,7 +402,9 @@ class SemanticExtractor:
             memory_type = MemoryType.FACT
 
         ref_memory = cluster.memories[0]
-        review_status = "pending_review" if conf_result.needs_human_review else "approved"
+        review_status = (
+            "pending_review" if conf_result.needs_human_review else "approved"
+        )
 
         semantic_memory = Memory(
             id=str(uuid.uuid4()),
@@ -472,13 +477,16 @@ class SemanticExtractor:
                         semantic_memory=None,
                         confidence_result=self.confidence_calculator.calculate(0),
                         success=False,
-                        error=llm_result.error or "LLM returned empty/unparseable response",
+                        error=llm_result.error
+                        or "LLM returned empty/unparseable response",
                     )
 
             return self._build_single_result(cluster, llm_result.parsed_json)
 
         except Exception as e:
-            logger.error(f"Error extracting cluster {cluster.cluster_id}: {e}", exc_info=True)
+            logger.error(
+                f"Error extracting cluster {cluster.cluster_id}: {e}", exc_info=True
+            )
             return ExtractionResult(
                 cluster=cluster,
                 semantic_memory=None,
@@ -503,7 +511,9 @@ class SemanticExtractor:
             # 添加语义记忆
             added = await self.chroma_manager.add_memory(result.semantic_memory)
             if not added:
-                logger.error(f"Failed to add semantic memory {result.semantic_memory.id}")
+                logger.error(
+                    f"Failed to add semantic memory {result.semantic_memory.id}"
+                )
                 return False
 
             # 标记源记忆
@@ -512,7 +522,9 @@ class SemanticExtractor:
                 memory.semantic_memory_id = result.semantic_memory.id
 
                 if self.source_expiry_days > 0:
-                    memory.expires_at = datetime.now() + timedelta(days=self.source_expiry_days)
+                    memory.expires_at = datetime.now() + timedelta(
+                        days=self.source_expiry_days
+                    )
 
                 try:
                     await self.chroma_manager.update_memory(memory)
@@ -534,7 +546,7 @@ class SemanticExtractor:
 
     # ── 工具方法 ──
 
-    async def _ensure_embeddings(self, memories: List[Memory]) -> None:
+    async def _ensure_embeddings(self, memories: list[Memory]) -> None:
         """为缺少嵌入向量的记忆生成嵌入
 
         向量聚类需要嵌入向量。从 Chroma 获取的记忆通常已包含嵌入，
@@ -547,20 +559,26 @@ class SemanticExtractor:
         if not self.chroma_manager:
             return
 
-        embedding_manager = getattr(self.chroma_manager, 'embedding_manager', None)
-        if not embedding_manager or not getattr(embedding_manager, 'is_ready', False):
+        embedding_manager = getattr(self.chroma_manager, "embedding_manager", None)
+        if not embedding_manager or not getattr(embedding_manager, "is_ready", False):
             return
 
         missing = [m for m in memories if m.embedding is None and m.content]
         if not missing:
             return
 
-        logger.debug(f"Generating embeddings for {len(missing)} memories without vectors")
+        logger.debug(
+            f"Generating embeddings for {len(missing)} memories without vectors"
+        )
         for memory in missing:
             try:
                 embedding = await embedding_manager.embed(memory.content)
                 if embedding is not None:
-                    memory.embedding = np.array(embedding) if not isinstance(embedding, np.ndarray) else embedding
+                    memory.embedding = (
+                        np.array(embedding)
+                        if not isinstance(embedding, np.ndarray)
+                        else embedding
+                    )
             except Exception as e:
                 logger.debug(f"Failed to generate embedding for {memory.id}: {e}")
 
@@ -578,7 +596,7 @@ class SemanticExtractor:
         self._llm_resolved_id = resolved_id
 
     @staticmethod
-    def _format_memories_for_prompt(memories: List[Memory]) -> str:
+    def _format_memories_for_prompt(memories: list[Memory]) -> str:
         """格式化记忆列表为 LLM prompt 文本"""
         lines = []
         for i, memory in enumerate(memories, 1):

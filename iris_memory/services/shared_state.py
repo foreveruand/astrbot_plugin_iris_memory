@@ -9,7 +9,6 @@
 - 提取为独立类后，依赖关系显式化，可独立测试
 """
 
-from typing import List
 
 from iris_memory.models.emotion_state import EmotionalState
 from iris_memory.models.user_persona import UserPersona
@@ -28,9 +27,15 @@ class SharedState:
     """
 
     def __init__(self, max_size: int = 2000, max_recent_track: int = 20) -> None:
-        self._user_emotional_states: BoundedDict[str, EmotionalState] = BoundedDict(max_size=max_size)
-        self._user_personas: BoundedDict[str, UserPersona] = BoundedDict(max_size=max_size)
-        self._recently_injected: BoundedDict[str, List[str]] = BoundedDict(max_size=max_size)
+        self._user_emotional_states: BoundedDict[str, EmotionalState] = BoundedDict(
+            max_size=max_size
+        )
+        self._user_personas: BoundedDict[str, UserPersona] = BoundedDict(
+            max_size=max_size
+        )
+        self._recently_injected: BoundedDict[str, list[str]] = BoundedDict(
+            max_size=max_size
+        )
         self._max_recent_track: int = max_recent_track
 
     # ── 用户状态访问 ──
@@ -107,11 +112,11 @@ class SharedState:
         filtered = [m for m in memories if m.id not in recent_ids]
 
         if not filtered:
-            return memories[:max(1, len(memories) // 2)]
+            return memories[: max(1, len(memories) // 2)]
 
         return filtered
 
-    def track_injected_memories(self, session_key: str, memory_ids: List[str]) -> None:
+    def track_injected_memories(self, session_key: str, memory_ids: list[str]) -> None:
         """记录本次注入的记忆ID
 
         Args:
@@ -124,9 +129,9 @@ class SharedState:
         self._recently_injected[session_key].extend(memory_ids)
 
         if len(self._recently_injected[session_key]) > self._max_recent_track:
-            self._recently_injected[session_key] = (
-                self._recently_injected[session_key][-self._max_recent_track:]
-            )
+            self._recently_injected[session_key] = self._recently_injected[session_key][
+                -self._max_recent_track :
+            ]
 
     # ── 向后兼容属性 ──
 
@@ -141,7 +146,7 @@ class SharedState:
         return self._user_emotional_states
 
     @property
-    def recently_injected(self) -> BoundedDict[str, List[str]]:
+    def recently_injected(self) -> BoundedDict[str, list[str]]:
         """最近注入记忆字典"""
         return self._recently_injected
 

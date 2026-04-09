@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from iris_memory.models.memory import Memory
-    from iris_memory.models.emotion_state import EmotionalState
     from iris_memory.core.types import StorageLayer
+    from iris_memory.models.emotion_state import EmotionalState
+    from iris_memory.models.memory import Memory
 
 
 @dataclass
@@ -17,13 +17,14 @@ class StrategyParams:
 
     将 7 个独立参数合并为单一数据对象，减少方法签名冗余。
     """
+
     query: str
     user_id: str
-    group_id: Optional[str] = None
+    group_id: str | None = None
     top_k: int = 10
-    emotional_state: Optional["EmotionalState"] = None
-    storage_layer: Optional["StorageLayer"] = None
-    persona_id: Optional[str] = None
+    emotional_state: EmotionalState | None = None
+    storage_layer: StorageLayer | None = None
+    persona_id: str | None = None
 
 
 class RetrievalStrategyBase(Protocol):
@@ -32,7 +33,7 @@ class RetrievalStrategyBase(Protocol):
     所有策略实现此协议，由 MemoryRetrievalEngine 调度。
     """
 
-    async def execute(self, params: StrategyParams) -> List["Memory"]:
+    async def execute(self, params: StrategyParams) -> list[Memory]:
         """执行检索策略
 
         Args:

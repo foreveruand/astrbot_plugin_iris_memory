@@ -15,34 +15,89 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
+from iris_memory.core.types import StorageLayer
 from iris_memory.models.memory import Memory
-from iris_memory.core.types import MemoryType, StorageLayer
 from iris_memory.utils.logger import get_logger
 
 logger = get_logger("semantic_clustering")
 
 # ── 停用词 ──
-_STOP_WORDS: frozenset[str] = frozenset([
-    "的", "了", "在", "是", "我", "有", "和", "就", "不", "人",
-    "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去",
-    "你", "会", "着", "没有", "看", "好", "自己", "这", "他", "她",
-    "它", "那", "吗", "呢", "吧", "啊", "呀", "嗯", "哦", "哈",
-    "the", "a", "an", "is", "are", "was", "were", "be", "been",
-    "i", "me", "my", "you", "your", "he", "she", "it", "we", "they",
-])
+_STOP_WORDS: frozenset[str] = frozenset(
+    [
+        "的",
+        "了",
+        "在",
+        "是",
+        "我",
+        "有",
+        "和",
+        "就",
+        "不",
+        "人",
+        "都",
+        "一",
+        "一个",
+        "上",
+        "也",
+        "很",
+        "到",
+        "说",
+        "要",
+        "去",
+        "你",
+        "会",
+        "着",
+        "没有",
+        "看",
+        "好",
+        "自己",
+        "这",
+        "他",
+        "她",
+        "它",
+        "那",
+        "吗",
+        "呢",
+        "吧",
+        "啊",
+        "呀",
+        "嗯",
+        "哦",
+        "哈",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "i",
+        "me",
+        "my",
+        "you",
+        "your",
+        "he",
+        "she",
+        "it",
+        "we",
+        "they",
+    ]
+)
 
 
 @dataclass
 class MemoryCluster:
     """记忆聚类结果"""
+
     cluster_id: str
     cluster_key: str  # 聚类键（实体名 / 主题标签）
     cluster_type: str  # "entity" / "topic" / "type" / "vector"
-    memories: List[Memory] = field(default_factory=list)
+    memories: list[Memory] = field(default_factory=list)
     user_id: str = ""  # 所属用户 ID（聚类按用户隔离）
 
     @property
@@ -50,7 +105,7 @@ class MemoryCluster:
         return len(self.memories)
 
     @property
-    def memory_ids(self) -> List[str]:
+    def memory_ids(self) -> list[str]:
         return [m.id for m in self.memories]
 
 
@@ -80,7 +135,7 @@ class SemanticClustering:
 
     # ── 主入口 ──
 
-    def cluster(self, memories: List[Memory]) -> List[MemoryCluster]:
+    def cluster(self, memories: list[Memory]) -> list[MemoryCluster]:
         """对记忆列表执行聚类（按用户隔离）
 
         Args:
@@ -98,7 +153,7 @@ class SemanticClustering:
 
         # 按用户分组后再聚类
         user_groups = self._group_by_user(filtered)
-        all_clusters: List[MemoryCluster] = []
+        all_clusters: list[MemoryCluster] = []
         for user_id, user_memories in user_groups.items():
             clusters = self._entity_topic_clustering(user_memories)
             for cluster in clusters:
@@ -110,19 +165,19 @@ class SemanticClustering:
             if len(cluster.memories) > self.max_memories_per_cluster:
                 # 保留置信度最高的
                 cluster.memories.sort(key=lambda m: m.confidence, reverse=True)
-                cluster.memories = cluster.memories[:self.max_memories_per_cluster]
+                cluster.memories = cluster.memories[: self.max_memories_per_cluster]
 
         # 按 size 降序，截断总数
         all_clusters.sort(key=lambda c: c.size, reverse=True)
-        all_clusters = all_clusters[:self.max_clusters_per_run]
+        all_clusters = all_clusters[: self.max_clusters_per_run]
 
         logger.debug(f"Clustering produced {len(all_clusters)} clusters")
         return all_clusters
 
     def cluster_with_vectors(
         self,
-        memories: List[Memory],
-    ) -> List[MemoryCluster]:
+        memories: list[Memory],
+    ) -> list[MemoryCluster]:
         """使用向量相似度增强聚类（按用户隔离）
 
         先做实体/主题聚类，再对未被归入任何簇的记忆
@@ -140,14 +195,14 @@ class SemanticClustering:
 
         # 按用户分组后再聚类
         user_groups = self._group_by_user(filtered)
-        all_clusters: List[MemoryCluster] = []
+        all_clusters: list[MemoryCluster] = []
 
         for user_id, user_memories in user_groups.items():
             # 第一轮：实体/主题聚类
             entity_clusters = self._entity_topic_clustering(user_memories)
             for cluster in entity_clusters:
                 cluster.user_id = user_id
-            clustered_ids: Set[str] = set()
+            clustered_ids: set[str] = set()
             for cluster in entity_clusters:
                 clustered_ids.update(m.id for m in cluster.memories)
 
@@ -163,14 +218,14 @@ class SemanticClustering:
         for cluster in all_clusters:
             if len(cluster.memories) > self.max_memories_per_cluster:
                 cluster.memories.sort(key=lambda m: m.confidence, reverse=True)
-                cluster.memories = cluster.memories[:self.max_memories_per_cluster]
+                cluster.memories = cluster.memories[: self.max_memories_per_cluster]
 
         all_clusters.sort(key=lambda c: c.size, reverse=True)
-        return all_clusters[:self.max_clusters_per_run]
+        return all_clusters[: self.max_clusters_per_run]
 
     # ── 阶段 1：预筛选 ──
 
-    def _prefilter(self, memories: List[Memory]) -> List[Memory]:
+    def _prefilter(self, memories: list[Memory]) -> list[Memory]:
         """预筛选记忆
 
         排除条件：
@@ -198,11 +253,11 @@ class SemanticClustering:
 
     # ── 阶段 2：实体/主题聚类 ──
 
-    def _entity_topic_clustering(self, memories: List[Memory]) -> List[MemoryCluster]:
+    def _entity_topic_clustering(self, memories: list[Memory]) -> list[MemoryCluster]:
         """基于关键词和记忆类型的聚类"""
         # 构建倒排索引：keyword -> [memory, ...]
-        keyword_index: Dict[str, List[Memory]] = defaultdict(list)
-        type_index: Dict[str, List[Memory]] = defaultdict(list)
+        keyword_index: dict[str, list[Memory]] = defaultdict(list)
+        type_index: dict[str, list[Memory]] = defaultdict(list)
 
         now = datetime.now()
         window_start = now - timedelta(days=self.cluster_time_window_days)
@@ -217,15 +272,16 @@ class SemanticClustering:
             for kw in keywords:
                 keyword_index[kw].append(memory)
 
-        clusters: List[MemoryCluster] = []
-        used_memory_ids: Set[str] = set()
+        clusters: list[MemoryCluster] = []
+        used_memory_ids: set[str] = set()
         cluster_counter = 0
 
         # 关键词聚类（实体/主题）
         for keyword, mems in sorted(keyword_index.items(), key=lambda x: -len(x[1])):
             # 时间窗口过滤
             windowed = [
-                m for m in mems
+                m
+                for m in mems
                 if m.created_time >= window_start and m.id not in used_memory_ids
             ]
             if len(windowed) < self.min_cluster_size:
@@ -244,7 +300,8 @@ class SemanticClustering:
         # 类型聚类（对于未被关键词聚类捕获的记忆）
         for type_key, mems in type_index.items():
             remaining = [
-                m for m in mems
+                m
+                for m in mems
                 if m.created_time >= window_start and m.id not in used_memory_ids
             ]
             if len(remaining) < self.min_cluster_size:
@@ -264,7 +321,7 @@ class SemanticClustering:
 
     # ── 阶段 3：向量相似度聚类 ──
 
-    def _vector_clustering(self, memories: List[Memory]) -> List[MemoryCluster]:
+    def _vector_clustering(self, memories: list[Memory]) -> list[MemoryCluster]:
         """基于嵌入向量的相似度聚类
 
         使用简单的层次聚类（无需 sklearn 依赖）：
@@ -278,7 +335,7 @@ class SemanticClustering:
 
         # 构建相似度矩阵（上三角）
         n = len(with_embedding)
-        adjacency: Dict[int, Set[int]] = defaultdict(set)
+        adjacency: dict[int, set[int]] = defaultdict(set)
 
         for i in range(n):
             emb_i = with_embedding[i].embedding
@@ -296,14 +353,14 @@ class SemanticClustering:
                     adjacency[j].add(i)
 
         # 连通分量（贪心 BFS）
-        visited: Set[int] = set()
-        clusters: List[MemoryCluster] = []
+        visited: set[int] = set()
+        clusters: list[MemoryCluster] = []
         cluster_counter = 0
 
         for start in range(n):
             if start in visited or start not in adjacency:
                 continue
-            component: List[int] = []
+            component: list[int] = []
             queue = [start]
             while queue:
                 node = queue.pop(0)
@@ -333,7 +390,7 @@ class SemanticClustering:
     # ── 用户分组 ──
 
     @staticmethod
-    def _group_by_user(memories: List[Memory]) -> Dict[str, List[Memory]]:
+    def _group_by_user(memories: list[Memory]) -> dict[str, list[Memory]]:
         """按 user_id 分组记忆
 
         Args:
@@ -342,7 +399,7 @@ class SemanticClustering:
         Returns:
             user_id -> 记忆列表 的映射
         """
-        groups: Dict[str, List[Memory]] = defaultdict(list)
+        groups: dict[str, list[Memory]] = defaultdict(list)
         for m in memories:
             groups[m.user_id].append(m)
         return groups
@@ -350,7 +407,7 @@ class SemanticClustering:
     # ── 关键词提取 ──
 
     @staticmethod
-    def _extract_keywords(memory: Memory) -> List[str]:
+    def _extract_keywords(memory: Memory) -> list[str]:
         """从记忆中提取关键词
 
         优先使用记忆自带的 keywords 字段，否则从 content 中提取。
@@ -361,9 +418,9 @@ class SemanticClustering:
         # 简单中文/英文分词
         content = memory.content
         # 提取中文词（2-4字）
-        chinese_words = re.findall(r'[\u4e00-\u9fff]{2,4}', content)
+        chinese_words = re.findall(r"[\u4e00-\u9fff]{2,4}", content)
         # 提取英文词
-        english_words = re.findall(r'[a-zA-Z]{3,}', content)
+        english_words = re.findall(r"[a-zA-Z]{3,}", content)
 
         all_words = [w.lower() for w in chinese_words + english_words]
         # 过滤停用词
