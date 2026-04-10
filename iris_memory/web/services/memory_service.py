@@ -65,6 +65,13 @@ class MemoryWebService:
 
     async def get_memory_detail(self, memory_id: str) -> dict[str, Any] | None:
         try:
+            session_mgr = self._service.session_manager
+            if session_mgr and hasattr(session_mgr, "working_memory_cache"):
+                for memories in session_mgr.working_memory_cache.values():
+                    for memory in memories:
+                        if memory.id == memory_id:
+                            return self._repo._memory_to_dict(memory)
+
             chroma = self._service.chroma_manager
             if not chroma or not chroma.is_ready:
                 return None

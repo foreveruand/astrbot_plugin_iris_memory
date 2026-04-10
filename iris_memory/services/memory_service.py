@@ -124,6 +124,7 @@ class MemoryService:
         self._activity_tracker: Any | None = None
         self._activity_provider: Any | None = None
         self._scheduled_task_manager: ScheduledTaskManager | None = None
+        self._delete_kv_data: Any | None = None
 
         self._business: BusinessService | None = None
         self._persistence: PersistenceService | None = None

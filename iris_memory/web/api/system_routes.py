@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from iris_memory.web.response import success_response
+from quart import request
+
+from iris_memory.web.response import error_response, success_response
 
 if TYPE_CHECKING:
     from quart import Quart
@@ -31,3 +33,17 @@ def register_system_routes(app: Quart, container: WebContainer) -> None:
         svc = container.get("system_service")
         data = svc.get_overview()
         return success_response(data)
+
+    @app.route("/api/v1/system/reset", methods=["POST"])
+    async def api_system_reset():
+        data = await request.get_json(silent=True) or {}
+        if not data.get("confirm"):
+            return error_response("请确认重置操作")
+
+        scope = (data.get("scope") or "all").strip().lower()
+        if scope not in {"all", "kv", "db"}:
+            return error_response("scope 仅支持 all / kv / db")
+
+        svc = container.get("system_service")
+        result = await svc.reset_data(scope)
+        return success_response(result, message="重置完成")

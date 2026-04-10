@@ -142,6 +142,43 @@ class MemoryRepository:
         if invalid_keys:
             return False, f"不允许更新的字段: {', '.join(invalid_keys)}"
 
+        updates = dict(updates)
+
+        # Working memories live in session_manager cache, not in ChromaDB.
+        try:
+            session_mgr = self._service.session_manager
+            if session_mgr and hasattr(session_mgr, "working_memory_cache"):
+                from iris_memory.core.types import MemoryType, StorageLayer
+
+                for memories in session_mgr.working_memory_cache.values():
+                    for m in memories:
+                        if m.id != memory_id:
+                            continue
+                        if "content" in updates:
+                            m.content = str(updates["content"])
+                        if "summary" in updates:
+                            m.summary = updates["summary"]
+                        if "persona_id" in updates:
+                            old_persona = m.persona_id
+                            m.persona_id = updates["persona_id"] or "default"
+                            logger.info(
+                                "[persona] updated working memory id=%s old=%s new=%s",
+                                memory_id,
+                                old_persona,
+                                m.persona_id,
+                            )
+                        if "confidence" in updates:
+                            m.confidence = float(updates["confidence"])
+                        if "importance_score" in updates:
+                            m.importance_score = float(updates["importance_score"])
+                        if "type" in updates:
+                            m.type = MemoryType(updates["type"])
+                        if "storage_layer" in updates:
+                            m.storage_layer = StorageLayer(updates["storage_layer"])
+                        return True, "更新成功"
+        except Exception as e:
+            logger.warning(f"Working memory update check error: {e}")
+
         try:
             chroma = self._service.chroma_manager
             if not chroma or not chroma.is_ready:
@@ -154,12 +191,14 @@ class MemoryRepository:
 
             meta = dict(res["metadatas"][0]) if res["metadatas"] else {}
             doc = res["documents"][0] if res.get("documents") else ""
+            old_persona = meta.get("persona_id", "default") or "default"
 
             if "content" in updates:
-                doc = updates.pop("content")
+                doc = str(updates.pop("content"))
                 embedding = await chroma._generate_embedding(doc)
                 if embedding is None:
                     return False, "生成嵌入向量失败"
+                meta.update(updates)
                 collection.update(
                     ids=[memory_id],
                     documents=[doc],
@@ -169,6 +208,14 @@ class MemoryRepository:
             else:
                 meta.update(updates)
                 collection.update(ids=[memory_id], metadatas=[meta])
+
+            logger.info(
+                "[persona] updated persistent memory id=%s old=%s new=%s fields=%s",
+                memory_id,
+                old_persona,
+                meta.get("persona_id", "default") or "default",
+                sorted(updates.keys()),
+            )
             return True, "更新成功"
 
         except Exception as e:

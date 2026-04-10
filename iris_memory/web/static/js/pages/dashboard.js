@@ -5,6 +5,7 @@ import { api } from '../api/client.js';
 import { esc } from '../utils/escape.js';
 import { fmtDuration, fmtTime } from '../utils/format.js';
 import { toast } from '../components/toast.js';
+import { showConfirm } from '../components/modal.js';
 
 export async function loadDashboard() {
   const grid = document.getElementById('stats-grid');
@@ -69,6 +70,24 @@ export async function loadTrend() {
     const show = items.length <= 14 || idx % Math.ceil(items.length / 10) === 0;
     return `<span>${show ? esc(i.date?.slice(5) || '') : ''}</span>`;
   }).join('');
+}
+
+export function resetSystemData(scope = 'all') {
+  const title = scope === 'kv' ? '清理存储键' : '重置 Iris Memory 数据';
+  const message = scope === 'kv'
+    ? '这会清理 Iris Memory 的 9 个 KV 存储键与运行时缓存，但不会删除 ChromaDB 中的数据库记忆。是否继续？'
+    : '这会清理 Iris Memory 的 KV 存储键、运行时缓存与数据库记忆。此操作不可撤销，是否继续？';
+
+  showConfirm(title, message, async () => {
+    const res = await api.post('/system/reset', { confirm: true, scope });
+    if (!res || res.status !== 'ok') {
+      toast.err(res?.message || '重置失败');
+      return;
+    }
+    const d = res.data || {};
+    toast.ok(`已完成：KV ${d.deleted_kv_count ?? 0}/${d.total_kv_keys ?? 0}，数据库 ${d.db_deleted_count ?? 0} 条`);
+    loadDashboard();
+  }, 'danger');
 }
 
 async function loadSystemOverview() {
@@ -158,6 +177,10 @@ async function loadSystemOverview() {
           ${kg.enabled && kg.nodes != null ? `<div class="storage-detail">节点: ${kg.nodes} | 边: ${kg.edges ?? '-'}</div>` : ''}
           ${kg.error ? `<div class="storage-error">${esc(kg.error)}</div>` : ''}
         </div>
+      </div>
+      <div class="filter-bar" style="margin-top:12px;justify-content:flex-end">
+        <button class="btn btn-outline btn-sm" onclick="resetSystemData('kv')">清理存储键</button>
+        <button class="btn btn-danger btn-sm" onclick="resetSystemData('all')">重置 Iris 数据</button>
       </div>
       ${renderComponentHealthCompact(health.components)}
     </div>`;

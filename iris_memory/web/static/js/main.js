@@ -7,7 +7,7 @@ import { store } from './store/index.js';
 import { toast } from './components/toast.js';
 import { closeModal, initModalClose } from './components/modal.js';
 
-import { loadDashboard, loadTrend } from './pages/dashboard.js';
+import { loadDashboard, loadTrend, resetSystemData } from './pages/dashboard.js';
 import {
   searchMemories, memPage, toggleSelectAll, toggleSelect, batchDelete,
   resetFilters as resetMemoryFilters, changePageSize as memChangePageSize,
@@ -113,7 +113,7 @@ function bindEvents() {
 Object.assign(window, {
   showSection,
   doLogin,
-  loadDashboard, loadTrend,
+  loadDashboard, loadTrend, resetSystemData,
   searchMemories, memPage, toggleSelectAll, toggleSelect,
   batchDeleteMemories: batchDelete,
   resetMemoryFilters, exportSelectedMemories: () => toast.info('请使用导出功能'),

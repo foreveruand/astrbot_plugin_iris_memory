@@ -33,6 +33,7 @@ from iris_memory.services.memory_service import MemoryService
 from iris_memory.stats import get_stats_registry
 from iris_memory.utils.logger import init_logging_from_config
 from iris_memory.web.web_ui import WebUIManager
+from iris_memory.utils.persona_utils import get_event_persona_id
 
 from astrbot.api import AstrBotConfig, llm_tool
 from astrbot.api.event import AstrMessageEvent, filter
@@ -88,6 +89,7 @@ class IrisMemoryPlugin(Star):
         await self._service.initialize()
 
         await self._service.load_from_kv(self.get_kv_data)
+        self._service._delete_kv_data = self.delete_kv_data
 
         stats = get_stats_registry()
         stats.set_kv_interface(self.get_kv_data, self.put_kv_data)
@@ -219,7 +221,6 @@ class IrisMemoryPlugin(Star):
             content(string): 要保存的记忆内容，应该是一个完整的陈述句
         """
         from iris_memory.utils.event_utils import get_group_id, get_sender_name
-        from iris_memory.utils.persona_utils import get_event_persona_id
 
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
