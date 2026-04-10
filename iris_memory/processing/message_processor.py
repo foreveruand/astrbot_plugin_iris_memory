@@ -242,6 +242,12 @@ class MessageProcessor:
 
         raw_persona_id = await get_event_persona_id(event, self._service.context)
         store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
+        self._service.logger.debug(
+            "[persona] on_llm_response capture: raw=%s store=%s user=%s",
+            raw_persona_id,
+            store_persona,
+            user_id,
+        )
         memory = await self._service.capture_and_store_memory(
             message=capture_message,
             user_id=user_id,
@@ -348,6 +354,12 @@ class MessageProcessor:
 
         raw_persona_id = await get_event_persona_id(event, self._service.context)
         store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
+        self._service.logger.debug(
+            "[persona] process_normal_message batch: raw=%s store=%s user=%s",
+            raw_persona_id,
+            store_persona,
+            user_id,
+        )
 
         # 将图片分析和批量处理放到后台任务，避免阻塞 LLM 响应（这些是记忆写入操作，
         # 不需要在 Bot 回复前完成）

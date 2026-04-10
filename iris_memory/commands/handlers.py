@@ -97,6 +97,12 @@ class CommandHandlers:
         group_id = get_group_id(event)
         raw_persona_id = await get_event_persona_id(event, self._service.context)
         store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
+        self._service.logger.debug(
+            "[persona] /memory save: raw=%s store=%s user=%s",
+            raw_persona_id,
+            store_persona,
+            user_id,
+        )
 
         memory = await self._service.capture_and_store_memory(
             message=content,

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from quart import request
 
 from iris_memory.web.helpers import safe_int
 from iris_memory.web.response import error_response, success_response
+
+logger = logging.getLogger("iris_memory.web")
 
 if TYPE_CHECKING:
     from quart import Quart
@@ -99,10 +102,16 @@ def register_memory_routes(app: Quart, container: WebContainer) -> None:
         # Use AstrBot PersonaManager as the authoritative source
         try:
             astrbot_ctx = container._memory_service.context
-            for p in astrbot_ctx.persona_manager.personas:
+            pm_personas = astrbot_ctx.persona_manager.personas
+            logger.info(
+                "[persona] persona_manager.personas count=%d ids=%s",
+                len(pm_personas),
+                [p.persona_id for p in pm_personas],
+            )
+            for p in pm_personas:
                 persona_set.add(p.persona_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("[persona] persona_manager lookup failed: %s", e)
         # Also collect from KG and Chroma metadata for backward compatibility
         try:
             kg_svc = container.get("kg_service")
@@ -122,6 +131,7 @@ def register_memory_routes(app: Quart, container: WebContainer) -> None:
         except Exception:
             pass
         personas = ["default"] + sorted(p for p in persona_set if p != "default")
+        logger.info("[persona] bot-personas response: %s", personas)
         return success_response({"personas": personas})
 
     @app.route("/api/v1/memories/batch-delete", methods=["POST"])
