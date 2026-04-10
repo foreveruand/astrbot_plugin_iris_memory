@@ -25,6 +25,7 @@ def register_kg_routes(app: Quart, container: WebContainer) -> None:
             user_id=request.args.get("user_id"),
             group_id=request.args.get("group_id"),
             node_type=request.args.get("node_type"),
+            persona_id=request.args.get("persona_id"),
             page=safe_int(request.args.get("page"), 1, min_val=1),
             page_size=safe_int(
                 request.args.get("page_size"), 20, min_val=1, max_val=100
@@ -40,6 +41,7 @@ def register_kg_routes(app: Quart, container: WebContainer) -> None:
             group_id=request.args.get("group_id"),
             relation_type=request.args.get("relation_type"),
             node_id=request.args.get("node_id"),
+            persona_id=request.args.get("persona_id"),
             page=safe_int(request.args.get("page"), 1, min_val=1),
             page_size=safe_int(
                 request.args.get("page_size"), 20, min_val=1, max_val=100
@@ -55,10 +57,34 @@ def register_kg_routes(app: Quart, container: WebContainer) -> None:
             return error_response(msg)
         return success_response(message=msg)
 
+    @app.route("/api/v1/kg/nodes/<node_id>/persona", methods=["PATCH"])
+    async def api_update_kg_node_persona(node_id: str):
+        data = await request.get_json(silent=True) or {}
+        new_persona_id = data.get("persona_id", "")
+        if not new_persona_id:
+            return error_response("persona_id 不能为空")
+        svc = container.get("kg_service")
+        ok, msg = await svc.update_persona_for_node(node_id, new_persona_id)
+        if not ok:
+            return error_response(msg)
+        return success_response(message=msg)
+
     @app.route("/api/v1/kg/edges/<edge_id>", methods=["DELETE"])
     async def api_delete_kg_edge(edge_id: str):
         svc = container.get("kg_service")
         ok, msg = await svc.delete_kg_edge(edge_id)
+        if not ok:
+            return error_response(msg)
+        return success_response(message=msg)
+
+    @app.route("/api/v1/kg/edges/<edge_id>/persona", methods=["PATCH"])
+    async def api_update_kg_edge_persona(edge_id: str):
+        data = await request.get_json(silent=True) or {}
+        new_persona_id = data.get("persona_id", "")
+        if not new_persona_id:
+            return error_response("persona_id 不能为空")
+        svc = container.get("kg_service")
+        ok, msg = await svc.update_persona_for_edge(edge_id, new_persona_id)
         if not ok:
             return error_response(msg)
         return success_response(message=msg)

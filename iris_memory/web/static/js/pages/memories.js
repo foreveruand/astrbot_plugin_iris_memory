@@ -12,35 +12,61 @@ const state = { page: 1, pageSize: 20, total: 0, loaded: false, selected: new Se
 
 export function getState() { return state; }
 
+/** Load bot persona options into all persona <select> elements with the given IDs */
+async function loadBotPersonas(...selectIds) {
+  try {
+    const res = await api.get('/bot-personas');
+    const list = res?.data?.personas || ['default'];
+    const options = '<option value="">全部人格</option>' + list.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+    const editOptions = list.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+    selectIds.forEach(id => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      const withBlank = id.startsWith('create-') || id.startsWith('edit-');
+      sel.innerHTML = withBlank ? editOptions : options;
+    });
+  } catch (_) {}
+}
+
 export async function searchMemories() {
   state.loaded = true;
   const q = val('mem-query'), uid = val('mem-user'), gid = val('mem-group');
-  const layer = val('mem-layer'), type = val('mem-type');
+  const layer = val('mem-layer'), type = val('mem-type'), persona = val('mem-persona');
+
+  // Populate persona filter options lazily on first search
+  if (document.getElementById('mem-persona')?.options.length <= 1) {
+    loadBotPersonas('mem-persona');
+  }
 
   showLoading(true);
   const res = await api.get('/memories', {
     query: q, user_id: uid, group_id: gid,
-    storage_layer: layer, memory_type: type, page: state.page, page_size: state.pageSize,
+    storage_layer: layer, memory_type: type, persona_id: persona || undefined,
+    page: state.page, page_size: state.pageSize,
   });
   showLoading(false);
 
-  if (!res || res.status !== 'ok') { setTbody('<tr><td colspan="8">加载失败</td></tr>'); return; }
+  if (!res || res.status !== 'ok') { setTbody('<tr><td colspan="9">加载失败</td></tr>'); return; }
 
   const d = res.data;
   state.total = d.total || 0;
   updateInfo();
 
   const items = d.items || [];
-  if (!items.length) { setTbody('<tr><td colspan="8" style="text-align:center;color:var(--text2)">暂无数据</td></tr>'); renderPag(); return; }
+  if (!items.length) { setTbody('<tr><td colspan="9" style="text-align:center;color:var(--text2)">暂无数据</td></tr>'); renderPag(); return; }
 
   setTbody(items.map(m => {
     const content = q ? highlightText(esc(truncate(m.content, 80)), q) : esc(truncate(m.content, 80));
+    const personaBadge = m.persona_id && m.persona_id !== 'default'
+      ? `<span class="badge badge-persona">${esc(m.persona_id)}</span>`
+      : `<span style="color:var(--text2);font-size:12px">default</span>`;
     return `<tr>
       <td class="checkbox-col"><input type="checkbox" class="row-cb" data-id="${esc(m.id)}" onchange="window.__mem.toggleSelect()"></td>
       <td class="clickable-row" onclick="window.__mem.showDetail('${esc(m.id)}')" title="${esc(m.content)}">${content}</td>
       <td>${esc(m.sender_name || m.user_id || '-')}</td>
       <td><span class="badge badge-${esc(m.type)}">${esc(typeLabels[m.type] || m.type)}</span></td>
       <td><span class="badge badge-${esc(m.storage_layer)}">${esc(layerLabels[m.storage_layer] || m.storage_layer)}</span></td>
+      <td>${personaBadge}</td>
       <td>${m.confidence != null ? (m.confidence * 100).toFixed(0) + '%' : '-'}</td>
       <td>${esc(fmtTime(m.created_time))}</td>
       <td>
@@ -92,8 +118,8 @@ export async function showDetail(id) {
     <div class="detail-grid">
       ${dItem('ID', m.id)}${dItem('用户', m.sender_name || m.user_id)}
       ${dItem('群组', m.group_id || '-')}${dItem('类型', typeLabels[m.type] || m.type)}
-      ${dItem('层级', layerLabels[m.storage_layer] || m.storage_layer)}${dItem('作用域', m.scope || '-')}
-      ${dItem('置信度', m.confidence != null ? (m.confidence * 100).toFixed(1) + '%' : '-')}
+      ${dItem('层级', layerLabels[m.storage_layer] || m.storage_layer)}${dItem('人格', m.persona_id || 'default')}
+      ${dItem('作用域', m.scope || '-')}${dItem('置信度', m.confidence != null ? (m.confidence * 100).toFixed(1) + '%' : '-')}
       ${dItem('重要性', m.importance_score != null ? (m.importance_score * 100).toFixed(1) + '%' : '-')}
       ${dItem('RIF 评分', m.rif_score ?? '-')}${dItem('访问次数', m.access_count ?? '-')}
       ${dItem('质量等级', m.quality_level ?? '-')}${dItem('创建时间', fmtTime(m.created_time))}
@@ -115,6 +141,14 @@ export async function openEdit(id) {
   const m = res.data;
   closeModal('detail-modal');
 
+  // Load bot personas for the select
+  const personasRes = await api.get('/bot-personas');
+  const personaList = personasRes?.data?.personas || ['default'];
+  const currentPersona = m.persona_id || 'default';
+  const personaOptions = personaList.map(p =>
+    `<option value="${esc(p)}" ${p === currentPersona ? 'selected' : ''}>${esc(p)}</option>`
+  ).join('');
+
   const body = document.querySelector('#edit-modal .modal-body');
   body.innerHTML = `
     <h3>编辑记忆</h3>
@@ -133,6 +167,9 @@ export async function openEdit(id) {
       <div class="form-group"><label>重要性 (0-1)</label><input id="edit-importance" type="number" step="0.01" min="0" max="1" value="${m.importance_score ?? ''}"></div>
     </div>
     <div class="form-group"><label>摘要</label><input id="edit-summary" value="${esc(m.summary || '')}"></div>
+    <div class="form-group"><label>Bot 人格 (persona_id)</label>
+      <select id="edit-persona">${personaOptions}</select>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="window.__mem.closeEdit()">取消</button>
       <button class="btn btn-primary" onclick="window.__mem.saveEdit()">保存</button>
@@ -151,6 +188,7 @@ export async function saveEdit() {
   const conf = val('edit-confidence'); if (conf !== '') updates.confidence = Number(conf);
   const imp = val('edit-importance'); if (imp !== '') updates.importance_score = Number(imp);
   const summary = val('edit-summary'); if (summary) updates.summary = summary;
+  const persona = val('edit-persona'); if (persona) updates.persona_id = persona;
 
   const res = await api.put(`/memories/${encodeURIComponent(id)}`, updates);
   if (res?.status === 'ok') { toast.ok('已保存'); closeEdit(); searchMemories(); }
@@ -179,7 +217,7 @@ export function batchDelete() {
 
 export function resetFilters() {
   ['mem-query', 'mem-user', 'mem-group'].forEach(id => { el(id).value = ''; });
-  ['mem-layer', 'mem-type'].forEach(id => { el(id).selectedIndex = 0; });
+  ['mem-layer', 'mem-type', 'mem-persona'].forEach(id => { const s = el(id); if (s) s.selectedIndex = 0; });
   state.page = 1;
   searchMemories();
 }
@@ -197,7 +235,69 @@ function updateInfo() { el('mem-total-info').textContent = `共 ${state.total} �
 function dItem(label, value) {
   return `<div class="detail-item"><div class="detail-label">${esc(label)}</div><div class="detail-value">${esc(value ?? '-')}</div></div>`;
 }
+// 新增记忆
+export async function openCreateMemory() {
+  loadBotPersonas('create-mem-persona');
+  document.getElementById('create-memory-modal').classList.add('show');
+}
 
+export function closeCreateMemory() { closeModal('create-memory-modal'); }
+
+export async function saveCreateMemory() {
+  const content = val('create-mem-content');
+  const userId = val('create-mem-user');
+  if (!content || !userId) { toast.err('content 和 user_id 为必填项'); return; }
+
+  const payload = {
+    content,
+    user_id: userId,
+    group_id: val('create-mem-group') || undefined,
+    sender_name: val('create-mem-sender') || undefined,
+    persona_id: val('create-mem-persona') || 'default',
+    type: val('create-mem-type') || 'episodic',
+    storage_layer: val('create-mem-layer') || 'episodic',
+  };
+
+  const res = await api.post('/memories', payload);
+  if (res?.status === 'ok') {
+    toast.ok('记忆已创建');
+    closeCreateMemory();
+    searchMemories();
+  } else {
+    toast.err(res?.message || '创建失败');
+  }
+}// 新增记忆
+export async function openCreateMemory() {
+  loadBotPersonas('create-mem-persona');
+  document.getElementById('create-memory-modal').classList.add('show');
+}
+
+export function closeCreateMemory() { closeModal('create-memory-modal'); }
+
+export async function saveCreateMemory() {
+  const content = val('create-mem-content');
+  const userId = val('create-mem-user');
+  if (!content || !userId) { toast.err('content 和 user_id 为必填项'); return; }
+
+  const payload = {
+    content,
+    user_id: userId,
+    group_id: val('create-mem-group') || undefined,
+    sender_name: val('create-mem-sender') || undefined,
+    persona_id: val('create-mem-persona') || 'default',
+    type: val('create-mem-type') || 'episodic',
+    storage_layer: val('create-mem-layer') || 'episodic',
+  };
+
+  const res = await api.post('/memories', payload);
+  if (res?.status === 'ok') {
+    toast.ok('记忆已创建');
+    closeCreateMemory();
+    searchMemories();
+  } else {
+    toast.err(res?.message || '创建失败');
+  }
+}
 function renderPag() {
   renderPagination({
     page: state.page, pageSize: state.pageSize, total: state.total,
@@ -212,3 +312,5 @@ window.__mem = {
   closeDetail: closeDetail, closeEdit: closeEdit, saveEdit: saveEdit,
   toggleSelect: toggleSelect,
 };
+
+export { openCreateMemory, closeCreateMemory, saveCreateMemory };

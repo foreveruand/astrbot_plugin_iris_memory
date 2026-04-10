@@ -32,6 +32,7 @@ class KgWebService:
         user_id: str | None = None,
         group_id: str | None = None,
         node_type: str | None = None,
+        persona_id: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
@@ -41,6 +42,7 @@ class KgWebService:
             user_id=user_id,
             group_id=group_id,
             node_type=node_type,
+            persona_id=persona_id,
             page=page,
             page_size=page_size,
         )
@@ -52,6 +54,7 @@ class KgWebService:
         group_id: str | None = None,
         relation_type: str | None = None,
         node_id: str | None = None,
+        persona_id: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
@@ -61,6 +64,7 @@ class KgWebService:
             group_id=group_id,
             relation_type=relation_type,
             node_id=node_id,
+            persona_id=persona_id,
             page=page,
             page_size=page_size,
         )
@@ -82,6 +86,34 @@ class KgWebService:
         if success:
             audit_log("delete_kg_edge", f"id={edge_id}")
         return success, msg
+
+    async def update_persona_for_node(
+        self, node_id: str, new_persona_id: str
+    ) -> tuple[bool, str]:
+        """Update the persona_id of a KG node."""
+        if not new_persona_id or not new_persona_id.strip():
+            return False, "persona_id 不能为空"
+        repo = self._get_repo()
+        success, msg = await repo.update_node_persona(node_id, new_persona_id.strip())
+        if success:
+            audit_log("update_kg_node_persona", f"id={node_id} persona={new_persona_id}")
+        return success, msg
+
+    async def update_persona_for_edge(
+        self, edge_id: str, new_persona_id: str
+    ) -> tuple[bool, str]:
+        """Update the persona_id of a KG edge."""
+        if not new_persona_id or not new_persona_id.strip():
+            return False, "persona_id 不能为空"
+        repo = self._get_repo()
+        success, msg = await repo.update_edge_persona(edge_id, new_persona_id.strip())
+        if success:
+            audit_log("update_kg_edge_persona", f"id={edge_id} persona={new_persona_id}")
+        return success, msg
+
+    async def list_personas(self) -> list[str]:
+        """List all distinct persona_id values across KG nodes and edges."""
+        return await self._get_repo().list_personas()
 
     async def get_kg_graph_data(
         self,

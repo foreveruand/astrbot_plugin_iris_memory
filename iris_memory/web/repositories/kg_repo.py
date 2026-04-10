@@ -27,6 +27,7 @@ class KnowledgeGraphRepository:
         user_id: str | None = None,
         group_id: str | None = None,
         node_type: str | None = None,
+        persona_id: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[KGNode], int]:
@@ -52,6 +53,9 @@ class KnowledgeGraphRepository:
                 if node_type:
                     conditions.append("node_type = ?")
                     params.append(node_type)
+                if persona_id:
+                    conditions.append("persona_id = ?")
+                    params.append(persona_id)
 
                 where_clause = (
                     " WHERE " + " AND ".join(conditions) if conditions else ""
@@ -80,6 +84,7 @@ class KnowledgeGraphRepository:
         user_id: str | None = None,
         group_id: str | None = None,
         node_type: str | None = None,
+        persona_id: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[KGNode], int]:
@@ -98,6 +103,8 @@ class KnowledgeGraphRepository:
                     node_type=nt,
                     limit=500,
                 )
+                if persona_id:
+                    all_nodes = [n for n in all_nodes if (n.persona_id or "default") == persona_id]
                 total = len(all_nodes)
                 offset = (page - 1) * page_size
                 return all_nodes[offset : offset + page_size], total
@@ -105,6 +112,7 @@ class KnowledgeGraphRepository:
                 user_id=user_id,
                 group_id=group_id,
                 node_type=node_type,
+                persona_id=persona_id,
                 page=page,
                 page_size=page_size,
             )
@@ -118,6 +126,7 @@ class KnowledgeGraphRepository:
         group_id: str | None = None,
         relation_type: str | None = None,
         node_id: str | None = None,
+        persona_id: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[list[KGEdge], dict[str, str], int]:
@@ -146,6 +155,9 @@ class KnowledgeGraphRepository:
                 if node_id:
                     conditions.append("(source_id = ? OR target_id = ?)")
                     params.extend([node_id, node_id])
+                if persona_id:
+                    conditions.append("persona_id = ?")
+                    params.append(persona_id)
 
                 where_clause = (
                     " WHERE " + " AND ".join(conditions) if conditions else ""
@@ -359,6 +371,81 @@ class KnowledgeGraphRepository:
         except Exception as e:
             logger.error(f"KG quality error: {e}")
             return {"error": str(e)}
+
+    async def update_node_persona(self, node_id: str, new_persona_id: str) -> tuple[bool, str]:
+        """Update the persona_id of a KG node."""
+        kg = self._get_kg()
+        if not kg:
+            return False, "知识图谱未启用"
+        try:
+            storage = kg.storage
+            async with storage._lock:
+                assert storage._conn
+                with storage._tx() as cur:
+                    cur.execute(
+                        "UPDATE kg_nodes SET persona_id = ? WHERE id = ?",
+                        (new_persona_id, node_id),
+                    )
+                    if cur.rowcount > 0:
+                        storage._invalidate_cache()
+                        return True, "节点人格更新成功"
+                    return False, "节点不存在"
+        except Exception as e:
+            logger.error(f"Update node persona error: {e}")
+            return False, f"更新失败: {e}"
+
+    async def update_edge_persona(self, edge_id: str, new_persona_id: str) -> tuple[bool, str]:
+        """Update the persona_id of a KG edge."""
+        kg = self._get_kg()
+        if not kg:
+            return False, "知识图谱未启用"
+        try:
+            storage = kg.storage
+            async with storage._lock:
+                assert storage._conn
+                with storage._tx() as cur:
+                    cur.execute(
+                        "UPDATE kg_edges SET persona_id = ? WHERE id = ?",
+                        (new_persona_id, edge_id),
+                    )
+                    if cur.rowcount > 0:
+                        storage._invalidate_cache()
+                        return True, "边人格更新成功"
+                    return False, "边不存在"
+        except Exception as e:
+            logger.error(f"Update edge persona error: {e}")
+            return False, f"更新失败: {e}"
+
+    async def list_personas(self) -> list[str]:
+        """List all distinct persona_id values across nodes and edges."""
+        kg = self._get_kg()
+        if not kg:
+            return ["default"]
+        try:
+            storage = kg.storage
+            async with storage._lock:
+                assert storage._conn
+                node_rows = storage._conn.execute(
+                    "SELECT DISTINCT persona_id FROM kg_nodes WHERE persona_id IS NOT NULL"
+                ).fetchall()
+                edge_rows = storage._conn.execute(
+                    "SELECT DISTINCT persona_id FROM kg_edges WHERE persona_id IS NOT NULL"
+                ).fetchall()
+            personas: set[str] = {"default"}
+            for r in node_rows:
+                v = dict(r).get("persona_id")
+                if v:
+                    personas.add(v)
+            for r in edge_rows:
+                v = dict(r).get("persona_id")
+                if v:
+                    personas.add(v)
+            return sorted(personas)
+        except Exception as e:
+            logger.warning(f"List personas error: {e}")
+            return ["default"]
+
+
 
     async def get_stats(self) -> dict[str, Any]:
         """获取知识图谱统计"""

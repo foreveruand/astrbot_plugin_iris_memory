@@ -47,9 +47,11 @@ export function switchKgTab(tab) {
     }
   } else if (tab === 'nodes' && !loadedState.nodes) {
     loadedState.nodes = true;
+    loadKgPersonas();
     searchKgNodes();
   } else if (tab === 'edges' && !loadedState.edges) {
     loadedState.edges = true;
+    loadKgPersonas();
     searchKgEdges();
   }
 }
@@ -266,9 +268,9 @@ export function showNodeEdges(nodeId) {
 
 // ── 节点表格 ──
 export async function searchKgNodes() {
-  const q = val('kg-node-query'), uid = val('kg-node-user'), nt = val('kg-node-type');
+  const q = val('kg-node-query'), uid = val('kg-node-user'), nt = val('kg-node-type'), persona = val('kg-node-persona');
   const res = await api.get('/kg/nodes', {
-    query: q, user_id: uid, node_type: nt,
+    query: q, user_id: uid, node_type: nt, persona_id: persona || undefined,
     page: nodesState.page, page_size: nodesState.pageSize,
   });
   if (!res || res.status !== 'ok') return;
@@ -279,20 +281,27 @@ export async function searchKgNodes() {
 
   const nodes = d.items || [];
   const tbody = document.getElementById('kg-nodes-tbody');
-  if (!nodes.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">暂无节点</td></tr>'; el('kg-nodes-pagination').innerHTML = ''; return; }
+  if (!nodes.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">暂无节点</td></tr>'; el('kg-nodes-pagination').innerHTML = ''; return; }
 
-  tbody.innerHTML = nodes.map(n => `<tr>
-    <td>${esc(n.display_name || n.name)}</td>
-    <td><span style="color:${nodeColors[n.node_type] || nodeColors.unknown}">${esc(nodeTypeLabels[n.node_type] || n.node_type)}</span></td>
-    <td>${esc(n.user_id || '-')}</td>
-    <td>${n.mention_count ?? '-'}</td>
-    <td>${n.confidence != null ? (n.confidence * 100).toFixed(0) + '%' : '-'}</td>
-    <td>${esc(fmtTime(n.created_time))}</td>
-    <td>
-      <button class="btn btn-outline btn-sm" onclick="window.__kg.focusNode('${esc(n.id)}')">聚焦</button>
-      <button class="btn btn-danger btn-sm" onclick="window.__kg.deleteNode('${esc(n.id)}')">删除</button>
-    </td>
-  </tr>`).join('');
+  tbody.innerHTML = nodes.map(n => {
+    const pBadge = n.persona_id && n.persona_id !== 'default'
+      ? `<span class="badge badge-persona">${esc(n.persona_id)}</span>`
+      : `<span style="color:var(--text2);font-size:12px">default</span>`;
+    return `<tr>
+      <td>${esc(n.display_name || n.name)}</td>
+      <td><span style="color:${nodeColors[n.node_type] || nodeColors.unknown}">${esc(nodeTypeLabels[n.node_type] || n.node_type)}</span></td>
+      <td>${esc(n.user_id || '-')}</td>
+      <td>${pBadge}</td>
+      <td>${n.mention_count ?? '-'}</td>
+      <td>${n.confidence != null ? (n.confidence * 100).toFixed(0) + '%' : '-'}</td>
+      <td>${esc(fmtTime(n.created_time))}</td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick="window.__kg.focusNode('${esc(n.id)}')">聚焦</button>
+        <button class="btn btn-outline btn-sm" onclick="window.__kg.editNodePersona('${esc(n.id)}')">编辑人格</button>
+        <button class="btn btn-danger btn-sm" onclick="window.__kg.deleteNode('${esc(n.id)}')">删除</button>
+      </td>
+    </tr>`;
+  }).join('');
 
   renderPagination({
     page: nodesState.page, pageSize: nodesState.pageSize, total: nodesState.total,
@@ -300,15 +309,14 @@ export async function searchKgNodes() {
     container: el('kg-nodes-pagination'),
   });
 }
-
 export function kgNodesPage(p) { nodesState.page = p; searchKgNodes(); }
 export function changeKgNodesPageSize(v) { nodesState.pageSize = Number(v); nodesState.page = 1; searchKgNodes(); }
 
 // ── 边表格 ──
 export async function searchKgEdges() {
-  const uid = val('kg-edge-user'), nid = val('kg-edge-node'), rt = val('kg-edge-relation');
+  const uid = val('kg-edge-user'), nid = val('kg-edge-node'), rt = val('kg-edge-relation'), persona = val('kg-edge-persona');
   const res = await api.get('/kg/edges', {
-    user_id: uid, node_id: nid, relation_type: rt,
+    user_id: uid, node_id: nid, relation_type: rt, persona_id: persona || undefined,
     page: edgesState.page, page_size: edgesState.pageSize,
   });
   if (!res || res.status !== 'ok') return;
@@ -319,18 +327,27 @@ export async function searchKgEdges() {
 
   const edges = d.items || [];
   const tbody = document.getElementById('kg-edges-tbody');
-  if (!edges.length) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text2)">暂无边</td></tr>'; el('kg-edges-pagination').innerHTML = ''; return; }
+  if (!edges.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text2)">暂无边</td></tr>'; el('kg-edges-pagination').innerHTML = ''; return; }
 
-  tbody.innerHTML = edges.map(e => `<tr>
-    <td>${esc(e.source_name || e.source_id)}</td>
-    <td>${esc(relationLabels[e.relation_type] || e.relation_type)}</td>
-    <td>${esc(e.target_name || e.target_id)}</td>
-    <td>${e.confidence != null ? (e.confidence * 100).toFixed(0) + '%' : '-'}</td>
-    <td>${e.weight ?? '-'}</td>
-    <td>${esc(e.user_id || '-')}</td>
-    <td>${esc(fmtTime(e.created_time))}</td>
-    <td><button class="btn btn-danger btn-sm" onclick="window.__kg.deleteEdge('${esc(e.id)}')">删除</button></td>
-  </tr>`).join('');
+  tbody.innerHTML = edges.map(e => {
+    const pBadge = e.persona_id && e.persona_id !== 'default'
+      ? `<span class="badge badge-persona">${esc(e.persona_id)}</span>`
+      : `<span style="color:var(--text2);font-size:12px">default</span>`;
+    return `<tr>
+      <td>${esc(e.source_name || e.source_id)}</td>
+      <td>${esc(relationLabels[e.relation_type] || e.relation_type)}</td>
+      <td>${esc(e.target_name || e.target_id)}</td>
+      <td>${e.confidence != null ? (e.confidence * 100).toFixed(0) + '%' : '-'}</td>
+      <td>${e.weight ?? '-'}</td>
+      <td>${esc(e.user_id || '-')}</td>
+      <td>${pBadge}</td>
+      <td>${esc(fmtTime(e.created_time))}</td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick="window.__kg.editEdgePersona('${esc(e.id)}')">编辑人格</button>
+        <button class="btn btn-danger btn-sm" onclick="window.__kg.deleteEdge('${esc(e.id)}')">删除</button>
+      </td>
+    </tr>`;
+  }).join('');
 
   renderPagination({
     page: edgesState.page, pageSize: edgesState.pageSize, total: edgesState.total,
@@ -338,7 +355,6 @@ export async function searchKgEdges() {
     container: el('kg-edges-pagination'),
   });
 }
-
 export function kgEdgesPage(p) { edgesState.page = p; searchKgEdges(); }
 export function changeKgEdgesPageSize(v) { edgesState.pageSize = Number(v); edgesState.page = 1; searchKgEdges(); }
 
@@ -363,7 +379,40 @@ function el(id) { return document.getElementById(id); }
 function val(id) { return (el(id)?.value ?? '').trim(); }
 function showGraphLoading(v) { const o = el('kg-graph-loading'); if (o) o.style.display = v ? 'flex' : 'none'; }
 
+/** Populate persona filter selects for KG nodes and edges */
+async function loadKgPersonas() {
+  try {
+    const res = await api.get('/bot-personas');
+    const list = res?.data?.personas || [];
+    const opts = '<option value="">全部人格</option>' + list.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+    ['kg-node-persona', 'kg-edge-persona'].forEach(id => {
+      const s = el(id); if (s) s.innerHTML = opts;
+    });
+  } catch (_) {}
+}
+
+/** Edit node persona via inline prompt */
+export async function editNodePersona(id) {
+  const newPersona = window.prompt('请输入新的人格 ID (persona_id):');
+  if (!newPersona) return;
+  const res = await api.patch(`/kg/nodes/${encodeURIComponent(id)}/persona`, { persona_id: newPersona.trim() });
+  if (res?.status === 'ok') { toast.ok('人格已更新'); searchKgNodes(); }
+  else toast.err(res?.message || '更新失败');
+}
+
+/** Edit edge persona via inline prompt */
+export async function editEdgePersona(id) {
+  const newPersona = window.prompt('请输入新的人格 ID (persona_id):');
+  if (!newPersona) return;
+  const res = await api.patch(`/kg/edges/${encodeURIComponent(id)}/persona`, { persona_id: newPersona.trim() });
+  if (res?.status === 'ok') { toast.ok('人格已更新'); searchKgEdges(); }
+  else toast.err(res?.message || '更新失败');
+}
+
 // window bridge
 window.__kg = {
   focusNode, showNodeEdges, deleteNode, deleteEdge, hideNodePopup,
+  editNodePersona, editEdgePersona,
 };
+
+export { loadKgPersonas };

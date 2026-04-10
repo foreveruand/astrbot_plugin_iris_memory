@@ -83,6 +83,7 @@ input[type="checkbox"] { width:16px; height:16px; accent-color:var(--accent); }
 .badge-fact { background:rgba(124,108,240,0.2); color:var(--accent); }
 .badge-emotion { background:rgba(239,69,101,0.2); color:var(--danger); }
 .badge-relationship { background:rgba(54,199,141,0.2); color:var(--success); }
+.badge-persona { background:rgba(14,165,233,0.15); color:#0ea5e9; }
 
 /* Pagination */
 .pagination { display:flex; gap:8px; margin-top:16px; align-items:center; justify-content:center; }

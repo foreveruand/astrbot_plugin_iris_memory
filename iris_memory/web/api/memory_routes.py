@@ -26,10 +26,32 @@ def register_memory_routes(app: Quart, container: WebContainer) -> None:
             group_id=request.args.get("group_id"),
             storage_layer=request.args.get("storage_layer"),
             memory_type=request.args.get("type"),
+            persona_id=request.args.get("persona_id"),
             page=safe_int(request.args.get("page"), 1),
             page_size=safe_int(request.args.get("page_size"), 20, max_val=100),
         )
         return success_response(data)
+
+    @app.route("/api/v1/memories", methods=["POST"])
+    async def api_create_memory():
+        data = await request.get_json(silent=True) or {}
+        content = data.get("content", "")
+        user_id = data.get("user_id", "")
+        if not content or not user_id:
+            return error_response("content 和 user_id 为必填项")
+        svc = container.get("memory_service")
+        ok, msg, memory_id = await svc.create_memory_manual(
+            content=content,
+            user_id=user_id,
+            group_id=data.get("group_id"),
+            sender_name=data.get("sender_name"),
+            persona_id=data.get("persona_id", "default"),
+            memory_type=data.get("type", "episodic"),
+            storage_layer=data.get("storage_layer", "episodic"),
+        )
+        if not ok:
+            return error_response(msg)
+        return success_response({"id": memory_id}, message=msg)
 
     @app.route("/api/v1/memories/<memory_id>", methods=["GET"])
     async def api_get_memory(memory_id: str):
@@ -58,6 +80,38 @@ def register_memory_routes(app: Quart, container: WebContainer) -> None:
         if not ok:
             return error_response(msg)
         return success_response(message=msg)
+
+    @app.route("/api/v1/memories/<memory_id>/persona", methods=["PATCH"])
+    async def api_update_memory_persona(memory_id: str):
+        data = await request.get_json(silent=True) or {}
+        new_persona_id = data.get("persona_id", "")
+        if not new_persona_id:
+            return error_response("persona_id 不能为空")
+        svc = container.get("memory_service")
+        ok, msg = await svc.update_persona_for_memory(memory_id, new_persona_id)
+        if not ok:
+            return error_response(msg)
+        return success_response(message=msg)
+
+    @app.route("/api/v1/bot-personas", methods=["GET"])
+    async def api_list_bot_personas():
+        kg_svc = container.get("kg_service")
+        personas = await kg_svc.list_personas()
+        # Also collect persona_ids from Chroma memories
+        mem_svc = container.get("memory_service")
+        try:
+            chroma = mem_svc._service.chroma_manager
+            if chroma and chroma.is_ready:
+                res = chroma.collection.get(include=["metadatas"])
+                persona_set = set(personas)
+                for meta in res.get("metadatas", []):
+                    pid = meta.get("persona_id")
+                    if pid:
+                        persona_set.add(pid)
+                personas = sorted(persona_set)
+        except Exception:
+            pass
+        return success_response({"personas": personas})
 
     @app.route("/api/v1/memories/batch-delete", methods=["POST"])
     async def api_batch_delete_memories():

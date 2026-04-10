@@ -56,6 +56,7 @@
       <div class="section-header">
         <h2>记忆管理</h2>
         <div class="spacer"></div>
+        <button class="btn btn-primary btn-sm" onclick="openCreateMemory()">+ 新增记忆</button>
         <span id="mem-total-info" class="page-info"></span>
         <select id="mem-page-size" class="page-size-select">
           <option value="10">10条/页</option>
@@ -82,6 +83,9 @@
           <option value="interaction">交互</option>
           <option value="inferred">推断</option>
         </select>
+        <select id="mem-persona">
+          <option value="">全部人格</option>
+        </select>
         <button class="btn btn-primary" onclick="searchMemories()">搜索</button>
         <button class="btn btn-outline" onclick="resetMemoryFilters()">重置</button>
       </div>
@@ -94,7 +98,7 @@
       <div class="card" style="padding:0">
         <div class="table-wrap">
           <table>
-            <thead><tr><th class="checkbox-col"></th><th>内容</th><th>用户</th><th>类型</th><th>层级</th><th>置信度</th><th>时间</th><th>操作</th></tr></thead>
+            <thead><tr><th class="checkbox-col"></th><th>内容</th><th>用户</th><th>类型</th><th>层级</th><th>人格</th><th>置信度</th><th>时间</th><th>操作</th></tr></thead>
             <tbody id="mem-tbody"></tbody>
           </table>
         </div>
@@ -156,12 +160,13 @@
             <option value="event">事件</option>
             <option value="concept">概念</option>
           </select>
+          <select id="kg-node-persona"><option value="">全部人格</option></select>
           <button class="btn btn-primary" onclick="searchKgNodes()">搜索</button>
         </div>
         <div class="card" style="padding:0">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>名称</th><th>类型</th><th>用户</th><th>提及次数</th><th>置信度</th><th>创建时间</th><th>操作</th></tr></thead>
+              <thead><tr><th>名称</th><th>类型</th><th>用户</th><th>人格</th><th>提及次数</th><th>置信度</th><th>创建时间</th><th>操作</th></tr></thead>
               <tbody id="kg-nodes-tbody"></tbody>
             </table>
           </div>
@@ -192,12 +197,13 @@
             <option value="works_at">工作于</option>
             <option value="lives_in">居住于</option>
           </select>
+          <select id="kg-edge-persona"><option value="">全部人格</option></select>
           <button class="btn btn-primary" onclick="searchKgEdges()">搜索</button>
         </div>
         <div class="card" style="padding:0">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>源节点</th><th>关系</th><th>目标节点</th><th>置信度</th><th>权重</th><th>用户</th><th>时间</th><th>操作</th></tr></thead>
+              <thead><tr><th>源节点</th><th>关系</th><th>目标节点</th><th>置信度</th><th>权重</th><th>用户</th><th>人格</th><th>时间</th><th>操作</th></tr></thead>
               <tbody id="kg-edges-tbody"></tbody>
             </table>
           </div>
@@ -408,6 +414,47 @@
 <div id="edit-modal" class="modal-overlay">
   <div class="modal modal-lg">
     <div class="modal-body"></div>
+  </div>
+</div>
+
+<!-- Create Memory Modal -->
+<div id="create-memory-modal" class="modal-overlay">
+  <div class="modal modal-lg">
+    <div class="modal-body">
+      <h3>新增记忆</h3>
+      <div class="form-group"><label>内容 *</label><textarea id="create-mem-content" rows="4" placeholder="记忆内容"></textarea></div>
+      <div class="form-row">
+        <div class="form-group"><label>用户ID *</label><input id="create-mem-user" placeholder="user_id"></div>
+        <div class="form-group"><label>群组ID</label><input id="create-mem-group" placeholder="group_id (可选)"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>发送者名称</label><input id="create-mem-sender" placeholder="sender_name (可选)"></div>
+        <div class="form-group"><label>人格 (Bot Persona)</label>
+          <select id="create-mem-persona"><option value="default">default</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>类型</label>
+          <select id="create-mem-type">
+            <option value="episodic">情景</option>
+            <option value="fact">事实</option>
+            <option value="emotion">情感</option>
+            <option value="relationship">关系</option>
+            <option value="interaction">交互</option>
+          </select>
+        </div>
+        <div class="form-group"><label>层级</label>
+          <select id="create-mem-layer">
+            <option value="episodic">情景记忆</option>
+            <option value="semantic">语义记忆</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-outline" onclick="closeCreateMemory()">取消</button>
+        <button class="btn btn-primary" onclick="saveCreateMemory()">保存</button>
+      </div>
+    </div>
   </div>
 </div>
 

@@ -12,6 +12,7 @@ import {
   searchMemories, memPage, toggleSelectAll, toggleSelect, batchDelete,
   resetFilters as resetMemoryFilters, changePageSize as memChangePageSize,
   getState as memGetState,
+  openCreateMemory, closeCreateMemory, saveCreateMemory,
 } from './pages/memories.js';
 import {
   initKg, switchKgTab, loadKgGraph, searchKgNodes, searchKgEdges,
@@ -116,6 +117,7 @@ Object.assign(window, {
   searchMemories, memPage, toggleSelectAll, toggleSelect,
   batchDeleteMemories: batchDelete,
   resetMemoryFilters, exportSelectedMemories: () => toast.info('请使用导出功能'),
+  openCreateMemory, closeCreateMemory, saveCreateMemory,
   switchKgTab, loadKgGraph, searchKgNodes, searchKgEdges, refreshKgTab,
   hideNodePopup, kgNodesPage, kgEdgesPage,
   searchPersonas, loadPersonas, resetPersonaFilters,

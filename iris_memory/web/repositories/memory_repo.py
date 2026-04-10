@@ -27,6 +27,7 @@ class MemoryRepository:
         group_id: str | None = None,
         storage_layer: str | None = None,
         memory_type: str | None = None,
+        persona_id: str | None = None,
         top_k: int = 100,
     ) -> list[dict[str, Any]]:
         """向量搜索记忆"""
@@ -48,6 +49,8 @@ class MemoryRepository:
             for m in memories:
                 item = self._memory_to_dict(m)
                 if memory_type and item.get("type") != memory_type:
+                    continue
+                if persona_id and item.get("persona_id", "default") != persona_id:
                     continue
                 items.append(item)
             return items
@@ -79,6 +82,7 @@ class MemoryRepository:
         group_id: str | None = None,
         storage_layer: str | None = None,
         memory_type: str | None = None,
+        persona_id: str | None = None,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
@@ -104,9 +108,17 @@ class MemoryRepository:
         if not storage_layer or storage_layer != "working":
             all_items.extend(
                 await self._collect_persistent_memories(
-                    user_id, group_id, storage_layer, memory_type
+                    user_id, group_id, storage_layer, memory_type, persona_id
                 )
             )
+
+        # 工作记忆按 persona_id 过滤（ChromaDB 不存储工作记忆）
+        if persona_id and (not storage_layer or storage_layer == "working"):
+            all_items = [
+                m for m in all_items
+                if m.get("persona_id", "default") == persona_id
+                or m.get("storage_layer", "") != "working"
+            ]
 
         all_items.sort(key=lambda x: x.get("created_time", ""), reverse=True)
         result["total"] = len(all_items)
@@ -124,6 +136,7 @@ class MemoryRepository:
             "confidence",
             "importance_score",
             "summary",
+            "persona_id",
         }
         invalid_keys = set(updates.keys()) - allowed_keys
         if invalid_keys:
@@ -302,6 +315,7 @@ class MemoryRepository:
         group_id: str | None,
         storage_layer: str | None,
         memory_type: str | None,
+        persona_id: str | None = None,
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         try:
@@ -320,6 +334,8 @@ class MemoryRepository:
                 where_clause["storage_layer"] = storage_layer
             if memory_type:
                 where_clause["type"] = memory_type
+            if persona_id:
+                where_clause["persona_id"] = persona_id
 
             if where_clause:
                 built = chroma._build_where_clause(where_clause)

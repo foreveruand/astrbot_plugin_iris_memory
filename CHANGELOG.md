@@ -3,6 +3,19 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.5] - 2026-04-10
+
+### Added
+- Web UI: persona filter and edit support for memories and knowledge graph entries (frontend and new web API endpoints).
+
+### Fixed
+- Correctly resolve and store AstrBot persona (event persona name) across code paths:
+  - `/memory save` command, message-triggered capture, and LLM-tool `save_memory` now use `ConfigStore.get_persona_id_for_storage` / `get_persona_id_for_query` helpers.
+  - LLM tool `save_memory` now routes through the service capture API and persists `persona_id` correctly.
+
+### Notes
+- These fixes ensure memories are associated with the AstrBot persona (the bot persona id), not confused with the plugin's internal user-profile persona.
+
 ## [v1.11.4] - 2026-04-10
 
 ### Added

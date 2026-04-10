@@ -2,6 +2,11 @@
 
 ![访问量](https://count.getloli.com/get/@astrbot_plugin_iris_memory?theme=moebooru)
 
+## Recent Changes
+
+- **v1.11.5 (2026-04-10)**: Fixes for AstrBot persona handling — command-based saves, message-triggered capture, and LLM-tool `save_memory` now correctly resolve and persist the AstrBot persona id. Web UI now supports persona filtering and editing for memories and knowledge graph entries.
+
+
 面向 AstrBot 的三层记忆插件：让机器人"记住你"，同时提供多种辅助功能。
 
 ⚠️注意：

@@ -218,27 +218,21 @@ class IrisMemoryPlugin(Star):
         Args:
             content(string): 要保存的记忆内容，应该是一个完整的陈述句
         """
-        from iris_memory.capture.scope_classifier import ScopeClassifier
-        from iris_memory.models.memory import Memory
-        from iris_memory.utils.event_utils import get_group_id
+        from iris_memory.utils.event_utils import get_group_id, get_sender_name
+        from iris_memory.utils.persona_utils import get_event_persona_id
 
+        user_id = event.get_sender_id()
         group_id = get_group_id(event)
-        classifier = ScopeClassifier()
-        scope_context = {
-            "is_group": bool(group_id),
-            "group_id": group_id,
-        }
-        scope = await classifier.classify(content, scope_context)
+        raw_persona_id = get_event_persona_id(event)
+        store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
 
-        memory = Memory(
-            content=content,
-            scope=scope,
-            confidence=0.9,
-        )
-        await self._service.capture.capture_memory(
-            event,
-            [memory],
-            from_llm=True,
+        await self._service.capture_and_store_memory(
+            message=content,
+            user_id=user_id,
+            group_id=group_id,
+            is_user_requested=True,
+            sender_name=get_sender_name(event),
+            persona_id=store_persona,
         )
         return f"已保存记忆：{content}"
 

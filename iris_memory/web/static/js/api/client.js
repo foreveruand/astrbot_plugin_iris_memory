@@ -105,6 +105,11 @@ class ApiClient {
     return this.request(path, { method: 'PUT', body: JSON.stringify(body) });
   }
 
+  /** PATCH JSON */
+  patch(path, body = {}) {
+    return this.request(path, { method: 'PATCH', body: JSON.stringify(body) });
+  }
+
   /** DELETE */
   del(path) {
     return this.request(path, { method: 'DELETE' });

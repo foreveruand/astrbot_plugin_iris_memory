@@ -20,6 +20,7 @@ def memory_to_web_dict(memory: Any) -> dict[str, Any]:
         "user_id": getattr(memory, "user_id", ""),
         "sender_name": getattr(memory, "sender_name", ""),
         "group_id": getattr(memory, "group_id", ""),
+        "persona_id": getattr(memory, "persona_id", "default") or "default",
         "type": _enum_val(getattr(memory, "type", "")),
         "storage_layer": _enum_val(getattr(memory, "storage_layer", "")),
         "scope": _enum_val(getattr(memory, "scope", "")),
@@ -48,6 +49,7 @@ def memory_detail_from_chroma(
         "user_id": meta.get("user_id", ""),
         "group_id": meta.get("group_id", ""),
         "sender_name": meta.get("sender_name", ""),
+        "persona_id": meta.get("persona_id", "default") or "default",
         "type": meta.get("type", ""),
         "storage_layer": meta.get("storage_layer", ""),
         "scope": meta.get("scope", ""),
@@ -77,6 +79,7 @@ def node_to_web_dict(node: KGNode) -> dict[str, Any]:
         "node_type": node.node_type.value,
         "user_id": node.user_id,
         "group_id": node.group_id,
+        "persona_id": node.persona_id or "default",
         "aliases": node.aliases,
         "mention_count": node.mention_count,
         "confidence": node.confidence,
@@ -114,6 +117,7 @@ def edge_to_web_dict(
         "weight": edge.weight,
         "confidence": edge.confidence,
         "user_id": edge.user_id,
+        "persona_id": edge.persona_id or "default",
         "created_time": _isoformat(edge.created_time),
     }
 
