@@ -266,38 +266,8 @@ export async function saveCreateMemory() {
   } else {
     toast.err(res?.message || '创建失败');
   }
-}// 新增记忆
-export async function openCreateMemory() {
-  loadBotPersonas('create-mem-persona');
-  document.getElementById('create-memory-modal').classList.add('show');
 }
 
-export function closeCreateMemory() { closeModal('create-memory-modal'); }
-
-export async function saveCreateMemory() {
-  const content = val('create-mem-content');
-  const userId = val('create-mem-user');
-  if (!content || !userId) { toast.err('content 和 user_id 为必填项'); return; }
-
-  const payload = {
-    content,
-    user_id: userId,
-    group_id: val('create-mem-group') || undefined,
-    sender_name: val('create-mem-sender') || undefined,
-    persona_id: val('create-mem-persona') || 'default',
-    type: val('create-mem-type') || 'episodic',
-    storage_layer: val('create-mem-layer') || 'episodic',
-  };
-
-  const res = await api.post('/memories', payload);
-  if (res?.status === 'ok') {
-    toast.ok('记忆已创建');
-    closeCreateMemory();
-    searchMemories();
-  } else {
-    toast.err(res?.message || '创建失败');
-  }
-}
 function renderPag() {
   renderPagination({
     page: state.page, pageSize: state.pageSize, total: state.total,
@@ -312,5 +282,3 @@ window.__mem = {
   closeDetail: closeDetail, closeEdit: closeEdit, saveEdit: saveEdit,
   toggleSelect: toggleSelect,
 };
-
-export { openCreateMemory, closeCreateMemory, saveCreateMemory };

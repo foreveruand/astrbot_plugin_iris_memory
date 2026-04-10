@@ -231,6 +231,10 @@ class MessageProcessor:
             )
             return
 
+        # Do not capture command invocations as memories (e.g. /memory save ...)
+        if MessageFilter.is_command(message):
+            return
+
         capture_message = message
         reply_info = extract_reply_info(event)
         if reply_info and reply_info.content:
