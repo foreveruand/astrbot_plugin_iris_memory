@@ -123,7 +123,7 @@ class MemoryReinforcementEngine:
         """应用 SM-2 变体强化：根据间隔重复效应更新 RIF 评分"""
         last_review = self._get_last_review_time(memory.id, memory.user_id)
         next_review = self._calculate_next_review(
-            memory, last_review or memory.created_at
+            memory, last_review or memory.created_time
         )
 
         if datetime.now() >= next_review:
