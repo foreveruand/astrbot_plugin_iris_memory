@@ -115,7 +115,8 @@ class MemoryRepository:
         # 工作记忆按 persona_id 过滤（ChromaDB 不存储工作记忆）
         if persona_id and (not storage_layer or storage_layer == "working"):
             all_items = [
-                m for m in all_items
+                m
+                for m in all_items
                 if m.get("persona_id", "default") == persona_id
                 or m.get("storage_layer", "") != "working"
             ]
@@ -143,8 +144,11 @@ class MemoryRepository:
             return False, f"不允许更新的字段: {', '.join(invalid_keys)}"
 
         updates = dict(updates)
+        found_in_working = False
 
-        # Working memories live in session_manager cache, not in ChromaDB.
+        # Update working memory cache if present
+        # Note: Memory may exist in both working cache AND ChromaDB if promotion
+        # failed to remove from cache. We must update BOTH locations.
         try:
             session_mgr = self._service.session_manager
             if session_mgr and hasattr(session_mgr, "working_memory_cache"):
@@ -154,6 +158,7 @@ class MemoryRepository:
                     for m in memories:
                         if m.id != memory_id:
                             continue
+                        found_in_working = True
                         if "content" in updates:
                             m.content = str(updates["content"])
                         if "summary" in updates:
@@ -175,20 +180,36 @@ class MemoryRepository:
                             m.type = MemoryType(updates["type"])
                         if "storage_layer" in updates:
                             m.storage_layer = StorageLayer(updates["storage_layer"])
-                        return True, "更新成功"
+                        # DO NOT return here - continue to check ChromaDB
+                        break  # Exit inner loop once found
+                    if found_in_working:
+                        break  # Exit outer loop once found
         except Exception as e:
             logger.warning(f"Working memory update check error: {e}")
 
         try:
             chroma = self._service.chroma_manager
             if not chroma or not chroma.is_ready:
+                # If found in working cache, return success (working memories don't need Chroma)
+                if found_in_working:
+                    return True, "更新成功"
                 return False, "存储服务未就绪"
 
             collection = chroma.collection
             res = collection.get(ids=[memory_id], include=["documents", "metadatas"])
+
+            # Memory not in ChromaDB
             if not res["ids"]:
+                # If found in working cache, return success (pure working memory)
+                if found_in_working:
+                    logger.debug(
+                        "Memory %s only in working cache, skip ChromaDB update",
+                        memory_id,
+                    )
+                    return True, "更新成功"
                 return False, "记忆不存在"
 
+            # Memory exists in ChromaDB - update it
             meta = dict(res["metadatas"][0]) if res["metadatas"] else {}
             doc = res["documents"][0] if res.get("documents") else ""
             old_persona = meta.get("persona_id", "default") or "default"
@@ -210,16 +231,25 @@ class MemoryRepository:
                 collection.update(ids=[memory_id], metadatas=[meta])
 
             logger.info(
-                "[persona] updated persistent memory id=%s old=%s new=%s fields=%s",
+                "[persona] updated persistent memory id=%s old=%s new=%s fields=%s chroma_only=%s",
                 memory_id,
                 old_persona,
                 meta.get("persona_id", "default") or "default",
                 sorted(updates.keys()),
+                not found_in_working,
             )
             return True, "更新成功"
 
         except Exception as e:
             logger.error(f"Update memory error: {e}")
+            # If already updated working cache, consider it partial success
+            if found_in_working:
+                logger.warning(
+                    "Memory %s updated in cache but ChromaDB update failed: %s",
+                    memory_id,
+                    e,
+                )
+                return True, "缓存更新成功，持久化存储更新失败"
             return False, f"更新失败: {e}"
 
     async def delete(self, memory_id: str) -> tuple[bool, str]:
