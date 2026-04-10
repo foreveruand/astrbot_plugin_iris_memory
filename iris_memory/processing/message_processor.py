@@ -130,7 +130,7 @@ class MessageProcessor:
                     f"content_len={len(reply_info.content or '')}"
                 )
 
-        raw_persona_id = get_event_persona_id(event)
+        raw_persona_id = await get_event_persona_id(event, self._service.context)
         query_persona = self._service.cfg.get_persona_id_for_query(raw_persona_id, module="memory")
         context = await self._service.prepare_llm_context(
             query=query,
@@ -240,7 +240,7 @@ class MessageProcessor:
         if reply_info and reply_info.content:
             capture_message = f"{message}\n{reply_info.format_for_buffer()}"
 
-        raw_persona_id = get_event_persona_id(event)
+        raw_persona_id = await get_event_persona_id(event, self._service.context)
         store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
         memory = await self._service.capture_and_store_memory(
             message=capture_message,
@@ -346,7 +346,7 @@ class MessageProcessor:
         if reply_info and reply_info.content:
             enriched_message = f"{message}\n{reply_info.format_for_buffer()}"
 
-        raw_persona_id = get_event_persona_id(event)
+        raw_persona_id = await get_event_persona_id(event, self._service.context)
         store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
 
         # 将图片分析和批量处理放到后台任务，避免阻塞 LLM 响应（这些是记忆写入操作，

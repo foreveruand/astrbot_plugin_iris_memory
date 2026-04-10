@@ -176,7 +176,19 @@ class MemoryRepository:
             return False, f"更新失败: {e}"
 
     async def delete(self, memory_id: str) -> tuple[bool, str]:
-        """删除记忆"""
+        """删除记忆（同时覆盖工作记忆缓存和 ChromaDB）"""
+        # Check working memory cache first (working memories are not in Chroma)
+        try:
+            session_mgr = self._service.session_manager
+            if session_mgr and hasattr(session_mgr, "working_memory_cache"):
+                for session_key, memories in session_mgr.working_memory_cache.items():
+                    for i, m in enumerate(memories):
+                        if m.id == memory_id:
+                            session_mgr.working_memory_cache[session_key].pop(i)
+                            return True, "删除成功"
+        except Exception as e:
+            logger.warning(f"Working memory delete check error: {e}")
+
         try:
             chroma = self._service.chroma_manager
             if not chroma or not chroma.is_ready:
@@ -195,33 +207,55 @@ class MemoryRepository:
             return False, f"删除失败: {e}"
 
     async def batch_delete(self, memory_ids: list[str]) -> dict[str, Any]:
-        """批量删除"""
+        """批量删除（工作记忆缓存 + ChromaDB）"""
         result: dict[str, Any] = {"success_count": 0, "fail_count": 0, "errors": []}
+        remaining_ids = set(memory_ids)
+
+        # Remove working memory entries first
+        try:
+            session_mgr = self._service.session_manager
+            if session_mgr and hasattr(session_mgr, "working_memory_cache"):
+                for session_key, memories in list(
+                    session_mgr.working_memory_cache.items()
+                ):
+                    new_list = []
+                    for m in memories:
+                        if m.id in remaining_ids:
+                            remaining_ids.discard(m.id)
+                            result["success_count"] += 1
+                        else:
+                            new_list.append(m)
+                    session_mgr.working_memory_cache[session_key] = new_list
+        except Exception as e:
+            logger.warning(f"Working memory batch delete error: {e}")
+
+        if not remaining_ids:
+            return result
 
         try:
             chroma = self._service.chroma_manager
             if not chroma or not chroma.is_ready:
                 result["errors"].append("存储服务未就绪")
-                result["fail_count"] = len(memory_ids)
+                result["fail_count"] += len(remaining_ids)
                 return result
 
             collection = chroma.collection
-            res = collection.get(ids=memory_ids)
+            res = collection.get(ids=list(remaining_ids))
             existing_ids = set(res["ids"]) if res["ids"] else set()
 
             if existing_ids:
                 collection.delete(ids=list(existing_ids))
-                result["success_count"] = len(existing_ids)
+                result["success_count"] += len(existing_ids)
 
-            missing = set(memory_ids) - existing_ids
-            result["fail_count"] = len(missing)
+            missing = remaining_ids - existing_ids
+            result["fail_count"] += len(missing)
             if missing:
                 result["errors"].append(f"{len(missing)} 条记忆不存在")
 
         except Exception as e:
             logger.error(f"Batch delete error: {e}")
             result["errors"].append(str(e))
-            result["fail_count"] = len(memory_ids)
+            result["fail_count"] += len(remaining_ids)
 
         return result
 

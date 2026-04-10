@@ -357,12 +357,20 @@ class MessageFilter:
 
     KNOWN_COMMANDS: set[str] = frozenset(
         [
+            # Underscore format (used internally)
             "memory_save",
             "memory_search",
             "memory_clear",
             "memory_stats",
             "memory_delete",
             "proactive_reply",
+            # Space format: AstrBot may strip the leading '/' and leave "memory save ..."
+            "memory save",
+            "memory search",
+            "memory clear",
+            "memory stats",
+            "memory delete",
+            "iris ",
         ]
     )
 

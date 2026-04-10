@@ -223,7 +223,7 @@ class IrisMemoryPlugin(Star):
 
         user_id = event.get_sender_id()
         group_id = get_group_id(event)
-        raw_persona_id = get_event_persona_id(event)
+        raw_persona_id = await get_event_persona_id(event, self.context)
         store_persona = self._service.cfg.get_persona_id_for_storage(raw_persona_id)
 
         await self._service.capture_and_store_memory(
