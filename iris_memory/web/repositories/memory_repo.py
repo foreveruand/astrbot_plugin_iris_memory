@@ -144,9 +144,18 @@ class MemoryRepository:
 
             if "content" in updates:
                 doc = updates.pop("content")
-            meta.update(updates)
-
-            collection.update(ids=[memory_id], documents=[doc], metadatas=[meta])
+                embedding = await chroma._generate_embedding(doc)
+                if embedding is None:
+                    return False, "生成嵌入向量失败"
+                collection.update(
+                    ids=[memory_id],
+                    documents=[doc],
+                    embeddings=[embedding],
+                    metadatas=[meta],
+                )
+            else:
+                meta.update(updates)
+                collection.update(ids=[memory_id], metadatas=[meta])
             return True, "更新成功"
 
         except Exception as e:

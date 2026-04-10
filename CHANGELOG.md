@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 仅保留非 LLM 的 `_cleanup_loop()` 为 asyncio 任务
 
 ### Fixed
+- **Web 界面编辑记忆时嵌入向量维度不匹配**
+  - 修复 `memory_repo.py` 的 `update()` 方法在更新文档内容时未生成嵌入向量的问题
+  - 现在更新内容时会使用 EmbeddingManager 生成正确维度的嵌入向量，避免 ChromaDB 维度冲突
+
 - **Gemini API 429 错误优化**
   - 通过速率控制避免突发并发请求触发临时速率限制
   - 即使总体 RPM/RPD 未超限，短时间内的突发请求也会被限制
