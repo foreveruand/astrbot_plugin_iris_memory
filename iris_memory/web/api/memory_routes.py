@@ -95,22 +95,33 @@ def register_memory_routes(app: Quart, container: WebContainer) -> None:
 
     @app.route("/api/v1/bot-personas", methods=["GET"])
     async def api_list_bot_personas():
-        kg_svc = container.get("kg_service")
-        personas = await kg_svc.list_personas()
-        # Also collect persona_ids from Chroma memories
-        mem_svc = container.get("memory_service")
+        persona_set: set[str] = {"default"}
+        # Use AstrBot PersonaManager as the authoritative source
         try:
+            astrbot_ctx = container._memory_service.context
+            for p in astrbot_ctx.persona_manager.personas:
+                persona_set.add(p.persona_id)
+        except Exception:
+            pass
+        # Also collect from KG and Chroma metadata for backward compatibility
+        try:
+            kg_svc = container.get("kg_service")
+            for pid in await kg_svc.list_personas():
+                persona_set.add(pid)
+        except Exception:
+            pass
+        try:
+            mem_svc = container.get("memory_service")
             chroma = mem_svc._service.chroma_manager
             if chroma and chroma.is_ready:
                 res = chroma.collection.get(include=["metadatas"])
-                persona_set = set(personas)
                 for meta in res.get("metadatas", []):
                     pid = meta.get("persona_id")
                     if pid:
                         persona_set.add(pid)
-                personas = sorted(persona_set)
         except Exception:
             pass
+        personas = ["default"] + sorted(p for p in persona_set if p != "default")
         return success_response({"personas": personas})
 
     @app.route("/api/v1/memories/batch-delete", methods=["POST"])
