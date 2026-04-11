@@ -983,7 +983,7 @@ _FIELDS: list[ConfigField] = [
     _f(
         "prompt_injection.chat_history.method",
         str,
-        "system_prompt",
+        "user_prompt",
         "对话记录注入方式",
         access=RW,
         choices=("system_prompt", "user_prompt", "insert_system_prompt"),
@@ -999,7 +999,7 @@ _FIELDS: list[ConfigField] = [
     _f(
         "prompt_injection.memory.method",
         str,
-        "system_prompt",
+        "user_prompt",
         "记忆检索注入方式",
         access=RW,
         choices=("system_prompt", "user_prompt", "insert_system_prompt"),

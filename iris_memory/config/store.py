@@ -104,6 +104,14 @@ class ConfigStore:
                 if now < expire:
                     return cached
 
+            # TTL 过期后优先从 user_config（Level 1）读取最新值，
+            # 使 AstrBot 主 WebUI 修改的配置在 TTL 内自动生效，无需重载插件。
+            fresh = self._loader.fresh_level1(key)
+            if fresh is not None:
+                self._data[key] = fresh
+                self._cache[key] = (fresh, now + self._cache_ttl)
+                return fresh
+
             value = self._data.get(key)
             if value is not None:
                 self._cache[key] = (value, now + self._cache_ttl)

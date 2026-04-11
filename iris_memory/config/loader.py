@@ -105,6 +105,24 @@ class ConfigLoader:
             logger.exception("加载插件持久化配置失败: %s", fp)
             return {}
 
+
+    @staticmethod
+    def _is_mock_value(value: Any) -> bool:
+        """返回 True 表示该值来自 unittest.mock，不应视为真实配置。"""
+        return type(value).__module__.startswith("unittest.mock")
+
+    def fresh_level1(self, key: str) -> Any:
+        """直接从 user_config（Level 1）读取最新值，不经过缓存快照。
+
+        用于在 ConfigStore.get() 中实现 TTL 过期后的热更新。
+        """
+        if self._user_config is None:
+            return None
+        value = self._get_nested(self._user_config, key)
+        if value is None or self._is_mock_value(value):
+            return None
+        return value
+
     @staticmethod
     def _get_nested(obj: Any, dotted_key: str) -> Any:
         """从嵌套对象/字典按点号路径读取值"""
