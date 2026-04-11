@@ -3,7 +3,7 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v1.11.6]
 
 ### Added
 - **聊天历史注入开关**: 支持独立控制群聊和私聊的聊天历史注入
@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **检索路由判定逻辑**: 修复中英混合查询被误判为英文查询的问题
   - 改进关键词计数逻辑，不再仅依赖空格分词
+- **ChromaManager.query_memories 参数缺失**: 修复调用时传入 `include_group_private` 参数报错的问题
+  - `ChromaManager.query_memories()` 方法签名现在包含 `include_group_private` 参数
+  - 委托调用正确传递该参数到 `ChromaQueries.query_memories()`
+- **retrieval 配置热更新**: 修复 `retrieval.include_group_private_in_private_query` 配置修改后不立即生效的问题
+  - `RetrievalModule` 现在订阅 `retrieval` section 的配置变更事件
+  - 配置变更时自动调用 `apply_config()` 更新检索引擎
 
 ## [v1.11.5] - 2026-04-10
 

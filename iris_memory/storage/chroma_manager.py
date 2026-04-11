@@ -302,12 +302,29 @@ class ChromaManager:
         top_k: int = 10,
         storage_layer: StorageLayer | None = None,
         persona_id: str | None = None,
+        include_group_private: bool = False,
     ) -> list:
-        """查询相关记忆（委托到 ChromaQueries）"""
+        """查询相关记忆（委托到 ChromaQueries）
+
+        Args:
+            query_text: 查询文本
+            user_id: 用户ID
+            group_id: 群组ID（可选）
+            top_k: 返回的最大数量
+            storage_layer: 存储层过滤（可选）
+            persona_id: 人格ID（可选）
+            include_group_private: 私聊时是否包含群聊个人记忆
+        """
         try:
             self._ensure_ready()
             return await self._queries.query_memories(
-                query_text, user_id, group_id, top_k, storage_layer, persona_id
+                query_text,
+                user_id,
+                group_id,
+                top_k,
+                storage_layer,
+                persona_id,
+                include_group_private=include_group_private,
             )
         except (RuntimeError, StorageNotReadyError):
             return []
