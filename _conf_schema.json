@@ -462,6 +462,228 @@
             }
         }
     },
+    "prompt_injection": {
+        "description": "提示词注入位置与方式",
+        "type": "object",
+        "items": {
+            "chat_history": {
+                "description": "对话记录类提示词",
+                "type": "object",
+                "items": {
+                    "method": {
+                        "description": "对话记录注入方式",
+                        "type": "string",
+                        "default": "user_prompt",
+                        "options": [
+                            "system_prompt",
+                            "user_prompt",
+                            "insert_system_prompt"
+                        ],
+                        "hint": "控制【近期对话记录】/【近期群聊记录】注入到 system prompt、user prompt，或作为独立 system message"
+                    },
+                    "position": {
+                        "description": "对话记录注入位置",
+                        "type": "string",
+                        "default": "append",
+                        "options": [
+                            "prepend",
+                            "append"
+                        ],
+                        "hint": "prepend 放在目标内容前面，append 放在后面"
+                    }
+                }
+            },
+            "memory": {
+                "description": "记忆检索类提示词",
+                "type": "object",
+                "items": {
+                    "method": {
+                        "description": "记忆检索注入方式",
+                        "type": "string",
+                        "default": "user_prompt",
+                        "options": [
+                            "system_prompt",
+                            "user_prompt",
+                            "insert_system_prompt"
+                        ],
+                        "hint": "控制【相关记忆】/【你记得的事情】等内容的注入目标"
+                    },
+                    "position": {
+                        "description": "记忆检索注入位置",
+                        "type": "string",
+                        "default": "append",
+                        "options": [
+                            "prepend",
+                            "append"
+                        ],
+                        "hint": "prepend 放在目标内容前面，append 放在后面"
+                    }
+                }
+            },
+            "persona": {
+                "description": "用户画像类提示词",
+                "type": "object",
+                "items": {
+                    "method": {
+                        "description": "用户画像注入方式",
+                        "type": "string",
+                        "default": "system_prompt",
+                        "options": [
+                            "system_prompt",
+                            "user_prompt",
+                            "insert_system_prompt"
+                        ],
+                        "hint": "控制【用户画像】/【人格协调提示】的注入目标"
+                    },
+                    "position": {
+                        "description": "用户画像注入位置",
+                        "type": "string",
+                        "default": "append",
+                        "options": [
+                            "prepend",
+                            "append"
+                        ],
+                        "hint": "prepend 放在目标内容前面，append 放在后面"
+                    }
+                }
+            },
+            "behavior": {
+                "description": "行为规则类提示词",
+                "type": "object",
+                "items": {
+                    "method": {
+                        "description": "行为规则注入方式",
+                        "type": "string",
+                        "default": "system_prompt",
+                        "options": [
+                            "system_prompt",
+                            "user_prompt",
+                            "insert_system_prompt"
+                        ],
+                        "hint": "控制【记忆参考指南】和【群成员识别】等指令性提示的注入目标"
+                    },
+                    "position": {
+                        "description": "行为规则注入位置",
+                        "type": "string",
+                        "default": "append",
+                        "options": [
+                            "prepend",
+                            "append"
+                        ],
+                        "hint": "prepend 放在目标内容前面，append 放在后面"
+                    }
+                }
+            },
+            "knowledge_graph": {
+                "description": "知识图谱类提示词",
+                "type": "object",
+                "items": {
+                    "method": {
+                        "description": "知识图谱注入方式",
+                        "type": "string",
+                        "default": "system_prompt",
+                        "options": [
+                            "system_prompt",
+                            "user_prompt",
+                            "insert_system_prompt"
+                        ],
+                        "hint": "控制【知识关联】等知识图谱上下文的注入目标"
+                    },
+                    "position": {
+                        "description": "知识图谱注入位置",
+                        "type": "string",
+                        "default": "append",
+                        "options": [
+                            "prepend",
+                            "append"
+                        ],
+                        "hint": "prepend 放在目标内容前面，append 放在后面"
+                    }
+                }
+            },
+            "reply_context": {
+                "description": "引用消息类提示词",
+                "type": "object",
+                "items": {
+                    "method": {
+                        "description": "引用消息注入方式",
+                        "type": "string",
+                        "default": "system_prompt",
+                        "options": [
+                            "system_prompt",
+                            "user_prompt",
+                            "insert_system_prompt"
+                        ],
+                        "hint": "控制【引用消息上下文】的注入目标"
+                    },
+                    "position": {
+                        "description": "引用消息注入位置",
+                        "type": "string",
+                        "default": "append",
+                        "options": [
+                            "prepend",
+                            "append"
+                        ],
+                        "hint": "prepend 放在目标内容前面，append 放在后面"
+                    }
+                }
+            },
+            "image_context": {
+                "description": "图片描述类提示词",
+                "type": "object",
+                "items": {
+                    "method": {
+                        "description": "图片上下文注入方式",
+                        "type": "string",
+                        "default": "user_prompt",
+                        "options": [
+                            "system_prompt",
+                            "user_prompt",
+                            "insert_system_prompt"
+                        ],
+                        "hint": "控制图片描述上下文的注入目标"
+                    },
+                    "position": {
+                        "description": "图片上下文注入位置",
+                        "type": "string",
+                        "default": "append",
+                        "options": [
+                            "prepend",
+                            "append"
+                        ],
+                        "hint": "prepend 放在目标内容前面，append 放在后面"
+                    }
+                }
+            },
+            "proactive": {
+                "description": "主动回复类提示词",
+                "type": "object",
+                "items": {
+                    "method": {
+                        "description": "主动回复指令注入方式",
+                        "type": "string",
+                        "default": "system_prompt",
+                        "options": [
+                            "system_prompt",
+                            "user_prompt",
+                            "insert_system_prompt"
+                        ],
+                        "hint": "控制【主动回复场景】等主动回复指令的注入目标"
+                    },
+                    "position": {
+                        "description": "主动回复指令注入位置",
+                        "type": "string",
+                        "default": "append",
+                        "options": [
+                            "prepend",
+                            "append"
+                        ],
+                        "hint": "prepend 放在目标内容前面，append 放在后面"
+                    }
+                }
+            }
+        }
+    },
     "retrieval": {
         "description": "检索增强设置",
         "type": "object",

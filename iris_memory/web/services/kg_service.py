@@ -96,7 +96,9 @@ class KgWebService:
         repo = self._get_repo()
         success, msg = await repo.update_node_persona(node_id, new_persona_id.strip())
         if success:
-            audit_log("update_kg_node_persona", f"id={node_id} persona={new_persona_id}")
+            audit_log(
+                "update_kg_node_persona", f"id={node_id} persona={new_persona_id}"
+            )
         return success, msg
 
     async def update_persona_for_edge(
@@ -108,7 +110,9 @@ class KgWebService:
         repo = self._get_repo()
         success, msg = await repo.update_edge_persona(edge_id, new_persona_id.strip())
         if success:
-            audit_log("update_kg_edge_persona", f"id={edge_id} persona={new_persona_id}")
+            audit_log(
+                "update_kg_edge_persona", f"id={edge_id} persona={new_persona_id}"
+            )
         return success, msg
 
     async def list_personas(self) -> list[str]:

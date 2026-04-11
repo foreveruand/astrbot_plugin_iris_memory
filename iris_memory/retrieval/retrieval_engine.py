@@ -915,6 +915,19 @@ class MemoryRetrievalEngine:
             max_context_memories=self.max_context_memories,
         )
 
+    def format_persona_context_for_llm(
+        self,
+        user_persona: dict[str, Any] | None,
+        bot_persona: str = "friendly",
+        memory_context: str = "",
+    ) -> str:
+        """构建独立的画像/人格协调上下文（委托给 MemoryFormatter）。"""
+        return self._formatter.format_persona_context_for_llm(
+            user_persona=user_persona,
+            bot_persona=bot_persona,
+            memory_context=memory_context,
+        )
+
     # ── Backward-compat thin delegates (formatting moved to MemoryFormatter) ──
 
     def _format_memory_label(self, memory: Memory, group_id: str | None = None) -> str:

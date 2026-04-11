@@ -69,7 +69,7 @@ class ConfigStore:
         # Debug 输出：记录初始化后所有载入的最终配置
         logger.debug(
             "ConfigStore initialized with final config: %s",
-            json.dumps(self._data, ensure_ascii=False, indent=2),
+            json.dumps(self._data, ensure_ascii=False, indent=2, default=str),
         )
 
         # TTL 缓存（兼容旧 ConfigManager 行为）

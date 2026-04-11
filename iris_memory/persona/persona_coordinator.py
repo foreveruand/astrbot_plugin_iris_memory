@@ -352,8 +352,6 @@ class PersonaCoordinator:
     ) -> str:
         """动态策略：根据情况动态选择"""
 
-        prompt_parts = []
-
         # 检查冲突严重性
         has_high_severity = any(c.get("severity", 0) >= 2 for c in conflicts)
 
@@ -383,41 +381,46 @@ class PersonaCoordinator:
         user_persona: dict[str, Any],
         bot_persona: str = "friendly",
     ) -> str:
-        """格式化记忆上下文，包含人格协调信息
+        """格式化记忆上下文，包含人格协调信息。"""
+        formatted_context = memory_context
+        persona_context = self.build_persona_context(
+            user_persona=user_persona,
+            bot_persona=bot_persona,
+            memory_context=memory_context,
+        )
+        if persona_context:
+            formatted_context += f"\n\n{persona_context}"
+        return formatted_context
 
-        Args:
-            memory_context: 记忆上下文
-            user_persona: 用户画像数据（支持 UserPersona.to_injection_view() 输出）
-            bot_persona: Bot人格
+    def build_persona_context(
+        self,
+        user_persona: dict[str, Any] | None,
+        bot_persona: str = "friendly",
+        memory_context: str = "",
+    ) -> str:
+        """为 LLM 构建独立的画像/人格协调上下文。"""
+        if not user_persona:
+            return ""
 
-        Returns:
-            str: 格式化的上下文
-        """
-        # 检测冲突
         conflicts = self.conflict_detector.detect_conflicts(user_persona, bot_persona)
-
-        # 生成协调提示
         coordination_hint = self.coordinate_persona(
             user_persona, bot_persona, memory_context
         )
 
-        # 构建最终上下文
-        formatted_context = memory_context
-
-        # 注入画像摘要（来自 to_injection_view）
+        parts: list[str] = []
         persona_summary = self._build_persona_summary(user_persona)
         if persona_summary:
-            formatted_context += f"\n\n{persona_summary}"
+            parts.append(persona_summary)
 
         if conflicts and coordination_hint:
-            formatted_context += f"\n\n【人格协调提示】\n{coordination_hint}"
+            parts.append(f"【人格协调提示】\n{coordination_hint}")
 
         logger.debug(
             f"Persona coordination: conflicts={len(conflicts)}, "
             f"strategy={self.strategy.value}"
         )
 
-        return formatted_context
+        return "\n\n".join(parts)
 
     def _build_persona_summary(self, user_persona: dict[str, Any]) -> str:
         """从画像视图生成可读摘要供 LLM 上下文使用

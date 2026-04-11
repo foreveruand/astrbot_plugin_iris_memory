@@ -108,6 +108,19 @@ class MemoryFormatter:
 
         return formatted
 
+    def format_persona_context_for_llm(
+        self,
+        user_persona: dict[str, Any] | None,
+        bot_persona: str = "friendly",
+        memory_context: str = "",
+    ) -> str:
+        """构建独立的画像/人格协调注入文本。"""
+        return self.persona_coordinator.build_persona_context(
+            user_persona=user_persona,
+            bot_persona=bot_persona,
+            memory_context=memory_context,
+        )
+
     def _format_memory_label(self, memory: Memory, group_id: str | None = None) -> str:
         """为记忆生成来源标签"""
         parts = []

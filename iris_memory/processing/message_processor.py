@@ -14,6 +14,7 @@ from iris_memory.core.constants import (
     PROACTIVE_EXTRA_KEY,
     InputValidationConfig,
 )
+from iris_memory.services.context_builder import PromptSection
 from iris_memory.utils.command_utils import MessageFilter, SessionKeyBuilder
 from iris_memory.utils.event_utils import (
     extract_reply_info,
@@ -131,8 +132,10 @@ class MessageProcessor:
                 )
 
         raw_persona_id = await get_event_persona_id(event, self._service.context)
-        query_persona = self._service.cfg.get_persona_id_for_query(raw_persona_id, module="memory")
-        context = await self._service.prepare_llm_context(
+        query_persona = self._service.cfg.get_persona_id_for_query(
+            raw_persona_id, module="memory"
+        )
+        sections = await self._service.prepare_llm_context_sections(
             query=query,
             user_id=user_id,
             group_id=group_id,
@@ -142,8 +145,8 @@ class MessageProcessor:
             persona_id=query_persona,
         )
 
-        if context:
-            req.system_prompt += f"\n\n{context}\n"
+        if sections:
+            self._apply_injection_sections(req, sections)
 
         # 群冷却工具提示（仅群聊场景）
         if group_id and hasattr(self._service, "cooldown"):
@@ -154,7 +157,11 @@ class MessageProcessor:
         if is_proactive:
             proactive_ctx = event.get_extra(PROACTIVE_CONTEXT_KEY, {})
             proactive_directive = self._build_proactive_directive(proactive_ctx)
-            req.system_prompt += f"\n\n{proactive_directive}\n"
+            if proactive_directive:
+                self._apply_injection_sections(
+                    req,
+                    [PromptSection(category="proactive", content=proactive_directive)],
+                )
             self._service.logger.info(
                 f"Proactive reply context injected for user={user_id}"
             )
@@ -459,6 +466,79 @@ class MessageProcessor:
             "user_persona": self._service.get_or_create_user_persona(user_id),
             "emotional_state": self._service._get_or_create_emotional_state(user_id),
         }
+
+    def _apply_injection_sections(
+        self, req: Any, sections: list[PromptSection]
+    ) -> None:
+        """按配置将分段注入到 system prompt / user prompt / system messages。"""
+        grouped: dict[str, dict[str, list[str]]] = {
+            "system_prompt": {"prepend": [], "append": []},
+            "user_prompt": {"prepend": [], "append": []},
+            "insert_system_prompt": {"prepend": [], "append": []},
+        }
+
+        for section in sections:
+            if not section.content:
+                continue
+            method = self._get_injection_method(section.category)
+            position = self._get_injection_position(section.category)
+            grouped[method][position].append(section.content)
+
+        req.system_prompt = self._merge_injected_text(
+            getattr(req, "system_prompt", ""),
+            grouped["system_prompt"]["prepend"],
+            grouped["system_prompt"]["append"],
+        )
+
+        user_prompt_parts = grouped["user_prompt"]
+        if user_prompt_parts["prepend"] or user_prompt_parts["append"]:
+            req.prompt = self._merge_injected_text(
+                getattr(req, "prompt", "") or "",
+                user_prompt_parts["prepend"],
+                user_prompt_parts["append"],
+            )
+
+        insert_parts = grouped["insert_system_prompt"]
+        if insert_parts["prepend"] or insert_parts["append"]:
+            if getattr(req, "contexts", None) is None:
+                req.contexts = []
+
+            for content in reversed(insert_parts["prepend"]):
+                req.contexts.insert(0, {"role": "system", "content": content})
+            for content in insert_parts["append"]:
+                req.contexts.append({"role": "system", "content": content})
+
+    def _get_injection_method(self, category: str) -> str:
+        """读取注入方式，非法值自动回退到 system_prompt。"""
+        method = self._service.cfg.get(
+            f"prompt_injection.{category}.method", "system_prompt"
+        )
+        if method in {"system_prompt", "user_prompt", "insert_system_prompt"}:
+            return method
+        return "system_prompt"
+
+    def _get_injection_position(self, category: str) -> str:
+        """读取注入位置，非法值自动回退到 append。"""
+        position = self._service.cfg.get(
+            f"prompt_injection.{category}.position", "append"
+        )
+        if position == "prepend":
+            return "prepend"
+        return "append"
+
+    @staticmethod
+    def _merge_injected_text(
+        existing: str | None,
+        prepend_parts: list[str],
+        append_parts: list[str],
+    ) -> str:
+        """将 prepend / existing / append 三段稳定拼接为单个文本块。"""
+        parts = [
+            *[part for part in prepend_parts if part],
+            existing or "",
+            *[part for part in append_parts if part],
+        ]
+        return "\n\n".join(part for part in parts if part)
 
     def _build_proactive_directive(self, proactive_ctx: dict) -> str:
         """

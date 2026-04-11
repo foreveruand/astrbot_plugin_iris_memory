@@ -104,9 +104,13 @@ class MemoryWebService:
         """Update the persona_id of a single memory entry."""
         if not new_persona_id or not new_persona_id.strip():
             return False, "persona_id 不能为空"
-        success, msg = await self._repo.update(memory_id, {"persona_id": new_persona_id.strip()})
+        success, msg = await self._repo.update(
+            memory_id, {"persona_id": new_persona_id.strip()}
+        )
         if success:
-            audit_log("update_memory_persona", f"id={memory_id} persona={new_persona_id}")
+            audit_log(
+                "update_memory_persona", f"id={memory_id} persona={new_persona_id}"
+            )
         return success, msg
 
     async def delete_memory_by_id(self, memory_id: str) -> tuple[bool, str]:
@@ -155,7 +159,9 @@ class MemoryWebService:
                 sender_name=sender_name or user_id.strip(),
                 persona_id=persona_id.strip() or "default",
                 type=MemoryType(memory_type) if memory_type else MemoryType.EPISODIC,
-                storage_layer=StorageLayer(storage_layer) if storage_layer else StorageLayer.EPISODIC,
+                storage_layer=StorageLayer(storage_layer)
+                if storage_layer
+                else StorageLayer.EPISODIC,
                 created_time=datetime.now(),
                 confidence=0.8,
                 importance_score=0.5,

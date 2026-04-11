@@ -66,13 +66,16 @@ async def get_event_persona_id(
                 provider_settings.get("default_personality"),
             )
 
-            (resolved_persona_id, persona_obj, _, _) = (
-                await context.persona_manager.resolve_selected_persona(
-                    umo=umo,
-                    conversation_persona_id=conv_persona_id,
-                    platform_name=event.get_platform_name(),
-                    provider_settings=provider_settings,
-                )
+            (
+                resolved_persona_id,
+                persona_obj,
+                _,
+                _,
+            ) = await context.persona_manager.resolve_selected_persona(
+                umo=umo,
+                conversation_persona_id=conv_persona_id,
+                platform_name=event.get_platform_name(),
+                provider_settings=provider_settings,
             )
             logger.debug(
                 "[persona] resolved_persona_id=%s persona_name=%s",
@@ -94,4 +97,3 @@ async def get_event_persona_id(
         logger.debug("[persona] get_event_persona_id outer error: %s", e)
 
     return None
-

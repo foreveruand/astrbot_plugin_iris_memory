@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from iris_memory.services.business_service import BusinessService
-from iris_memory.services.context_builder import ContextBuilder
+from iris_memory.services.context_builder import ContextBuilder, PromptSection
 
 
 @pytest.fixture
@@ -235,6 +235,30 @@ class TestDynamicChatContextCount:
         assert context == ""
         buffer.get_recent_messages.assert_not_awaited()
         buffer.set_max_messages.assert_not_called()
+
+
+class TestPromptSectionOrdering:
+    """提示词分段顺序配置测试"""
+
+    def test_compose_sections_honors_prepend_and_append(self, context_builder_stub):
+        """按类别配置 prepend/append 时应保持稳定顺序"""
+        context_builder_stub._cfg.get = Mock(
+            side_effect=lambda key, default=None: {
+                "prompt_injection.chat_history.position": "prepend",
+                "prompt_injection.behavior.position": "append",
+                "prompt_injection.memory.position": "append",
+            }.get(key, default)
+        )
+
+        rendered = context_builder_stub._compose_sections_for_prompt(
+            [
+                PromptSection(category="memory", content="【相关记忆】A"),
+                PromptSection(category="chat_history", content="【近期对话记录】B"),
+                PromptSection(category="behavior", content="【记忆使用规则】C"),
+            ]
+        )
+
+        assert rendered == "【近期对话记录】B\n\n【相关记忆】A\n\n【记忆使用规则】C"
 
 
 class TestDynamicImageDailyBudget:

@@ -562,6 +562,29 @@ class MemoryService:
             persona_id=persona_id,
         )
 
+    async def prepare_llm_context_sections(
+        self,
+        query: str,
+        user_id: str,
+        group_id: str | None,
+        image_context: str = "",
+        sender_name: str | None = None,
+        reply_context: str | None = None,
+        persona_id: str | None = None,
+    ):
+        """准备结构化的 LLM 注入分段。"""
+        if not self._is_initialized or not self._business:
+            return []
+        return await self._business.prepare_llm_context_sections(
+            query=query,
+            user_id=user_id,
+            group_id=group_id,
+            image_context=image_context,
+            sender_name=sender_name,
+            reply_context=reply_context,
+            persona_id=persona_id,
+        )
+
     async def analyze_images(
         self,
         message_chain: list[Any],

@@ -104,7 +104,11 @@ class KnowledgeGraphRepository:
                     limit=500,
                 )
                 if persona_id:
-                    all_nodes = [n for n in all_nodes if (n.persona_id or "default") == persona_id]
+                    all_nodes = [
+                        n
+                        for n in all_nodes
+                        if (n.persona_id or "default") == persona_id
+                    ]
                 total = len(all_nodes)
                 offset = (page - 1) * page_size
                 return all_nodes[offset : offset + page_size], total
@@ -372,7 +376,9 @@ class KnowledgeGraphRepository:
             logger.error(f"KG quality error: {e}")
             return {"error": str(e)}
 
-    async def update_node_persona(self, node_id: str, new_persona_id: str) -> tuple[bool, str]:
+    async def update_node_persona(
+        self, node_id: str, new_persona_id: str
+    ) -> tuple[bool, str]:
         """Update the persona_id of a KG node."""
         kg = self._get_kg()
         if not kg:
@@ -394,7 +400,9 @@ class KnowledgeGraphRepository:
             logger.error(f"Update node persona error: {e}")
             return False, f"更新失败: {e}"
 
-    async def update_edge_persona(self, edge_id: str, new_persona_id: str) -> tuple[bool, str]:
+    async def update_edge_persona(
+        self, edge_id: str, new_persona_id: str
+    ) -> tuple[bool, str]:
         """Update the persona_id of a KG edge."""
         kg = self._get_kg()
         if not kg:
@@ -444,8 +452,6 @@ class KnowledgeGraphRepository:
         except Exception as e:
             logger.warning(f"List personas error: {e}")
             return ["default"]
-
-
 
     async def get_stats(self) -> dict[str, Any]:
         """获取知识图谱统计"""

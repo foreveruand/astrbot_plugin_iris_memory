@@ -4,7 +4,7 @@
 
 ## Recent Changes
 
-- **v1.11.5 (2026-04-10)**: Fixes for AstrBot persona handling — command-based saves, message-triggered capture, and LLM-tool `save_memory` now correctly resolve and persist the AstrBot persona id. Web UI now supports persona filtering and editing for memories and knowledge graph entries.
+- **v1.11.7 (2026-04-11)**: Added unified prompt injection controls for chat history, memory, persona, behavior rules, reply/image/KG context. Each category now supports configurable `method` (`system_prompt` / `user_prompt` / `insert_system_prompt`) and `position` (`prepend` / `append`).
 
 
 面向 AstrBot 的三层记忆插件：让机器人"记住你"，同时提供多种辅助功能。
@@ -213,6 +213,17 @@
 |--------|------|--------|
 | `persona.enabled` | 启用用户画像 | `true` |
 | `persona.extraction_mode` | 画像提取模式 | `rule` |
+
+### 提示词注入位置与方式
+
+统一控制各类提示词如何进入 LLM 请求，适合精调 `【近期对话记录】`、`【相关记忆】`、`【记忆参考指南】`、`【用户画像】`、`【知识关联】` 等内容。
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `prompt_injection.<category>.method` | 注入方式：`system_prompt` / `user_prompt` / `insert_system_prompt` | `system_prompt` |
+| `prompt_injection.<category>.position` | 注入位置：`prepend` / `append` | `append` |
+
+当前支持的 `<category>`：`chat_history`、`memory`、`persona`、`behavior`、`knowledge_graph`、`reply_context`、`image_context`、`proactive`。
 
 ### 图片分析
 

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from iris_memory.core.constants import LogTemplates, PersonaStyle
@@ -22,6 +23,14 @@ if TYPE_CHECKING:
     from iris_memory.services.shared_state import SharedState
 
 logger = get_logger("memory_service.context_builder")
+
+
+@dataclass(frozen=True)
+class PromptSection:
+    """单个提示词注入分段。"""
+
+    category: str
+    content: str
 
 
 class ContextBuilder:
@@ -72,19 +81,31 @@ class ContextBuilder:
         reply_context: str | None = None,
         persona_id: str | None = None,
     ) -> str:
-        """构建完整的 LLM 上下文
+        """构建完整的 LLM 上下文字符串（兼容旧接口）。"""
+        sections = await self.build_sections(
+            query=query,
+            user_id=user_id,
+            group_id=group_id,
+            image_context=image_context,
+            sender_name=sender_name,
+            reply_context=reply_context,
+            persona_id=persona_id,
+        )
+        return self._compose_sections_for_prompt(sections)
 
-        Args:
-            query: 用户查询文本
-            user_id: 用户ID
-            group_id: 群组ID
-            image_context: 图片分析上下文
-            sender_name: 发送者名称
-            reply_context: 引用消息上下文（已格式化的描述文本）
-            persona_id: 人格 ID（非 None 时启用 persona 过滤）
-        """
+    async def build_sections(
+        self,
+        query: str,
+        user_id: str,
+        group_id: str | None,
+        image_context: str = "",
+        sender_name: str | None = None,
+        reply_context: str | None = None,
+        persona_id: str | None = None,
+    ) -> list[PromptSection]:
+        """构建结构化提示词分段，供不同注入方式复用。"""
         if not self._retrieval.retrieval_engine:
-            return ""
+            return []
 
         try:
             emotional_state = self._state.get_or_create_emotional_state(user_id)
@@ -113,39 +134,54 @@ class ContextBuilder:
             if memories:
                 memories = self._state.filter_recently_injected(memories, session_key)
 
-            context_parts: list[str] = []
+            sections: list[PromptSection] = []
 
             chat_context = await self._build_chat_history(user_id, group_id)
             if chat_context:
-                context_parts.append(chat_context)
+                sections.append(PromptSection("chat_history", chat_context))
+
+            persona = self._state.get_or_create_user_persona(user_id)
+            persona_view: dict[str, Any] | None = (
+                persona.to_injection_view() if persona else None
+            )
+            if persona_view:
+                persona_log.inject_view(user_id, persona_view)
 
             if memories:
-                persona = self._state.get_or_create_user_persona(user_id)
-                persona_view = persona.to_injection_view() if persona else None
-                if persona_view:
-                    persona_log.inject_view(user_id, persona_view)
-
                 memory_context = (
                     self._retrieval.retrieval_engine.format_memories_for_llm(
                         memories,
                         persona_style=PersonaStyle.NATURAL,
-                        user_persona=persona_view,
+                        user_persona=None,
                         group_id=group_id,
                         current_sender_name=sender_name,
                     )
                 )
-                context_parts.append(memory_context)
-                logger.debug(LogTemplates.MEMORY_INJECTED.format(count=len(memories)))
+                if memory_context:
+                    sections.append(PromptSection("memory", memory_context))
+                    logger.debug(
+                        LogTemplates.MEMORY_INJECTED.format(count=len(memories))
+                    )
 
                 self._state.track_injected_memories(
                     session_key, [m.id for m in memories]
                 )
 
+            if persona_view:
+                persona_context = (
+                    self._retrieval.retrieval_engine.format_persona_context_for_llm(
+                        user_persona=persona_view,
+                        bot_persona="friendly",
+                    )
+                )
+                if persona_context:
+                    sections.append(PromptSection("persona", persona_context))
+
             member_context = self._build_member_identity(
                 memories, group_id, user_id, sender_name
             )
             if member_context:
-                context_parts.append(member_context)
+                sections.append(PromptSection("behavior", member_context))
 
             # 知识图谱上下文
             if self._kg and self._kg.enabled:
@@ -157,49 +193,69 @@ class ContextBuilder:
                         persona_id=persona_id,
                     )
                     if kg_context:
-                        context_parts.append(kg_context)
+                        sections.append(PromptSection("knowledge_graph", kg_context))
                         logger.debug("Injected knowledge graph context into LLM prompt")
                 except Exception as kg_err:
                     logger.debug(f"KG context skipped: {kg_err}")
 
             if image_context:
-                context_parts.append(image_context)
+                sections.append(PromptSection("image_context", image_context))
                 logger.debug("Injected image context into LLM prompt")
 
-            # 引用消息上下文
             if reply_context:
-                context_parts.append(reply_context)
+                sections.append(PromptSection("reply_context", reply_context))
                 logger.debug("Injected reply context into LLM prompt")
 
             behavior_directives = self._build_behavior_directives(group_id, sender_name)
             if behavior_directives:
-                context_parts.append(behavior_directives)
+                sections.append(PromptSection("behavior", behavior_directives))
 
-            return "\n\n".join(context_parts)
+            return sections
 
         except Exception as e:
             logger.warning(f"Failed to prepare LLM context: {e}")
-            return ""
+            return []
+
+    def _compose_sections_for_prompt(self, sections: list[PromptSection]) -> str:
+        """根据各类别的注入位置组合为单个 prompt 字符串。"""
+        prepend_parts: list[str] = []
+        append_parts: list[str] = []
+
+        for section in sections:
+            if not section.content:
+                continue
+            position = self._cfg.get(
+                f"prompt_injection.{section.category}.position", "append"
+            )
+            if position == "prepend":
+                prepend_parts.append(section.content)
+            else:
+                append_parts.append(section.content)
+
+        ordered_parts = [*prepend_parts, *append_parts]
+        return "\n\n".join(part for part in ordered_parts if part)
 
     # ── 辅助构建方法 ──
 
     def _build_behavior_directives(
         self, group_id: str | None, sender_name: str | None = None
     ) -> str:
-        """构建行为指导，与人格 Prompt 协同工作"""
+        """构建记忆参考指导，仅涉及如何引用和查询记忆，不干预回复风格。"""
         directives = [
-            "【记忆使用规则】",
-            "◆ 禁止重复：不要反复提起同一件事或记忆。如果你刚才已经提到过某个话题，就自然地聊别的，不要翻来覆去说同一件事。",
-            "◆ 减少反问：不要频繁反问对方，尤其不要重复问同一个问题。用陈述、共鸣、接话的方式回应，像真人朋友那样自然接话。如果想了解更多，偶尔问一下就够了。",
-            "◆ 简短自然：回复尽量简短，像群里随手接话，一行结束。不要写长篇大论，不要列清单式回答日常闲聊。",
+            "【记忆参考指南】",
+            "◆ 参考而非宣告：注入的记忆仅供参考，无需主动逐条引用或展示，将其融合进对话背景理解即可。",
+            "◆ 置信度权重：置信度较低（< 0.3）的记忆可能不准确，参考时保持适当存疑，不要将其当作确定事实断言。",
+            "◆ 额外检索：若当前注入的记忆不足以回答用户的问题，或用户明确询问你是否记得某件事，请调用 search_memory 工具主动检索更多相关记忆，再作回答。",
         ]
 
         if group_id:
             directives.append(
-                "◆ 知识区分：记忆中标注了「群聊共识」和「个人信息」。群聊共识是大家都知道的事，个人信息是某个人的私事。引用个人信息时要确认是当前对话者的，不要张冠李戴。"
+                "◆ 归属区分：记忆中标注了「群聊共识」和「个人信息」。引用个人信息时须确认归属当前对话者，不要将其他群成员的信息错误地归到当前用户身上。"
             )
         else:
-            directives.append("◆ 这是私聊对话，记忆都是你和对方之间的。")
+            directives.append(
+                "◆ 归属确认：这是私聊对话，注入的记忆均属于当前对话的双方。"
+            )
 
         return "\n".join(directives)
 
@@ -280,7 +336,16 @@ class ContextBuilder:
         if not chat_history_buffer:
             return ""
 
-        chat_context_count = self._cfg.get("advanced.chat_context_count", 15)
+        # 优先使用活动自适应配置（ActivityConfig.get_chat_context_count）
+        chat_context_getter = getattr(self._cfg, "get_chat_context_count", None)
+        if callable(chat_context_getter) and (
+            not hasattr(self._cfg, "__dict__")
+            or "get_chat_context_count" in self._cfg.__dict__
+        ):
+            chat_context_count = chat_context_getter(group_id)
+        else:
+            chat_context_count = self._cfg.get("advanced.chat_context_count", 15)
+
         if chat_context_count <= 0:
             return ""
 

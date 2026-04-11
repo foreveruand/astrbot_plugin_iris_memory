@@ -22,7 +22,11 @@ from iris_memory.core.constants import (
     NumericDefaults,
     SessionScope,
 )
-from iris_memory.services.context_builder import ContextBuilder
+from iris_memory.core.types import StorageLayer
+from iris_memory.persona.persona_logger import persona_log
+from iris_memory.services.context_builder import ContextBuilder, PromptSection
+from iris_memory.services.shared_state import SharedState
+from iris_memory.utils.command_utils import MessageFilter
 from iris_memory.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -60,11 +64,6 @@ class BusinessServiceDeps:
     member_identity: Any = None
     activity_tracker: Any = None
 
-
-from iris_memory.core.types import StorageLayer
-from iris_memory.persona.persona_logger import persona_log
-from iris_memory.services.shared_state import SharedState
-from iris_memory.utils.command_utils import MessageFilter
 
 logger = get_logger("memory_service.business")
 
@@ -567,8 +566,29 @@ class BusinessService:
         reply_context: str | None = None,
         persona_id: str | None = None,
     ) -> str:
-        """准备 LLM 上下文（委托给 ContextBuilder）"""
+        """准备 LLM 上下文（委托给 ContextBuilder）。"""
         return await self._context_builder.build(
+            query=query,
+            user_id=user_id,
+            group_id=group_id,
+            image_context=image_context,
+            sender_name=sender_name,
+            reply_context=reply_context,
+            persona_id=persona_id,
+        )
+
+    async def prepare_llm_context_sections(
+        self,
+        query: str,
+        user_id: str,
+        group_id: str | None,
+        image_context: str = "",
+        sender_name: str | None = None,
+        reply_context: str | None = None,
+        persona_id: str | None = None,
+    ) -> list[PromptSection]:
+        """准备结构化的 LLM 注入分段。"""
+        return await self._context_builder.build_sections(
             query=query,
             user_id=user_id,
             group_id=group_id,
@@ -594,7 +614,15 @@ class BusinessService:
             return "", ""
 
         try:
-            daily_budget = self._cfg.get("image_analysis.daily_budget", 100)
+            daily_budget_getter = getattr(self._cfg, "get_daily_analysis_budget", None)
+            if callable(daily_budget_getter) and (
+                not hasattr(self._cfg, "__dict__")
+                or "get_daily_analysis_budget" in self._cfg.__dict__
+            ):
+                daily_budget = daily_budget_getter(group_id)
+            else:
+                daily_budget = self._cfg.get("image_analysis.daily_budget", 100)
+
             effective_daily_budget = (
                 daily_budget if daily_budget > 0 else UNLIMITED_BUDGET
             )

@@ -3,6 +3,23 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.7] - 2026-04-11
+
+### Added
+- **提示词注入位置/方式配置**：为主要提示词类别新增统一的 `method` + `position` 控制
+  - 新增 `prompt_injection.chat_history.*`、`prompt_injection.memory.*`、`prompt_injection.persona.*`
+  - 新增 `prompt_injection.behavior.*`、`prompt_injection.knowledge_graph.*`
+  - 新增 `prompt_injection.reply_context.*`、`prompt_injection.image_context.*`、`prompt_injection.proactive.*`
+  - `method` 支持 `system_prompt`、`user_prompt`、`insert_system_prompt`
+  - `position` 支持 `prepend`、`append`
+
+### Changed
+- **上下文装配改为分段化注入**：`ContextBuilder` 现在会先构建分类 section，再按配置决定注入位置，便于统一管理 `【近期对话记录】`、`【相关记忆】`、`【记忆参考指南】`、`【用户画像】`、`【知识关联】` 等提示词。
+- **记忆参考指南重构**：移除原 `【记忆使用规则】` 中对 LLM 回复风格的干预规则（禁止重复、减少反问、简短自然），保留并强化记忆引用方式、置信度权重说明，并新增 `search_memory` 工具主动检索提醒。
+
+### Fixed
+- **配置链容错**：`ConfigLoader` / `ConfigStore` 对测试环境和异常占位值更稳健，避免非序列化配置值导致初始化崩溃。
+
 ## [v1.11.6]
 
 ### Added
