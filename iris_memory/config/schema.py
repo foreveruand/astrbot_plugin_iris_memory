@@ -950,6 +950,22 @@ _FIELDS: list[ConfigField] = [
     ),
     # ── 高级参数（群聊自适应覆盖）─────────────────────
     _f(
+        "chat_history.enable_group",
+        bool,
+        True,
+        "群聊启用聊天历史注入",
+        access=RW,
+        alias="chat_history_enable_group",
+    ),
+    _f(
+        "chat_history.enable_private",
+        bool,
+        True,
+        "私聊启用聊天历史注入",
+        access=RW,
+        alias="chat_history_enable_private",
+    ),
+    _f(
         "advanced.chat_context_count",
         int,
         15,

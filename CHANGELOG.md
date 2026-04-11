@@ -3,6 +3,14 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **聊天历史注入开关**: 支持独立控制群聊和私聊的聊天历史注入
+  - `chat_history.enable_group`: 群聊是否在 prompt 中注入近期对话记录
+  - `chat_history.enable_private`: 私聊是否在 prompt 中注入近期对话记录
+  - 两项开关默认开启，关闭后不再将聊天记录缓冲区内容注入 LLM 上下文
+
 ## [v1.11.5] - 2026-04-10
 
 ### Added

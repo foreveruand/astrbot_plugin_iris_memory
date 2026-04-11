@@ -260,7 +260,22 @@ class ContextBuilder:
         return "\n".join(lines)
 
     async def _build_chat_history(self, user_id: str, group_id: str | None) -> str:
-        """构建聊天记录上下文"""
+        """构建聊天记录上下文
+
+        根据配置开关决定是否注入：
+        - 群聊场景：检查 chat_history.enable_group
+        - 私聊场景：检查 chat_history.enable_private
+        """
+        # 检查是否启用聊天历史注入
+        if group_id:
+            # 群聊场景
+            if not self._cfg.get("chat_history.enable_group", True):
+                return ""
+        else:
+            # 私聊场景
+            if not self._cfg.get("chat_history.enable_private", True):
+                return ""
+
         chat_history_buffer = self._storage.chat_history_buffer
         if not chat_history_buffer:
             return ""

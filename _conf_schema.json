@@ -444,6 +444,24 @@
             }
         }
     },
+    "chat_history": {
+        "description": "聊天历史注入设置",
+        "type": "object",
+        "items": {
+            "enable_group": {
+                "description": "群聊启用聊天历史注入",
+                "type": "bool",
+                "default": true,
+                "hint": "开启后群聊的 LLM 请求会注入【近期群聊记录】上下文，关闭则不再注入"
+            },
+            "enable_private": {
+                "description": "私聊启用聊天历史注入",
+                "type": "bool",
+                "default": true,
+                "hint": "开启后私聊的 LLM 请求会注入【近期对话记录】上下文，关闭则不再注入"
+            }
+        }
+    },
     "retrieval": {
         "description": "检索增强设置",
         "type": "object",
