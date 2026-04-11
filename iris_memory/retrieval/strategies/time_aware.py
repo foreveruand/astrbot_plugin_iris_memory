@@ -16,9 +16,15 @@ class TimeAwareStrategy:
     按创建时间的衰减函数加权重新排序。
     """
 
-    def __init__(self, chroma_manager: object, update_access_fn: object) -> None:
+    def __init__(
+        self,
+        chroma_manager: object,
+        update_access_fn: object,
+        include_group_private: bool = False,
+    ) -> None:
         self._chroma = chroma_manager
         self._update_access = update_access_fn
+        self._include_group_private = include_group_private
 
     async def execute(self, params: StrategyParams) -> list[Memory]:
         memories = await self._chroma.query_memories(
@@ -28,6 +34,9 @@ class TimeAwareStrategy:
             top_k=params.top_k * 2,
             storage_layer=params.storage_layer,
             persona_id=params.persona_id,
+            include_group_private=self._include_group_private
+            if params.group_id is None
+            else False,
         )
 
         scored = [(m, m.calculate_time_score(use_created_time=True)) for m in memories]

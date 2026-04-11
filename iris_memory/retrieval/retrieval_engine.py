@@ -137,6 +137,7 @@ class MemoryRetrievalEngine:
         self.enable_token_budget = True
         self.enable_routing = True
         self.enable_working_memory_merge = True
+        self.include_group_private_in_private_query = False
 
         # Token管理器
         self.token_budget = TokenBudget(total_budget=RetrievalDefaults.TOKEN_BUDGET)
@@ -425,6 +426,9 @@ class MemoryRetrievalEngine:
             top_k=top_k * 2,
             storage_layer=storage_layer,
             persona_id=persona_id,
+            include_group_private=self.include_group_private_in_private_query
+            if group_id is None
+            else False,
         )
         # 过滤待审核 / 已拒绝的语义记忆
         candidate_memories = [
@@ -496,6 +500,9 @@ class MemoryRetrievalEngine:
             top_k=top_k,
             storage_layer=storage_layer,
             persona_id=persona_id,
+            include_group_private=self.include_group_private_in_private_query
+            if group_id is None
+            else False,
         )
         await self._update_access_and_sync(memories)
         return memories
@@ -518,6 +525,9 @@ class MemoryRetrievalEngine:
             top_k=top_k * 2,
             storage_layer=storage_layer,
             persona_id=persona_id,
+            include_group_private=self.include_group_private_in_private_query
+            if group_id is None
+            else False,
         )
 
         # 按时间得分重新排序
@@ -560,6 +570,9 @@ class MemoryRetrievalEngine:
             top_k=top_k * 2,
             storage_layer=storage_layer,
             persona_id=persona_id,
+            include_group_private=self.include_group_private_in_private_query
+            if group_id is None
+            else False,
         )
 
         if emotional_state:
@@ -620,6 +633,9 @@ class MemoryRetrievalEngine:
             top_k=top_k * 2,
             storage_layer=storage_layer,
             persona_id=persona_id,
+            include_group_private=self.include_group_private_in_private_query
+            if group_id is None
+            else False,
         )
 
         # 图推理部分
@@ -839,15 +855,18 @@ class MemoryRetrievalEngine:
             RetrievalStrategy.VECTOR_ONLY: VectorOnlyStrategy(
                 self.chroma_manager,
                 self._update_access_and_sync,
+                include_group_private=self.include_group_private_in_private_query,
             ),
             RetrievalStrategy.TIME_AWARE: TimeAwareStrategy(
                 self.chroma_manager,
                 self._update_access_and_sync,
+                include_group_private=self.include_group_private_in_private_query,
             ),
             RetrievalStrategy.EMOTION_AWARE: EmotionAwareStrategy(
                 self.chroma_manager,
                 self._update_access_and_sync,
                 self._apply_emotion_filter,
+                include_group_private=self.include_group_private_in_private_query,
             ),
             RetrievalStrategy.HYBRID: HybridStrategy(
                 chroma_manager=self.chroma_manager,
@@ -859,6 +878,7 @@ class MemoryRetrievalEngine:
                 enable_emotion_aware=self.enable_emotion_aware,
                 enable_working_memory_merge=self.enable_working_memory_merge,
                 session_manager=self.session_manager,
+                include_group_private=self.include_group_private_in_private_query,
             ),
             RetrievalStrategy.GRAPH_ONLY: GraphStrategy(
                 chroma_manager=self.chroma_manager,
@@ -871,6 +891,7 @@ class MemoryRetrievalEngine:
                 enable_emotion_aware=self.enable_emotion_aware,
                 enable_working_memory_merge=self.enable_working_memory_merge,
                 session_manager=self.session_manager,
+                include_group_private=self.include_group_private_in_private_query,
             ),
         }
 
@@ -948,6 +969,9 @@ class MemoryRetrievalEngine:
         self.enable_routing = config.get("enable_routing", True)
         self.enable_working_memory_merge = config.get(
             "enable_working_memory_merge", True
+        )
+        self.include_group_private_in_private_query = config.get(
+            "include_group_private_in_private_query", False
         )
 
         # 更新token预算

@@ -61,15 +61,26 @@ class RetrievalRouter:
         is_emotion_aware = self._is_emotion_aware_query(context)
         is_time_aware = self._is_time_aware_query(query)
 
-        # 计算关键词数量（根据语言使用不同的计算方法）
-        # 判断是否主要为英文
-        is_english = len(re.findall(r"[a-zA-Z]", query)) > len(query) * 0.5
+        # 计算关键词数量
+        # 改进：中英混合查询不再误判为英文，统一使用字符数估算
+        # 如果主要是中文，用字符数/2；如果主要是英文，用单词数
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", query))
+        english_chars = len(re.findall(r"[a-zA-Z]", query))
+        total_alpha = chinese_chars + english_chars
 
-        if is_english:
-            # 英文：计算单词数
-            keyword_count = len(query.split())
+        if chinese_chars > english_chars:
+            # 中文主导：每2个字符算一个词
+            keyword_count = len(query) // 2
+        elif english_chars > 0 and total_alpha > 0:
+            # 英文或中英混合：使用 split 分词，但更智能地处理
+            # 对于无空格的混合字符串，按字符数估算
+            words = query.split()
+            if len(words) <= 1 and len(query) > 5:
+                # 无空格分隔的长字符串，按字符数估算关键词
+                keyword_count = len(query) // 2
+            else:
+                keyword_count = len(words)
         else:
-            # 中文和其他：简化为长度/2
             keyword_count = len(query) // 2
 
         # 时间 + 关系 = 复杂查询（优先级最高）

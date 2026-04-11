@@ -477,6 +477,12 @@
                         "hint": "向量检索结果结合知识图谱关系进行扩展，发现关联记忆"
                     }
                 }
+            },
+            "include_group_private_in_private_query": {
+                "description": "私聊查询包含群聊个人记忆",
+                "type": "bool",
+                "default": false,
+                "hint": "开启后私聊查询会检索用户在群聊中创建的 group_private 记忆，扩大记忆覆盖范围"
             }
         }
     },

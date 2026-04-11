@@ -71,5 +71,8 @@ class RetrievalModule:
                     "coordination_strategy": get_store().get(
                         "llm_integration.coordination_strategy"
                     ),
+                    "include_group_private_in_private_query": get_store().get(
+                        "retrieval.include_group_private_in_private_query", False
+                    ),
                 }
             )

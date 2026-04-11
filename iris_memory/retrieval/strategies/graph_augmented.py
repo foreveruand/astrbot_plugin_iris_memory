@@ -46,6 +46,7 @@ class GraphAugmentedHybridStrategy:
         enable_working_memory_merge: bool = True,
         session_manager: object | None = None,
         kg_storage: object | None = None,
+        include_group_private: bool = False,
     ) -> None:
         self._chroma = chroma_manager
         self._update_access = update_access_fn
@@ -57,6 +58,7 @@ class GraphAugmentedHybridStrategy:
         self._enable_working_memory_merge = enable_working_memory_merge
         self._session_manager = session_manager
         self._kg = kg_storage
+        self._include_group_private = include_group_private
 
     async def execute(self, params: StrategyParams) -> list[Memory]:
         # 阶段 1: 向量检索
@@ -67,6 +69,9 @@ class GraphAugmentedHybridStrategy:
             top_k=params.top_k * 2,
             storage_layer=params.storage_layer,
             persona_id=params.persona_id,
+            include_group_private=self._include_group_private
+            if params.group_id is None
+            else False,
         )
         retrieval_log.vector_query(
             params.user_id,

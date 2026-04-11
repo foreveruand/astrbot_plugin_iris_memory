@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `chat_history.enable_group`: 群聊是否在 prompt 中注入近期对话记录
   - `chat_history.enable_private`: 私聊是否在 prompt 中注入近期对话记录
   - 两项开关默认开启，关闭后不再将聊天记录缓冲区内容注入 LLM 上下文
+- **私聊查询群聊记忆开关**: 支持私聊检索用户在群聊中创建的个人记忆
+  - `retrieval.include_group_private_in_private_query`: 开启后私聊查询会额外检索 `group_private` scope 的记忆
+  - 解决私聊无法访问群聊中创建的相关记忆的问题
+
+### Fixed
+- **检索路由判定逻辑**: 修复中英混合查询被误判为英文查询的问题
+  - 改进关键词计数逻辑，不再仅依赖空格分词
 
 ## [v1.11.5] - 2026-04-10
 

@@ -29,6 +29,7 @@ class HybridStrategy:
         enable_emotion_aware: bool = True,
         enable_working_memory_merge: bool = True,
         session_manager: object | None = None,
+        include_group_private: bool = False,
     ) -> None:
         self._chroma = chroma_manager
         self._update_access = update_access_fn
@@ -39,6 +40,7 @@ class HybridStrategy:
         self._enable_emotion_aware = enable_emotion_aware
         self._enable_working_memory_merge = enable_working_memory_merge
         self._session_manager = session_manager
+        self._include_group_private = include_group_private
 
     async def execute(self, params: StrategyParams) -> list[Memory]:
         candidate_memories = await self._chroma.query_memories(
@@ -48,6 +50,9 @@ class HybridStrategy:
             top_k=params.top_k * 2,
             storage_layer=params.storage_layer,
             persona_id=params.persona_id,
+            include_group_private=self._include_group_private
+            if params.group_id is None
+            else False,
         )
         retrieval_log.vector_query(
             params.user_id,

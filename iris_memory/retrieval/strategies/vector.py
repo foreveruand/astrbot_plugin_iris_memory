@@ -16,9 +16,15 @@ class VectorOnlyStrategy:
     适用于简单关键词查询、短文本查询。
     """
 
-    def __init__(self, chroma_manager: object, update_access_fn: object) -> None:
+    def __init__(
+        self,
+        chroma_manager: object,
+        update_access_fn: object,
+        include_group_private: bool = False,
+    ) -> None:
         self._chroma = chroma_manager
         self._update_access = update_access_fn
+        self._include_group_private = include_group_private
 
     async def execute(self, params: StrategyParams) -> list[Memory]:
         memories = await self._chroma.query_memories(
@@ -28,6 +34,9 @@ class VectorOnlyStrategy:
             top_k=params.top_k,
             storage_layer=params.storage_layer,
             persona_id=params.persona_id,
+            include_group_private=self._include_group_private
+            if params.group_id is None
+            else False,
         )
         await self._update_access(memories)
         return memories

@@ -1232,6 +1232,14 @@ _FIELDS: list[ConfigField] = [
     # ── 图增强检索 ────────────────────────────────────────
     _f("retrieval.graph_augmented.enable", bool, True, "启用图增强混合检索", access=RO),
     _f(
+        "retrieval.include_group_private_in_private_query",
+        bool,
+        False,
+        "私聊查询包含群聊个人记忆",
+        access=RW,
+        alias="retrieval_include_group_private",
+    ),
+    _f(
         "retrieval.graph_augmented.top_n",
         int,
         5,

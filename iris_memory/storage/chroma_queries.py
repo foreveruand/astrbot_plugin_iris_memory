@@ -48,6 +48,7 @@ class ChromaQueries:
         top_k: int = 10,
         storage_layer: StorageLayer | None = None,
         persona_id: str | None = None,
+        include_group_private: bool = False,
     ) -> list:
         """查询相关记忆（支持多层级记忆 + 人格隔离）
 
@@ -55,6 +56,7 @@ class ChromaQueries:
         1. 私聊场景（group_id=None）：
            - 查询所有用户私有记忆（scope=USER_PRIVATE）
            - 查询用户的全局记忆（scope=GLOBAL）
+           - 若 include_group_private=True，额外查询用户的群聊个人记忆（scope=GROUP_PRIVATE AND user_id=当前用户）
 
         2. 群聊场景（group_id有值）：
            - 查询该群组的共享记忆（scope=GROUP_SHARED）
@@ -68,6 +70,7 @@ class ChromaQueries:
             top_k: 返回的最大数量
             storage_layer: 存储层过滤（可选）
             persona_id: 人格ID（非None时按人格过滤）
+            include_group_private: 私聊时是否包含群聊个人记忆
 
         Returns:
             List[Memory]: 相关记忆列表（如果嵌入生成失败则返回空列表）
@@ -90,7 +93,12 @@ class ChromaQueries:
                 )
             else:
                 all_results = await self._query_private_mode(
-                    query_embedding, user_id, top_k, storage_layer, persona_id
+                    query_embedding,
+                    user_id,
+                    top_k,
+                    storage_layer,
+                    persona_id,
+                    include_group_private=include_group_private,
                 )
 
             seen_ids = set()
@@ -207,8 +215,13 @@ class ChromaQueries:
         top_k: int,
         storage_layer: StorageLayer | None,
         persona_id: str | None = None,
+        include_group_private: bool = False,
     ) -> list[dict[str, Any]]:
-        """私聊场景查询（两个 scope 并行查询）"""
+        """私聊场景查询
+
+        Args:
+            include_group_private: 若为 True，额外查询用户在群聊中创建的 group_private 记忆
+        """
         where_user_private = {
             "user_id": user_id,
             "scope": MemoryScope.USER_PRIVATE.value,
@@ -241,13 +254,41 @@ class ChromaQueries:
             include=include,
         )
 
-        results_private, results_global = await asyncio.gather(
-            private_task, global_task
-        )
+        # 若启用 include_group_private，额外查询用户的群聊个人记忆
+        group_private_task = None
+        if include_group_private:
+            where_group_private = {
+                "user_id": user_id,
+                "scope": MemoryScope.GROUP_PRIVATE.value,
+            }
+            if storage_layer:
+                where_group_private["storage_layer"] = storage_layer.value
+            if persona_id:
+                where_group_private["persona_id"] = persona_id
+            group_private_task = asyncio.to_thread(
+                self._manager.collection.query,
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+                where=self._manager._build_where_clause(where_group_private),
+                include=include,
+            )
+
+        if group_private_task:
+            (
+                results_private,
+                results_global,
+                results_group_private,
+            ) = await asyncio.gather(private_task, global_task, group_private_task)
+        else:
+            results_private, results_global = await asyncio.gather(
+                private_task, global_task
+            )
 
         all_results: list[dict[str, Any]] = []
         all_results.extend(self._extract_query_results(results_private))
         all_results.extend(self._extract_query_results(results_global))
+        if group_private_task:
+            all_results.extend(self._extract_query_results(results_group_private))
 
         return all_results
 
