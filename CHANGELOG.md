@@ -3,6 +3,14 @@
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.11.8] - 2026-04-13
+
+### Changed
+- Added `llm_providers.astrbot_config_file` to source fallback chat models from a selected AstrBot config file
+  - Supports config names like `default`
+  - Also supports file names like `cmd_config.json` and `abconf_*.json`
+  - Leaving `astrbot_config_file` empty disables fallback rotation and uses only the primary/default provider
+
 ## [v1.11.7] - 2026-04-11
 
 ### Added

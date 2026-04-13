@@ -1,5 +1,6 @@
 """Provider 相关工具函数。"""
 
+from pathlib import Path
 from typing import Any
 
 from iris_memory.utils.logger import get_logger
@@ -118,3 +119,64 @@ def get_default_provider(context: Any, umo: str = "") -> tuple[Any | None, str |
         logger.debug(f"get_all_providers() fallback for default provider failed: {e}")
 
     return None, None
+
+
+def get_astrbot_fallback_chat_models(
+    context: Any,
+    config_file_name: Any = "",
+) -> list[str]:
+    """Read fallback chat models from an AstrBot config."""
+    if not context:
+        return []
+
+    target_name = normalize_provider_id(config_file_name)
+    if not target_name:
+        logger.debug("AstrBot fallback chat models disabled because astrbot_config_file is empty")
+        return []
+
+    selected_conf = None
+    source_name = "disabled"
+
+    config_mgr = getattr(context, "astrbot_config_mgr", None)
+    confs = getattr(config_mgr, "confs", {}) if config_mgr else {}
+    conf_list = config_mgr.get_conf_list() if config_mgr else []
+
+    for conf_info in conf_list:
+        conf_id = conf_info.get("id")
+        if conf_id not in confs:
+            continue
+        display_name = conf_info.get("name", "")
+        path_name = Path(conf_info.get("path", "")).name
+        if target_name in {display_name, path_name, conf_id}:
+            selected_conf = confs[conf_id]
+            source_name = display_name or path_name or conf_id or target_name
+            break
+
+    if selected_conf is None:
+        logger.warning("AstrBot config '%s' not found, skipping fallback models", target_name)
+        return []
+
+    if not selected_conf or not hasattr(selected_conf, "get"):
+        return []
+
+    provider_settings = selected_conf.get("provider_settings", {})
+    fallback_models = provider_settings.get("fallback_chat_models", [])
+    if not isinstance(fallback_models, list):
+        return []
+
+    seen: set[str] = set()
+    normalized_models: list[str] = []
+    for model_id in fallback_models:
+        normalized = normalize_provider_id(model_id)
+        if not normalized or normalized in seen:
+            continue
+        normalized_models.append(normalized)
+        seen.add(normalized)
+
+    logger.debug(
+        "AstrBot fallback chat models resolved from %s: %s",
+        source_name,
+        normalized_models,
+    )
+
+    return normalized_models

@@ -209,6 +209,14 @@ _FIELDS: list[ConfigField] = [
         alias="default_provider_id",
     ),
     _f(
+        "llm_providers.astrbot_config_file",
+        str,
+        "",
+        "AstrBot 配置文件名",
+        access=RO,
+        alias="astrbot_config_file",
+    ),
+    _f(
         "llm_providers.memory_provider_id",
         str,
         "",

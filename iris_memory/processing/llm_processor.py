@@ -11,6 +11,7 @@ from typing import Any
 from iris_memory.core.constants import CircuitBreakerConfig, LLMRetryConfig
 from iris_memory.core.provider_utils import (
     extract_provider_id,
+    get_astrbot_fallback_chat_models,
     normalize_provider_id,
 )
 from iris_memory.utils.llm_helper import (
@@ -434,12 +435,17 @@ class LLMMessageProcessor:
     ) -> str | None:
         if self._configured_provider_id:
             provider_id_arg = self._configured_provider_id
-        elif self._cfg:
-            provider_id_arg = (
-                self._cfg.get("llm_providers.default_provider_id", []) or None
-            )
         else:
             provider_id_arg = None
+            if self._cfg:
+                config_file_name = self._cfg.get(
+                    "llm_providers.astrbot_config_file", ""
+                )
+                if config_file_name:
+                    provider_id_arg = get_astrbot_fallback_chat_models(
+                        self.astrbot_context,
+                        config_file_name,
+                    )
 
         async with asyncio.timeout(LLM_CALL_TIMEOUT):
             result = await call_llm(

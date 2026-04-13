@@ -87,6 +87,12 @@
                 "default": [],
                 "hint": "多个Provider时依次轮换尝试，为空则使用AstrBot默认提供者"
             },
+            "astrbot_config_file": {
+                "description": "AstrBot配置文件名",
+                "type": "string",
+                "default": "",
+                "hint": "可填写管理面板中的配置名（default）或实际文件名。默认配置对应 data/cmd_config.json，自定义配置通常位于 data/config/abconf_*.json。留空时不启用轮换，仅使用当前默认 Provider；填写后读取对应配置中的 provider_settings.fallback_chat_models 作为默认轮换顺序。"
+            },
             "memory_provider_id": {
                 "description": "记忆功能LLM提供者",
                 "type": "string",

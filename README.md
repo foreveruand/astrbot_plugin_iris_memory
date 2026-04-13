@@ -4,6 +4,7 @@
 
 ## Recent Changes
 
+- **v1.11.8 (2026-04-13)**: Added `llm_providers.astrbot_config_file` so fallback chat models can be sourced from a selected AstrBot config file instead of editing a local list.
 - **v1.11.7 (2026-04-11)**: Added unified prompt injection controls for chat history, memory, persona, behavior rules, reply/image/KG context. Each category now supports configurable `method` (`system_prompt` / `user_prompt` / `insert_system_prompt`) and `position` (`prepend` / `append`).
 
 
@@ -155,6 +156,7 @@
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `llm_providers.default_provider_id` | 默认 LLM 提供者列表（支持轮换） | `[]` |
+| `llm_providers.astrbot_config_file` | 可选的 AstrBot 配置名或文件名。留空时不启用轮换，仅使用当前默认 Provider。可直接填写管理面板里的配置名（default / Local / QQ）或实际文件名；默认配置对应 `data/cmd_config.json`，通过管理面板创建的配置通常位于 `data/config/abconf_*.json`。填写后读取该配置里的 `provider_settings.fallback_chat_models` 作为默认轮换顺序。 | `""` |
 | `llm_providers.memory_provider_id` | 记忆相关任务提供者 | `""` |
 | `llm_providers.persona_provider_id` | 用户画像任务提供者 | `""` |
 | `llm_providers.knowledge_graph_provider_id` | 图谱任务提供者 | `""` |
@@ -162,7 +164,9 @@
 | `llm_providers.enhanced_provider_id` | 智能增强任务提供者 | `""` |
 
 > **Provider 轮换说明**：
-> - `default_provider_id` 支持配置多个 Provider（列表格式），当主 Provider 调用失败时会自动切换到下一个
+> - `default_provider_id` 仍支持配置多个 Provider（列表格式），但只有在显式指定 `astrbot_config_file` 时才会读取 AstrBot 配置中的回退顺序
+> - `astrbot_config_file` 用于直接复用 AstrBot 配置中的 `provider_settings.fallback_chat_models`
+> - 你可以填写配置名（default / Local / QQ）或实际文件名（`cmd_config.json` / `abconf_*.json`）
 > - 子功能指定的 Provider（如 `memory_provider_id`）保持单选，不会参与轮换
 > - 示例：`["openai_primary", "gemini_backup", "deepseek_backup"]`
 
@@ -495,5 +499,3 @@ AGPL-3.0 license
 欢迎提交 Issue 和 Pull Request。
 
 感谢Astrbot提供的平台、以及其他开源项目提供的代码规范
-
-
