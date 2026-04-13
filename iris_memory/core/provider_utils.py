@@ -131,7 +131,9 @@ def get_astrbot_fallback_chat_models(
 
     target_name = normalize_provider_id(config_file_name)
     if not target_name:
-        logger.debug("AstrBot fallback chat models disabled because astrbot_config_file is empty")
+        logger.debug(
+            "AstrBot fallback chat models disabled because astrbot_config_file is empty"
+        )
         return []
 
     selected_conf = None
@@ -153,7 +155,9 @@ def get_astrbot_fallback_chat_models(
             break
 
     if selected_conf is None:
-        logger.warning("AstrBot config '%s' not found, skipping fallback models", target_name)
+        logger.warning(
+            "AstrBot config '%s' not found, skipping fallback models", target_name
+        )
         return []
 
     if not selected_conf or not hasattr(selected_conf, "get"):

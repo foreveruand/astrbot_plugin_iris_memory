@@ -304,101 +304,106 @@ async def _call_llm_single(
 async def call_llm(
     context: AstrBotContext | None,
     provider: LLMProvider | None,
-    provider_id: str | None | list[str] | None,
+    provider_id: str | None,
     prompt: str,
     *,
     parse_json: bool = False,
     image_urls: list[str] | None = None,
+    fallback_provider_ids: list[str] | None = None,
 ) -> LLMCallResult:
-    """统一的 LLM 调用（支持 Provider 轮换）。
-
-    - provider_id 为字符串：子功能指定，直接使用不轮换
-    - provider_id 为列表：默认 Provider 列表，依次尝试直到成功
+    """统一的 LLM 调用（支持显式 Provider + fallback 轮换）。
 
     Args:
         context: AstrBot 上下文
         provider: 已解析的 provider 实例
-        provider_id: provider ID（字符串或列表）
+        provider_id: 主要 provider ID
         prompt: 提示词
         parse_json: 是否尝试从响应中解析 JSON
         image_urls: 图片 URL 列表
+        fallback_provider_ids: 失败后依次尝试的 fallback provider ID 列表
 
     Returns:
         LLMCallResult
     """
     source_module, source_class = _infer_caller_source()
 
-    if isinstance(provider_id, list):
-        provider_ids = provider_id
-        if not provider_ids:
-            default_provider, default_id = (
-                get_default_provider(context) if context else (None, None)
-            )
-            if default_provider and default_id:
-                return await _call_llm_single(
-                    context=context,
-                    provider=default_provider,
-                    provider_id=default_id,
-                    prompt=prompt,
-                    parse_json=parse_json,
-                    image_urls=image_urls,
-                    source_module=source_module,
-                    source_class=source_class,
-                )
-            return LLMCallResult(success=False, error="No provider configured")
+    primary_provider = provider
+    primary_provider_id = normalize_provider_id(provider_id)
 
-        seen_ids: set = set()
-        total = len(provider_ids)
-        last_result = LLMCallResult(success=False, error="No providers in list")
+    if primary_provider is None and context:
+        primary_provider, resolved_id = resolve_llm_provider(
+            context,
+            primary_provider_id,
+            label="LLM",
+        )
+        if resolved_id:
+            primary_provider_id = resolved_id
 
-        for idx, pid in enumerate(provider_ids):
-            if not pid or pid in seen_ids:
-                continue
-            seen_ids.add(pid)
+    if primary_provider is None and context and not primary_provider_id:
+        primary_provider, primary_provider_id = get_default_provider(context)
 
-            p, resolved_id = (
-                get_provider_by_id(context, pid) if context else (None, None)
-            )
-            if not p:
-                logger.debug(f"Provider '{pid}' not found, skipping")
-                continue
-
-            if idx > 0:
-                logger.warning(
-                    f"Switching to provider: {resolved_id or pid} ({idx + 1}/{total})"
-                )
-
-            last_result = await _call_llm_single(
-                context=context,
-                provider=p,
-                provider_id=resolved_id or pid,
-                prompt=prompt,
-                parse_json=parse_json,
-                image_urls=image_urls,
-                source_module=source_module,
-                source_class=source_class,
-            )
-
-            if last_result.success:
-                if idx > 0:
-                    logger.info(
-                        f"LLM call succeeded with provider: {resolved_id or pid}"
-                    )
-                return last_result
-
-        logger.error(f"All {total} provider(s) failed for LLM call")
-        return last_result
-
-    return await _call_llm_single(
+    primary_result = await _call_llm_single(
         context=context,
-        provider=provider,
-        provider_id=provider_id,
+        provider=primary_provider,
+        provider_id=primary_provider_id,
         prompt=prompt,
         parse_json=parse_json,
         image_urls=image_urls,
         source_module=source_module,
         source_class=source_class,
     )
+
+    if primary_result.success or not fallback_provider_ids:
+        return primary_result
+
+    seen_ids: set[str] = set()
+    if primary_provider_id:
+        seen_ids.add(primary_provider_id)
+    elif primary_provider:
+        extracted = extract_provider_id(primary_provider)
+        if extracted:
+            seen_ids.add(extracted)
+
+    total = 1 + len(fallback_provider_ids)
+    last_result = primary_result
+
+    for idx, pid in enumerate(fallback_provider_ids):
+        normalized_pid = normalize_provider_id(pid)
+        if not normalized_pid or normalized_pid in seen_ids:
+            continue
+        seen_ids.add(normalized_pid)
+
+        fallback_provider, resolved_id = (
+            get_provider_by_id(context, normalized_pid) if context else (None, None)
+        )
+        if not fallback_provider:
+            logger.debug(f"Fallback provider '{normalized_pid}' not found, skipping")
+            continue
+
+        logger.warning(
+            f"Switching to fallback provider: {resolved_id or normalized_pid} "
+            f"({idx + 2}/{total})"
+        )
+
+        last_result = await _call_llm_single(
+            context=context,
+            provider=fallback_provider,
+            provider_id=resolved_id or normalized_pid,
+            prompt=prompt,
+            parse_json=parse_json,
+            image_urls=image_urls,
+            source_module=source_module,
+            source_class=source_class,
+        )
+
+        if last_result.success:
+            logger.info(
+                f"LLM call succeeded with fallback provider: {resolved_id or normalized_pid}"
+            )
+            return last_result
+
+    logger.error(f"All {total} provider(s) failed for LLM call")
+    return last_result
 
 
 def _infer_caller_source() -> tuple[str, str]:

@@ -202,11 +202,12 @@ _FIELDS: list[ConfigField] = [
     # ── LLM 提供者 ───────────────────────────────────
     _f(
         "llm_providers.default_provider_id",
-        list,
-        [],
-        "默认 LLM 提供者 ID 列表（轮换）",
+        str,
+        "",
+        "默认 LLM 提供者",
         access=RO,
         alias="default_provider_id",
+        normalize_provider=True,
     ),
     _f(
         "llm_providers.astrbot_config_file",

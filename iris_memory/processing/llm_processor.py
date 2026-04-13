@@ -70,11 +70,15 @@ class LLMMessageProcessor:
         classification_prompt: str | None = None,
         summary_prompt: str | None = None,
         max_tokens: int = 200,
+        default_provider_id: str | None = None,
         provider_id: str | None = None,
         daily_limit: int = 500,
         cfg=None,
     ):
         self.astrbot_context = astrbot_context
+        self._configured_default_provider_id = normalize_provider_id(
+            default_provider_id
+        )
         self._configured_provider_id = normalize_provider_id(provider_id)
         self._cfg = cfg
         self.classification_prompt = classification_prompt or (
@@ -186,9 +190,12 @@ class LLMMessageProcessor:
 
     async def _resolve_provider(self):
         """解析 LLM 提供者（委托给 llm_helper）"""
+        provider_id = (
+            self._configured_provider_id or self._configured_default_provider_id
+        )
         provider, _ = resolve_llm_provider(
             self.astrbot_context,
-            self._configured_provider_id,
+            provider_id,
             label="LLMProcessor",
         )
         return provider
@@ -433,19 +440,18 @@ class LLMMessageProcessor:
     async def _call_llm_once(
         self, prompt: str, max_tokens: int, temperature: float
     ) -> str | None:
-        if self._configured_provider_id:
-            provider_id_arg = self._configured_provider_id
-        else:
-            provider_id_arg = None
-            if self._cfg:
-                config_file_name = self._cfg.get(
-                    "llm_providers.astrbot_config_file", ""
+        provider_id_arg = (
+            self._configured_provider_id or self._configured_default_provider_id
+        )
+        fallback_provider_ids: list[str] = []
+
+        if self._cfg:
+            config_file_name = self._cfg.get("llm_providers.astrbot_config_file", "")
+            if config_file_name:
+                fallback_provider_ids = get_astrbot_fallback_chat_models(
+                    self.astrbot_context,
+                    config_file_name,
                 )
-                if config_file_name:
-                    provider_id_arg = get_astrbot_fallback_chat_models(
-                        self.astrbot_context,
-                        config_file_name,
-                    )
 
         async with asyncio.timeout(LLM_CALL_TIMEOUT):
             result = await call_llm(
@@ -453,6 +459,7 @@ class LLMMessageProcessor:
                 self.llm_api,
                 provider_id_arg,
                 prompt,
+                fallback_provider_ids=fallback_provider_ids,
             )
         if result.success:
             self.stats["total_tokens_used"] += result.tokens_used

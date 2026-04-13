@@ -151,6 +151,7 @@ class LLMEnhancedModule:
                 "message_processing.llm_max_tokens_for_summary",
                 500,
             ),
+            default_provider_id=cfg.get("llm_providers.default_provider_id", None),
             provider_id=cfg.get("llm_providers.memory_provider_id", None),
             daily_limit=cfg.get("llm.daily_call_limit", 500),
             cfg=cfg,

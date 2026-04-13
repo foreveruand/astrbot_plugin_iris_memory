@@ -82,10 +82,11 @@
         "type": "object",
         "items": {
             "default_provider_id": {
-                "description": "默认LLM提供者列表（轮换）",
-                "type": "list",
-                "default": [],
-                "hint": "多个Provider时依次轮换尝试，为空则使用AstrBot默认提供者"
+                "description": "默认LLM提供者",
+                "type": "string",
+                "_special": "select_provider",
+                "default": "",
+                "hint": "请选择一个默认 Provider。留空时使用 AstrBot 当前默认 Provider；如需轮换请配合 astrbot_config_file 从 AstrBot 配置文件读取 provider_settings.fallback_chat_models。"
             },
             "astrbot_config_file": {
                 "description": "AstrBot配置文件名",
