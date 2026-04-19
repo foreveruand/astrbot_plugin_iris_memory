@@ -45,7 +45,7 @@ from astrbot.core.message.message_event_result import ResultContentType
     "astrbot_plugin_iris_memory",
     "Iris Memory",
     "基于 companion-memory 框架的三层记忆插件",
-    "1.11.9",
+    "1.11.10",
 )
 class IrisMemoryPlugin(Star):
     """

@@ -87,6 +87,7 @@ class MessageProcessor:
         sender_name = get_sender_name(event)
 
         is_proactive = event.get_extra(PROACTIVE_EXTRA_KEY, False)
+        is_private_chat = group_id is None
 
         # 竞态防护：标记正常回复开始，阻止主动回复在 LLM 处理期间发送
         if not is_proactive and group_id:
@@ -97,6 +98,24 @@ class MessageProcessor:
         if self._service.member_identity and not is_proactive:
             await self._service.member_identity.resolve_tag(
                 user_id, sender_name, group_id
+            )
+
+        if is_private_chat and not is_proactive and not MessageFilter.is_command(query):
+            reply_info = extract_reply_info(event)
+            reply_kw = {}
+            if reply_info:
+                reply_kw = {
+                    "reply_sender_name": reply_info.sender_nickname,
+                    "reply_sender_id": reply_info.sender_id,
+                    "reply_content": reply_info.content,
+                }
+            await self._service.record_chat_message(
+                sender_id=user_id,
+                sender_name=sender_name,
+                content=query,
+                group_id=None,
+                is_bot=False,
+                **reply_kw,
             )
 
         await self._service.activate_session(user_id, group_id)
@@ -299,6 +318,12 @@ class MessageProcessor:
                 f"Proactive reply event detected for user={user_id}, group={group_id}"
             )
             return message
+
+        if group_id is None:
+            self._service.logger.debug(
+                "Skipping non-LLM message processing in private chat"
+            )
+            return None
 
         if MessageFilter.is_command(message):
             return None

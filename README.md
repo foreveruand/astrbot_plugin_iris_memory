@@ -4,6 +4,7 @@
 
 ## Recent Changes
 
+- **v1.11.10 (2026-04-19)**: Non-LLM message processing now runs only in group chats. Private command/non-LLM traffic is no longer written into chat history or batch memory flow, while private LLM-triggered messages still keep context continuity.
 - **v1.11.9 (2026-04-13)**: Changed `llm_providers.default_provider_id` to a single provider selector, matching the `airss` pattern. Fallback rotation now comes only from the AstrBot config file selected by `llm_providers.astrbot_config_file`.
 - **v1.11.8 (2026-04-13)**: Added `llm_providers.astrbot_config_file` so fallback chat models can be sourced from a selected AstrBot config file instead of editing a local list.
 - **v1.11.7 (2026-04-11)**: Added unified prompt injection controls for chat history, memory, persona, behavior rules, reply/image/KG context. Each category now supports configurable `method` (`system_prompt` / `user_prompt` / `insert_system_prompt`) and `position` (`prepend` / `append`).
